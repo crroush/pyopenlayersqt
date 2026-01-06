@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>pyopenlayersqt</title>
+
+  <!-- OpenLayers (vendored) -->
+  <link rel="stylesheet" href="/vendor/ol/ol.css">
+  <script src="/vendor/ol/ol.js"></script>
+
+  <!-- Qt WebChannel (provided by Qt) -->
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+
+  <style>
+    html, body, #map { height: 100%; width: 100%; margin: 0; background: #fff; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Command bus bridge -->
+  <script src="/resources/ol_bridge.js"></script>
+</body>
+</html>
+

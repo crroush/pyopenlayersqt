@@ -1,0 +1,4 @@
+recursive-include pyopenlayersqt/resources *.html *.js
+recursive-include pyopenlayersqt/vendor *.js *.css
+include pyopenlayersqt/favicon.ico
+
