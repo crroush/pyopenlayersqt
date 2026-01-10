@@ -19,7 +19,12 @@
   <div id="map"></div>
 
   <!-- Command bus bridge -->
-  <script src="/resources/ol_bridge.js"></script>
+  <script>
+  // Hint: OpenLayers selection hit-detection does frequent canvas readbacks.
+  // This reduces console warnings and can improve performance.
+  window.OL_WILL_READ_FREQUENTLY = true;
+</script>
+<script src="/resources/ol_bridge.js"></script>
 </body>
 </html>
 
