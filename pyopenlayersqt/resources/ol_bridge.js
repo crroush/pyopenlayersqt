@@ -176,6 +176,28 @@ function fp_query_extent(entry, extent) {
   const max_ix = Math.floor(extent[2] / cs);
   const min_iy = Math.floor(extent[1] / cs);
   const max_iy = Math.floor(extent[3] / cs);
+  
+  // Performance optimization: limit cell iteration for zoomed-out views
+  // If extent covers too many cells, just return all points
+  const cellsX = max_ix - min_ix + 1;
+  const cellsY = max_iy - min_iy + 1;
+  const totalCells = cellsX * cellsY;
+  
+  // If we'd check more than 1000 cells, it's faster to just iterate all points
+  if (totalCells > 1000) {
+    const out = [];
+    for (let i = 0; i < entry.x.length; i++) {
+      if (entry.deleted[i]) continue;
+      const x = entry.x[i];
+      const y = entry.y[i];
+      if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) {
+        out.push(i);
+      }
+    }
+    return out;
+  }
+  
+  // Normal grid query for zoomed-in views
   const out = [];
   for (let ix = min_ix; ix <= max_ix; ix++) {
     for (let iy = min_iy; iy <= max_iy; iy++) {
