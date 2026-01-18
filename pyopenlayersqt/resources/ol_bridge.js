@@ -237,7 +237,21 @@ function fp_make_canvas_layer(entry) {
       const defCss = rgba_to_css(entry.style.default_rgba);
       const selCss = rgba_to_css(entry.style.selected_rgba);
 
-      for (let k = 0; k < cand.length; k++) {
+      // Performance optimization: skip rendering during interactions if enabled
+      const st = entry.style || {};
+      const skipWhileInteracting = (st.skip_rendering_while_interacting !== false);
+      if (skipWhileInteracting && state.viewInteracting && cand.length > 100) {
+        // Skip rendering many points during pan/zoom for better performance
+        return canvas;
+      }
+
+      // Performance optimization: reduce detail during interactions
+      const isInteracting = state.viewInteracting;
+      const maxPointsWhileInteracting = Math.max(500, (st.max_points_while_interacting | 0) || 5000);
+      const shouldThrottle = isInteracting && cand.length > maxPointsWhileInteracting;
+      const step = shouldThrottle ? Math.ceil(cand.length / maxPointsWhileInteracting) : 1;
+
+      for (let k = 0; k < cand.length; k += step) {
         const i = cand[k];
         if (entry.deleted[i]) continue;
         const x = (entry.x[i] - extent[0]) * scaleX;
@@ -839,9 +853,10 @@ function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
     state.viewInteracting = false;
     state.map.on("movestart", function(){ state.viewInteracting = true; });
     state.map.on("moveend", function(){ state.viewInteracting = false;
-      // redraw fast layers so ellipses appear after interaction ends
+      // redraw fast layers after interaction ends to restore full detail
       for (const [lid, e] of state.layers.entries()) {
         if (e.type === 'fast_geopoints' && e.ellipsesVisible) fgp_redraw(e);
+        if (e.type === 'fast_points') fp_redraw(e);
       }
     });
     fp_install_interactions();

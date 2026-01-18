@@ -187,11 +187,19 @@ class FastPointsStyle:
     """Style for FastPointsLayer (canvas-rendered, index-backed).
 
     RGBA channels are 0-255.
+    
+    Performance options:
+    - skip_rendering_while_interacting: Skip rendering when >100 points visible during pan/zoom (default: True)
+    - max_points_while_interacting: Maximum points to render during interactions (default: 5000)
     """
     radius: float = 3.0
     default_rgba: tuple[int, int, int, int] = (255, 51, 51, 204)
     selected_radius: float = 6.0
     selected_rgba: tuple[int, int, int, int] = (0, 255, 255, 255)
+    
+    # Performance options
+    skip_rendering_while_interacting: bool = True
+    max_points_while_interacting: int = 5000
 
     def to_js(self) -> dict:
         return {
@@ -199,6 +207,8 @@ class FastPointsStyle:
             "default_rgba": list(self.default_rgba),
             "selected_radius": float(self.selected_radius),
             "selected_rgba": list(self.selected_rgba),
+            "skip_rendering_while_interacting": bool(self.skip_rendering_while_interacting),
+            "max_points_while_interacting": int(self.max_points_while_interacting),
         }
 
 
