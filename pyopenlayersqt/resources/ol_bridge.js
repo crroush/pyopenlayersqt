@@ -145,6 +145,15 @@ function cmd_map_set_view(msg) {
 
 
 // --- FastPoints (index-backed canvas layer) ---
+// Performance optimization: FastPoints uses spatial indexing and dynamic detail reduction
+// to maintain smooth performance during pan/zoom operations with large datasets.
+// 
+// Key optimizations:
+// 1. Spatial grid index: Points are indexed in cells to avoid processing all points on each render
+// 2. Extent culling: Only points within visible extent are rendered
+// 3. Interaction throttling: During pan/zoom, rendering is reduced or skipped based on point count
+// 4. Post-interaction refresh: Full detail is restored when interaction ends (moveend event)
+
 function rgba_from_u32(u) {
   const r = (u >>> 24) & 255;
   const g = (u >>> 16) & 255;
@@ -238,6 +247,9 @@ function fp_make_canvas_layer(entry) {
       const selCss = rgba_to_css(entry.style.selected_rgba);
 
       // Performance optimization: skip rendering during interactions if enabled
+      // When user is actively panning/zooming and many points are visible (>100),
+      // skip rendering entirely to maintain smooth 60fps interaction.
+      // Points reappear when interaction ends (see moveend handler in initMap).
       const st = entry.style || {};
       const skipWhileInteracting = (st.skip_rendering_while_interacting !== false);
       if (skipWhileInteracting && state.viewInteracting && cand.length > 100) {
@@ -246,6 +258,9 @@ function fp_make_canvas_layer(entry) {
       }
 
       // Performance optimization: reduce detail during interactions
+      // If point count exceeds max_points_while_interacting during pan/zoom,
+      // render a subset by skipping points (spatial sampling).
+      // This provides visual feedback while maintaining responsiveness.
       const isInteracting = state.viewInteracting;
       const maxPointsWhileInteracting = Math.max(500, (st.max_points_while_interacting | 0) || 5000);
       const shouldThrottle = isInteracting && cand.length > maxPointsWhileInteracting;
@@ -852,8 +867,11 @@ function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
     log("OpenLayers map initialized");
     state.viewInteracting = false;
     state.map.on("movestart", function(){ state.viewInteracting = true; });
-    state.map.on("moveend", function(){ state.viewInteracting = false;
-      // redraw fast layers after interaction ends to restore full detail
+    state.map.on("moveend", function(){ 
+      state.viewInteracting = false;
+      // Performance optimization: Redraw fast layers after interaction ends to restore full detail.
+      // During pan/zoom, layers may skip rendering or use reduced detail (see canvasFunction).
+      // This ensures users see complete, high-quality rendering when they stop interacting.
       for (const [lid, e] of state.layers.entries()) {
         if (e.type === 'fast_geopoints' && e.ellipsesVisible) fgp_redraw(e);
         if (e.type === 'fast_points') fp_redraw(e);
