@@ -23,51 +23,41 @@ def main():
     # Create the map widget centered on the US West Coast
     map_widget = OLMapWidget(center=(-120.0, 37.0), zoom=6)
 
-    # Example 1: Default performance settings (recommended for most use cases)
-    # - skip_rendering_while_interacting=True: Skip rendering when >100 points during pan/zoom
-    # - skip_threshold=100: Threshold for skipping rendering
-    # - max_points_while_interacting=5000: Render up to 5000 points during interaction
-    # - min_points_while_interacting=500: Minimum points when throttling
-    default_style = FastPointsStyle(
+    # Performance-optimized FastPointsStyle configuration
+    # These are the default settings recommended for most use cases
+    optimized_style = FastPointsStyle(
         radius=2.5,
         default_rgba=(0, 180, 0, 180),
         selected_radius=6.0,
         selected_rgba=(255, 255, 0, 255),
         # Performance settings (these are the defaults):
-        skip_rendering_while_interacting=True,
-        skip_threshold=100,
-        max_points_while_interacting=5000,
-        min_points_while_interacting=500,
+        skip_rendering_while_interacting=True,  # Skip rendering during pan/zoom for smooth interaction
+        skip_threshold=100,  # Skip when >100 points are visible during interaction
+        max_points_while_interacting=5000,  # Render max 5000 points if not skipping
+        min_points_while_interacting=500,  # Minimum detail level when throttling
     )
 
-    fast_layer_default = map_widget.add_fast_points_layer(
-        "fast_points_default",
+    fast_layer = map_widget.add_fast_points_layer(
+        "fast_points",
         selectable=True,
-        style=default_style,
+        style=optimized_style,
         cell_size_m=750.0
     )
 
-    # Example 2: Always render all points (may impact performance with large datasets)
-    # Use this if you need to see all points during pan/zoom regardless of performance
-    # Setting skip_threshold very high effectively disables skipping
-    always_render_style = FastPointsStyle(
-        radius=2.5,
-        default_rgba=(0, 120, 255, 180),
-        skip_rendering_while_interacting=False,  # Disable skip optimization
-        skip_threshold=1000000,  # Very high threshold - won't skip unless you have millions of points
-        max_points_while_interacting=100000,  # High limit for detail reduction
-    )
-
-    # Example 3: More aggressive optimization for very large datasets (100k+ points)
-    # Reduce points rendered during interaction for smoother experience
-    aggressive_style = FastPointsStyle(
-        radius=2.0,
-        default_rgba=(255, 100, 0, 180),
-        skip_rendering_while_interacting=True,
-        skip_threshold=50,  # Skip earlier - at 50 points instead of 100
-        max_points_while_interacting=1000,  # Show only 1000 points during interaction
-        min_points_while_interacting=250,  # Allow lower minimum for very large datasets
-    )
+    # Alternative configurations you can try:
+    #
+    # 1. Always render all points (may impact performance with large datasets):
+    #    FastPointsStyle(
+    #        skip_rendering_while_interacting=False,
+    #        max_points_while_interacting=100000,
+    #    )
+    #
+    # 2. More aggressive optimization for very large datasets (100k+ points):
+    #    FastPointsStyle(
+    #        skip_threshold=50,  # Skip earlier - at 50 points instead of 100
+    #        max_points_while_interacting=1000,  # Show only 1000 points during interaction
+    #        min_points_while_interacting=250,
+    #    )
 
     # Generate random points for demonstration
     # Using 10,000 points to show performance impact
@@ -81,7 +71,7 @@ def main():
     ids = [f"point_{i}" for i in range(n)]
 
     # Add points to the layer
-    fast_layer_default.add_points(coords, ids=ids)
+    fast_layer.add_points(coords, ids=ids)
 
     print(f"Added {n} points to the map")
     print("\nPerformance Settings (Default Configuration):")
