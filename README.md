@@ -1,0 +1,644 @@
+# pyopenlayersqt
+
+OpenLayers + Qt (QWebEngine) mapping widget for Python.
+
+A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt application using QWebEngine. Designed for displaying and interacting with large volumes of geospatial data.
+
+## Features
+
+- **🗺️ Interactive Map Widget**: Fully-featured OpenLayers map embedded in PySide6/Qt
+- **⚡ High-Performance Rendering**: Fast points layers with spatial indexing for millions of points
+- **🎨 Rich Styling**: Customizable styles for points, polygons, circles, and ellipses
+- **📍 Geolocation Support**: Fast geo-points layer with uncertainty ellipses
+- **🌐 WMS Integration**: Built-in Web Map Service layer support
+- **🖼️ Raster Overlays**: PNG/image overlay support with custom bounds
+- **✅ Feature Selection**: Interactive feature selection with Python ↔ JavaScript sync
+- **📊 Feature Table Widget**: High-performance table widget for displaying and managing features
+- **🔄 Bidirectional Sync**: Seamless selection synchronization between map and table
+
+## Installation
+
+```bash
+pip install pyopenlayersqt
+```
+
+### Requirements
+
+- Python >= 3.10
+- PySide6 >= 6.5
+- numpy >= 1.23
+- pillow >= 10.0
+- matplotlib >= 3.7
+
+## Quick Start
+
+```python
+from PySide6 import QtWidgets
+from pyopenlayersqt import OLMapWidget, PointStyle
+import sys
+
+app = QtWidgets.QApplication(sys.argv)
+
+# Create the map widget
+map_widget = OLMapWidget()
+
+# Add a vector layer
+vector_layer = map_widget.add_vector_layer("my_layer", selectable=True)
+
+# Add some points
+coords = [(-122.4194, 37.7749), (-118.2437, 34.0522)]  # SF, LA
+vector_layer.add_points(
+    coords,
+    ids=["sf", "la"],
+    style=PointStyle(radius=8.0, fill_color="#ff3333")
+)
+
+# Show the map
+map_widget.show()
+sys.exit(app.exec())
+```
+
+## Core Components
+
+### OLMapWidget
+
+The main widget class that embeds an OpenLayers map.
+
+```python
+from pyopenlayersqt import OLMapWidget
+
+map_widget = OLMapWidget()
+```
+
+**Key Methods:**
+
+- `add_vector_layer(name, selectable=True)` - Create a vector layer for points, polygons, circles, ellipses
+- `add_fast_points_layer(name, selectable, style, cell_size_m)` - Create a high-performance points layer
+- `add_fast_geopoints_layer(name, selectable, style, cell_size_m)` - Create a geo-points layer with uncertainty ellipses
+- `add_wms(options, name)` - Add a WMS (Web Map Service) layer
+- `add_raster_image(image, bounds, style, name)` - Add a raster image overlay
+- `set_base_opacity(opacity)` - Set OSM base layer opacity (0.0-1.0)
+- `get_view_extent(callback)` - Get current map extent asynchronously
+- `watch_view_extent(callback, debounce_ms)` - Subscribe to extent changes
+
+**Signals:**
+
+- `ready` - Emitted when the map is ready
+- `selectionChanged` - Emitted when feature selection changes
+- `viewExtentChanged` - Emitted when map extent changes
+
+### Layer Types
+
+#### VectorLayer
+
+For standard vector features with full styling control.
+
+```python
+from pyopenlayersqt import PointStyle, PolygonStyle, CircleStyle, EllipseStyle
+
+# Add a vector layer
+vector = map_widget.add_vector_layer("vector", selectable=True)
+
+# Add points
+vector.add_points(
+    coords=[(lon, lat), ...],
+    ids=["id1", "id2", ...],
+    style=PointStyle(
+        radius=6.0,
+        fill_color="#ff3333",
+        fill_opacity=0.85,
+        stroke_color="#000000",
+        stroke_width=1.0
+    )
+)
+
+# Add polygons
+vector.add_polygon(
+    ring=[(lon1, lat1), (lon2, lat2), ...],
+    feature_id="poly1",
+    style=PolygonStyle(
+        stroke_color="#00aaff",
+        stroke_width=2.0,
+        fill_color="#00aaff",
+        fill_opacity=0.15
+    )
+)
+
+# Add circles (radius in meters)
+vector.add_circle(
+    center=(lon, lat),
+    radius_m=1000.0,
+    feature_id="circle1",
+    style=CircleStyle(stroke_color="#00aaff", fill_opacity=0.15)
+)
+
+# Add ellipses (semi-major/minor axes in meters, tilt in degrees from north)
+vector.add_ellipse(
+    center=(lon, lat),
+    sma_m=2000.0,  # Semi-major axis
+    smi_m=1200.0,  # Semi-minor axis
+    tilt_deg=45.0,  # Tilt from true north
+    feature_id="ell1",
+    style=EllipseStyle(stroke_color="#ffcc00", fill_opacity=0.12)
+)
+
+# Remove features
+vector.remove_features(["id1", "poly1"])
+
+# Clear all features
+vector.clear()
+```
+
+#### FastPointsLayer
+
+High-performance layer for rendering millions of points using canvas and spatial indexing.
+
+```python
+from pyopenlayersqt import FastPointsStyle
+
+# Create fast points layer
+fast = map_widget.add_fast_points_layer(
+    "fast_points",
+    selectable=True,
+    style=FastPointsStyle(
+        radius=2.5,
+        default_rgba=(0, 180, 0, 180),  # RGBA 0-255
+        selected_radius=6.0,
+        selected_rgba=(255, 255, 0, 255)
+    ),
+    cell_size_m=750.0  # Spatial index cell size
+)
+
+# Add points (efficient for large datasets)
+coords = [(lon, lat), ...]  # millions of points
+ids = [f"pt{i}" for i in range(len(coords))]
+
+# Option 1: Single color for all points
+fast.add_points(coords, ids=ids)
+
+# Option 2: Per-point colors
+colors = [(r, g, b, a), ...]  # RGBA tuples
+fast.add_points(coords, ids=ids, colors_rgba=colors)
+
+# Remove specific points
+fast.remove_points(["pt1", "pt2"])
+
+# Clear all points
+fast.clear()
+```
+
+#### FastGeoPointsLayer
+
+High-performance layer for geolocation data with uncertainty ellipses.
+
+```python
+from pyopenlayersqt import FastGeoPointsStyle
+
+# Create fast geo points layer
+fast_geo = map_widget.add_fast_geopoints_layer(
+    "fast_geo",
+    selectable=True,
+    style=FastGeoPointsStyle(
+        # Point styling
+        point_radius=2.5,
+        default_point_rgba=(40, 80, 255, 180),
+        selected_point_radius=6.0,
+        selected_point_rgba=(255, 255, 255, 255),
+        # Ellipse styling
+        ellipse_stroke_rgba=(40, 80, 255, 160),
+        ellipse_stroke_width=1.2,
+        fill_ellipses=False,
+        ellipse_fill_rgba=(40, 80, 255, 40),
+        # Behavior
+        ellipses_visible=True,
+        min_ellipse_px=0.0,  # Cull tiny ellipses
+        max_ellipses_per_path=2000,
+        skip_ellipses_while_interacting=True
+    ),
+    cell_size_m=750.0
+)
+
+# Add points with uncertainty ellipses
+coords = [(lon, lat), ...]
+sma_m = [200.0, 300.0, ...]  # Semi-major axes in meters
+smi_m = [100.0, 150.0, ...]  # Semi-minor axes in meters
+tilt_deg = [45.0, 90.0, ...]  # Tilt from north in degrees
+ids = [f"geo{i}" for i in range(len(coords))]
+
+fast_geo.add_points_with_ellipses(
+    coords=coords,
+    sma_m=sma_m,
+    smi_m=smi_m,
+    tilt_deg=tilt_deg,
+    ids=ids
+)
+
+# Toggle ellipse visibility
+fast_geo.set_ellipses_visible(False)
+
+# Remove points
+fast_geo.remove_ids(["geo1", "geo2"])
+
+# Clear all
+fast_geo.clear()
+```
+
+#### WMSLayer
+
+Web Map Service layer integration.
+
+```python
+from pyopenlayersqt import WMSOptions
+
+# Add WMS layer
+wms_options = WMSOptions(
+    url="https://ahocevar.com/geoserver/wms",
+    params={
+        "LAYERS": "topp:states",
+        "TILED": True,
+        "FORMAT": "image/png",
+        "TRANSPARENT": True
+    },
+    opacity=0.85
+)
+
+wms_layer = map_widget.add_wms(wms_options, name="wms")
+
+# Update WMS parameters
+wms_layer.set_params({"LAYERS": "new:layer"})
+
+# Set opacity
+wms_layer.set_opacity(0.5)
+
+# Remove layer
+wms_layer.remove()
+```
+
+#### RasterLayer
+
+Image overlay layer for heatmaps, imagery, etc.
+
+```python
+from pyopenlayersqt import RasterStyle
+
+# Create PNG bytes (example using PIL)
+from PIL import Image
+import io
+
+img = Image.new('RGBA', (512, 512), color=(255, 0, 0, 128))
+buf = io.BytesIO()
+img.save(buf, format='PNG')
+png_bytes = buf.getvalue()
+
+# Add raster overlay
+bounds = [
+    (lon_min, lat_min),  # Southwest corner
+    (lon_max, lat_max)   # Northeast corner
+]
+
+raster = map_widget.add_raster_image(
+    png_bytes,  # Can be bytes, file path, or URL
+    bounds=bounds,
+    style=RasterStyle(opacity=0.6),
+    name="heatmap"
+)
+
+# Update opacity
+raster.set_opacity(0.8)
+
+# Remove layer
+raster.remove()
+```
+
+### Style Classes
+
+All style classes are immutable dataclasses with sensible defaults:
+
+```python
+from pyopenlayersqt import (
+    PointStyle,
+    PolygonStyle,
+    CircleStyle,
+    EllipseStyle,
+    RasterStyle,
+    FastPointsStyle,
+    FastGeoPointsStyle
+)
+
+# Vector styles use CSS colors
+point_style = PointStyle(
+    radius=5.0,
+    fill_color="#ff3333",  # CSS color or (r,g,b) tuple
+    fill_opacity=0.85,
+    stroke_color="#000000",
+    stroke_width=1.0,
+    stroke_opacity=0.9
+)
+
+# Fast layer styles use RGBA tuples (0-255)
+fast_style = FastPointsStyle(
+    radius=3.0,
+    default_rgba=(255, 51, 51, 204),
+    selected_radius=6.0,
+    selected_rgba=(0, 255, 255, 255)
+)
+```
+
+### Feature Selection
+
+Selection is synchronized between the map and Python:
+
+```python
+# Set selection programmatically
+map_widget.set_vector_selection(layer_id, ["feature1", "feature2"])
+map_widget.set_fast_points_selection(layer_id, ["pt1", "pt2"])
+map_widget.set_fast_geopoints_selection(layer_id, ["geo1", "geo2"])
+
+# Listen to selection changes from map
+def on_selection_changed(selection):
+    print(f"Layer: {selection.layer_id}")
+    print(f"Selected IDs: {selection.feature_ids}")
+    print(f"Count: {selection.count}")
+
+map_widget.selectionChanged.connect(on_selection_changed)
+```
+
+### FeatureTableWidget
+
+High-performance table widget for displaying and managing features:
+
+```python
+from pyopenlayersqt.features_table import FeatureTableWidget, ColumnSpec
+
+# Define columns
+columns = [
+    ColumnSpec("Layer", lambda r: r.get("layer_kind", "")),
+    ColumnSpec("Type", lambda r: r.get("geom_type", "")),
+    ColumnSpec("ID", lambda r: r.get("feature_id", "")),
+    ColumnSpec(
+        "Latitude",
+        lambda r: r.get("center_lat", ""),
+        fmt=lambda v: f"{float(v):.6f}" if v != "" else ""
+    ),
+    ColumnSpec(
+        "Longitude",
+        lambda r: r.get("center_lon", ""),
+        fmt=lambda v: f"{float(v):.6f}" if v != "" else ""
+    ),
+]
+
+# Create table
+table = FeatureTableWidget(
+    columns=columns,
+    key_fn=lambda r: (str(r.get("layer_id", "")), str(r.get("feature_id", ""))),
+    debounce_ms=90
+)
+
+# Add rows
+rows = [
+    {
+        "layer_kind": "vector",
+        "layer_id": "v1",
+        "feature_id": "pt1",
+        "geom_type": "point",
+        "center_lat": 37.7749,
+        "center_lon": -122.4194
+    }
+]
+table.append_rows(rows)
+
+# Sync selection: table -> map
+def on_table_selection(keys):
+    # keys is list of (layer_id, feature_id) tuples
+    for layer_id, feature_id in keys:
+        # Update map selection based on layer type
+        pass
+
+table.selectionKeysChanged.connect(on_table_selection)
+
+# Sync selection: map -> table
+def on_map_selection(selection):
+    keys = [(selection.layer_id, fid) for fid in selection.feature_ids]
+    table.select_keys(keys, clear_first=True)
+
+map_widget.selectionChanged.connect(on_map_selection)
+```
+
+## Complete Example
+
+Here's a complete example based on the demo application:
+
+```python
+from PySide6 import QtWidgets
+from pyopenlayersqt import (
+    OLMapWidget,
+    PointStyle,
+    FastPointsStyle,
+    FastGeoPointsStyle
+)
+from pyopenlayersqt.features_table import FeatureTableWidget, ColumnSpec
+import sys
+import numpy as np
+
+class MapWindow(QtWidgets.QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("pyopenlayersqt Example")
+        
+        # Create map widget
+        self.map_widget = OLMapWidget()
+        
+        # Add layers
+        self.vector = self.map_widget.add_vector_layer("vector", selectable=True)
+        
+        self.fast = self.map_widget.add_fast_points_layer(
+            "fast_points",
+            selectable=True,
+            style=FastPointsStyle(
+                radius=2.5,
+                default_rgba=(0, 180, 0, 180)
+            )
+        )
+        
+        self.fast_geo = self.map_widget.add_fast_geopoints_layer(
+            "fast_geo",
+            selectable=True,
+            style=FastGeoPointsStyle(
+                point_radius=2.5,
+                default_point_rgba=(40, 80, 255, 180),
+                ellipses_visible=True
+            )
+        )
+        
+        # Create feature table
+        columns = [
+            ColumnSpec("Layer", lambda r: r.get("layer_kind", "")),
+            ColumnSpec("Type", lambda r: r.get("geom_type", "")),
+            ColumnSpec("ID", lambda r: r.get("feature_id", "")),
+        ]
+        
+        self.table = FeatureTableWidget(
+            columns=columns,
+            key_fn=lambda r: (str(r.get("layer_id")), str(r.get("feature_id")))
+        )
+        
+        # Connect signals
+        self.map_widget.selectionChanged.connect(self.on_map_selection)
+        self.table.selectionKeysChanged.connect(self.on_table_selection)
+        
+        # Layout
+        container = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(container)
+        layout.addWidget(self.table, 1)
+        layout.addWidget(self.map_widget, 2)
+        self.setCentralWidget(container)
+        
+        # Add some data
+        self.add_sample_data()
+    
+    def add_sample_data(self):
+        # Add a point
+        self.vector.add_points(
+            [(-122.4194, 37.7749)],
+            ids=["sf"],
+            style=PointStyle(radius=8.0, fill_color="#ff3333")
+        )
+        
+        # Add fast points
+        rng = np.random.default_rng()
+        n = 10000
+        lons = -125 + rng.random(n) * 10
+        lats = 32 + rng.random(n) * 10
+        coords = list(zip(lons, lats))
+        ids = [f"fp{i}" for i in range(n)]
+        self.fast.add_points(coords, ids=ids)
+        
+        # Update table
+        self.table.append_rows([{
+            "layer_kind": "vector",
+            "layer_id": self.vector.id,
+            "feature_id": "sf",
+            "geom_type": "point"
+        }])
+    
+    def on_map_selection(self, selection):
+        keys = [(selection.layer_id, fid) for fid in selection.feature_ids]
+        self.table.select_keys(keys, clear_first=True)
+    
+    def on_table_selection(self, keys):
+        # Group by layer
+        by_layer = {}
+        for layer_id, fid in keys:
+            by_layer.setdefault(layer_id, []).append(fid)
+        
+        # Update each layer's selection
+        for layer_id, fids in by_layer.items():
+            if layer_id == self.vector.id:
+                self.map_widget.set_vector_selection(layer_id, fids)
+            elif layer_id == self.fast.id:
+                self.map_widget.set_fast_points_selection(layer_id, fids)
+            elif layer_id == self.fast_geo.id:
+                self.map_widget.set_fast_geopoints_selection(layer_id, fids)
+
+def main():
+    app = QtWidgets.QApplication(sys.argv)
+    window = MapWindow()
+    window.resize(1200, 800)
+    window.show()
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main()
+```
+
+## Running the Demo
+
+The repository includes a comprehensive demo application:
+
+```bash
+python demo/demo.py
+```
+
+The demo showcases:
+- Vector layers with points, polygons, circles, and ellipses
+- Fast points rendering (up to millions of points)
+- Fast geo-points with uncertainty ellipses
+- WMS layer integration
+- Raster/heatmap overlays with custom rendering
+- Feature table with bidirectional selection sync
+- Dynamic styling and opacity controls
+
+## View Extent Tracking
+
+Monitor map extent changes for dynamic data loading:
+
+```python
+# One-time extent request
+def on_extent(extent):
+    print(f"Extent: {extent['lon_min']}, {extent['lat_min']} to "
+          f"{extent['lon_max']}, {extent['lat_max']}")
+    print(f"Zoom: {extent['zoom']}, Resolution: {extent['resolution']}")
+
+map_widget.get_view_extent(on_extent)
+
+# Watch extent changes (debounced)
+def on_extent_changed(extent):
+    # Load data for current extent
+    load_data_for_extent(extent)
+
+handle = map_widget.watch_view_extent(on_extent_changed, debounce_ms=150)
+
+# Stop watching
+handle.cancel()
+```
+
+## Advanced: Direct JavaScript Communication
+
+For advanced use cases, you can send custom messages to the JavaScript bridge:
+
+```python
+# Send custom message to JavaScript
+map_widget.send({
+    "type": "custom_command",
+    "param1": "value1",
+    "param2": 123
+})
+
+# Listen to JavaScript events
+def on_js_event(event_type, payload_json):
+    print(f"Event: {event_type}, Payload: {payload_json}")
+
+map_widget.jsEvent.connect(on_js_event)
+```
+
+## Performance Tips
+
+1. **Use Fast Layers for Large Datasets**: For > 1000 points, use `FastPointsLayer` or `FastGeoPointsLayer` instead of vector layers
+2. **Tune Cell Size**: Adjust `cell_size_m` parameter based on your data density (larger = faster, but less precise selection)
+3. **Chunk Large Additions**: `FastGeoPointsLayer.add_points_with_ellipses()` automatically chunks data (default 50k points per chunk)
+4. **Debounce Extent Watching**: Use appropriate `debounce_ms` when watching extent changes to avoid excessive updates
+5. **Cull Tiny Ellipses**: Set `min_ellipse_px` in `FastGeoPointsStyle` to skip rendering very small ellipses
+6. **Skip Ellipses While Interacting**: Enable `skip_ellipses_while_interacting` for smoother panning/zooming
+
+## Architecture
+
+- **Python → JavaScript**: Commands sent via `window.pyolqt_send()` 
+- **JavaScript → Python**: Events sent via Qt Web Channel (`qtBridge.emitEvent()`)
+- **Static Assets**: Served by embedded HTTP server (wheel-safe)
+- **Raster Overlays**: Written to user cache directory and served dynamically
+
+## License
+
+MIT License
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues or pull requests.
+
+## Credits
+
+Built with:
+- [OpenLayers](https://openlayers.org/) - High-performance web mapping library
+- [PySide6](https://doc.qt.io/qtforpython/) - Qt for Python
+- [NumPy](https://numpy.org/) - Numerical computing
+- [Matplotlib](https://matplotlib.org/) - Plotting and colormaps
