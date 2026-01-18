@@ -247,12 +247,13 @@ function fp_make_canvas_layer(entry) {
       const selCss = rgba_to_css(entry.style.selected_rgba);
 
       // Performance optimization: skip rendering during interactions if enabled
-      // When user is actively panning/zooming and many points are visible (>100),
+      // When user is actively panning/zooming and visible point count exceeds threshold,
       // skip rendering entirely to maintain smooth 60fps interaction.
       // Points reappear when interaction ends (see moveend handler in initMap).
       const st = entry.style || {};
       const skipWhileInteracting = st.skip_rendering_while_interacting ?? true;
-      if (skipWhileInteracting && state.viewInteracting && cand.length > 100) {
+      const skipThreshold = parseInt(st.skip_threshold) || 100;
+      if (skipWhileInteracting && state.viewInteracting && cand.length > skipThreshold) {
         // Skip rendering many points during pan/zoom for better performance
         return canvas;
       }
@@ -262,7 +263,8 @@ function fp_make_canvas_layer(entry) {
       // render a subset by skipping points (spatial sampling).
       // This provides visual feedback while maintaining responsiveness.
       const isInteracting = state.viewInteracting;
-      const maxPointsWhileInteracting = Math.max(500, parseInt(st.max_points_while_interacting) || 5000);
+      const minPointsWhileInteracting = parseInt(st.min_points_while_interacting) || 500;
+      const maxPointsWhileInteracting = Math.max(minPointsWhileInteracting, parseInt(st.max_points_while_interacting) || 5000);
       const shouldThrottle = isInteracting && cand.length > maxPointsWhileInteracting;
       const step = shouldThrottle ? Math.ceil(cand.length / maxPointsWhileInteracting) : 1;
 

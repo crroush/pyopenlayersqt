@@ -189,8 +189,10 @@ class FastPointsStyle:
     RGBA channels are 0-255.
     
     Performance options:
-    - skip_rendering_while_interacting: Skip rendering when >100 points visible during pan/zoom (default: True)
-    - max_points_while_interacting: Maximum points to render during interactions (default: 5000)
+    - skip_rendering_while_interacting: Skip rendering during pan/zoom when point count exceeds threshold (default: True)
+    - skip_threshold: Minimum point count to trigger skip behavior (default: 100)
+    - max_points_while_interacting: Maximum points to render during interactions, reduces detail if exceeded (default: 5000)
+    - min_points_while_interacting: Minimum points to render during throttling (default: 500)
     """
     radius: float = 3.0
     default_rgba: tuple[int, int, int, int] = (255, 51, 51, 204)
@@ -199,7 +201,9 @@ class FastPointsStyle:
     
     # Performance options
     skip_rendering_while_interacting: bool = True
+    skip_threshold: int = 100
     max_points_while_interacting: int = 5000
+    min_points_while_interacting: int = 500
 
     def to_js(self) -> dict:
         return {
@@ -208,7 +212,9 @@ class FastPointsStyle:
             "selected_radius": float(self.selected_radius),
             "selected_rgba": list(self.selected_rgba),
             "skip_rendering_while_interacting": bool(self.skip_rendering_while_interacting),
+            "skip_threshold": int(self.skip_threshold),
             "max_points_while_interacting": int(self.max_points_while_interacting),
+            "min_points_while_interacting": int(self.min_points_while_interacting),
         }
 
 
