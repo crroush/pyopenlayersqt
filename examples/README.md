@@ -9,7 +9,6 @@ Each example is a standalone Python script that can be run directly:
 ```bash
 python examples/01_quick_start.py
 python examples/02_complete_example.py
-python examples/03_performance_settings.py
 ```
 
 ## Example Descriptions
@@ -45,21 +44,6 @@ A comprehensive example demonstrating:
 - Click on table rows to select features (updates map)
 - Efficient rendering with canvas-based fast points layer
 
-### 03_performance_settings.py
-
-Performance optimization example demonstrating:
-- Configuring FastPointsLayer for optimal performance with large datasets
-- Performance settings: `skip_rendering_while_interacting` and `max_points_while_interacting`
-- Comparing different performance configurations
-- Handling 10,000+ points with smooth pan/zoom interactions
-
-**Key features:**
-- 10,000 random points across US West Coast
-- Default performance settings (recommended for most use cases)
-- Demonstrates smooth 60fps panning/zooming even with many points
-- Shows how points reappear after interaction ends
-- Examples of different performance configurations
-
 ## Requirements
 
 All examples require:
@@ -77,6 +61,5 @@ pip install PySide6 numpy
 
 - **Initial View**: Use the `center` and `zoom` parameters in `OLMapWidget()` to set the initial map view appropriate for your data
 - **Performance**: For > 1000 points, use `FastPointsLayer` instead of `VectorLayer`
-- **Performance Tuning**: Configure `skip_rendering_while_interacting` and `max_points_while_interacting` in `FastPointsStyle` for optimal performance
 - **Selection**: Features are selectable by clicking or Ctrl+drag (box selection)
 - **Table Sync**: The complete example shows how to keep map and table selections synchronized

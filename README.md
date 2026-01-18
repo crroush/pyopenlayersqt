@@ -630,9 +630,6 @@ map_widget.jsEvent.connect(on_js_event)
 4. **Debounce Extent Watching**: Use appropriate `debounce_ms` when watching extent changes to avoid excessive updates
 5. **Cull Tiny Ellipses**: Set `min_ellipse_px` in `FastGeoPointsStyle` to skip rendering very small ellipses
 6. **Skip Ellipses While Interacting**: Enable `skip_ellipses_while_interacting` for smoother panning/zooming
-7. **Optimize FastPoints Rendering**: `FastPointsStyle` includes performance options:
-   - `skip_rendering_while_interacting=True` (default): Skips rendering when >100 points are visible during pan/zoom
-   - `max_points_while_interacting=5000` (default): Limits points rendered during interactions for better responsiveness
 
 ## Architecture
 
