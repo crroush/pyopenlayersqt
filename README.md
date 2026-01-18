@@ -497,29 +497,41 @@ class MapWindow(QtWidgets.QMainWindow):
         self.add_sample_data()
     
     def add_sample_data(self):
-        # Add a point
+        # Add a vector point
         self.vector.add_points(
             [(-122.4194, 37.7749)],
             ids=["sf"],
             style=PointStyle(radius=8.0, fill_color="#ff3333")
         )
         
-        # Add fast points
-        rng = np.random.default_rng()
-        n = 10000
-        lons = -125 + rng.random(n) * 10
-        lats = 32 + rng.random(n) * 10
-        coords = list(zip(lons, lats))
-        ids = [f"fp{i}" for i in range(n)]
-        self.fast.add_points(coords, ids=ids)
-        
-        # Update table
+        # Add to table
         self.table.append_rows([{
             "layer_kind": "vector",
             "layer_id": self.vector.id,
             "feature_id": "sf",
             "geom_type": "point"
         }])
+        
+        # Add fast points
+        rng = np.random.default_rng()
+        n = 10000
+        lons = -125 + rng.random(n) * 10
+        lats = 32 + rng.random(n) * 10
+        coords = list(zip(lons.tolist(), lats.tolist()))
+        ids = [f"fp{i}" for i in range(n)]
+        self.fast.add_points(coords, ids=ids)
+        
+        # Add fast points to table
+        rows = (
+            {
+                "layer_kind": "fast_points",
+                "layer_id": self.fast.id,
+                "feature_id": ids[i],
+                "geom_type": "point"
+            }
+            for i in range(n)
+        )
+        self.table.model.append_rows(rows)
     
     def on_map_selection(self, selection):
         keys = [(selection.layer_id, fid) for fid in selection.feature_ids]

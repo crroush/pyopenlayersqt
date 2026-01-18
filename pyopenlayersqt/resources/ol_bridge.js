@@ -755,8 +755,8 @@ function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
       target: "map",
       layers: [base],
       view: new ol.View({
-        center: lonlat_to_3857(-105.270, 40.015),
-        zoom: 11,
+        center: lonlat_to_3857(0, 0),
+        zoom: 2,
       }),
     });
 
