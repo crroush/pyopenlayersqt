@@ -237,6 +237,10 @@ function fp_make_canvas_layer(entry) {
       const defCss = rgba_to_css(entry.style.default_rgba);
       const selCss = rgba_to_css(entry.style.selected_rgba);
 
+      // Performance optimization: batch points by color to reduce canvas API calls
+      // Group points by their fill color and radius to draw them together
+      const batches = new Map(); // key: "color|radius" -> array of {x, y}
+      
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
         if (entry.deleted[i]) continue;
@@ -251,11 +255,26 @@ function fp_make_canvas_layer(entry) {
         if (u !== 0) fill = rgba_to_css(rgba_from_u32(u));
         if (isSel) fill = selCss;
 
+        const key = fill + "|" + radius;
+        let batch = batches.get(key);
+        if (!batch) {
+          batch = { fill, radius, points: [] };
+          batches.set(key, batch);
+        }
+        batch.points.push({ x, y });
+      }
+
+      // Draw all batches
+      for (const batch of batches.values()) {
+        ctx.fillStyle = batch.fill;
         ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fillStyle = fill;
+        for (const pt of batch.points) {
+          ctx.moveTo(pt.x + batch.radius, pt.y);
+          ctx.arc(pt.x, pt.y, batch.radius, 0, Math.PI * 2);
+        }
         ctx.fill();
       }
+      
       return canvas;
     },
   });
