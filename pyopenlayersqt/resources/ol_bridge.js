@@ -105,6 +105,22 @@ function cmd_map_set_extent_watch(msg) {
   }
 }
 
+function cmd_map_set_view(msg) {
+  const st = window._pyolqt_state;
+  if (!st || !st.map) return;
+  const view = st.map.getView();
+  if (!view) return;
+  
+  if (msg.center && Array.isArray(msg.center) && msg.center.length === 2) {
+    const center = lonlat_to_3857(msg.center[0], msg.center[1]);
+    view.setCenter(center);
+  }
+  
+  if (msg.zoom !== null && msg.zoom !== undefined) {
+    view.setZoom(msg.zoom);
+  }
+}
+
 
 
   function log(...args) { console.log("JS:", ...args); }
@@ -755,8 +771,8 @@ function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
       target: "map",
       layers: [base],
       view: new ol.View({
-        center: lonlat_to_3857(-105.270, 40.015),
-        zoom: 11,
+        center: lonlat_to_3857(0, 0),
+        zoom: 2,
       }),
     });
 
@@ -1018,6 +1034,7 @@ function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
 
       case "select.set": return cmd_select_set(msg);
     case "map.get_view_extent": return cmd_map_get_view_extent(msg);
+    case "map.set_view": return cmd_map_set_view(msg);
       case "map.base.opacity": return cmd_map_base_opacity(msg);
     case "map.set_extent_watch": return cmd_map_set_extent_watch(msg);
 
