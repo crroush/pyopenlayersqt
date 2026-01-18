@@ -39,8 +39,8 @@ import sys
 
 app = QtWidgets.QApplication(sys.argv)
 
-# Create the map widget
-map_widget = OLMapWidget()
+# Create the map widget with custom initial view
+map_widget = OLMapWidget(center=(-120.0, 37.0), zoom=6)
 
 # Add a vector layer
 vector_layer = map_widget.add_vector_layer("my_layer", selectable=True)
@@ -58,6 +58,8 @@ map_widget.show()
 sys.exit(app.exec())
 ```
 
+See the [examples directory](examples/) for more working examples.
+
 ## Core Components
 
 ### OLMapWidget
@@ -67,8 +69,18 @@ The main widget class that embeds an OpenLayers map.
 ```python
 from pyopenlayersqt import OLMapWidget
 
+# Create with default world view (center at 0,0, zoom level 2)
 map_widget = OLMapWidget()
+
+# Or create with custom initial view
+map_widget = OLMapWidget(center=(-120.0, 37.0), zoom=6)
 ```
+
+**Constructor Parameters:**
+
+- `parent` - Optional parent widget
+- `center` - Initial map center as `(lon, lat)` tuple. Defaults to `(0, 0)`.
+- `zoom` - Initial zoom level (integer). Defaults to `2` (world view).
 
 **Key Methods:**
 
@@ -426,7 +438,7 @@ map_widget.selectionChanged.connect(on_map_selection)
 
 ## Complete Example
 
-Here's a complete example based on the demo application:
+Here's a complete example based on the demo application. **For a working version, see [examples/02_complete_example.py](examples/02_complete_example.py).**
 
 ```python
 from PySide6 import QtWidgets
@@ -434,7 +446,6 @@ from pyopenlayersqt import (
     OLMapWidget,
     PointStyle,
     FastPointsStyle,
-    FastGeoPointsStyle
 )
 from pyopenlayersqt.features_table import FeatureTableWidget, ColumnSpec
 import sys
@@ -445,8 +456,8 @@ class MapWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("pyopenlayersqt Example")
         
-        # Create map widget
-        self.map_widget = OLMapWidget()
+        # Create map widget centered on US West Coast at appropriate zoom
+        self.map_widget = OLMapWidget(center=(-120.0, 37.0), zoom=6)
         
         # Add layers
         self.vector = self.map_widget.add_vector_layer("vector", selectable=True)
@@ -457,16 +468,6 @@ class MapWindow(QtWidgets.QMainWindow):
             style=FastPointsStyle(
                 radius=2.5,
                 default_rgba=(0, 180, 0, 180)
-            )
-        )
-        
-        self.fast_geo = self.map_widget.add_fast_geopoints_layer(
-            "fast_geo",
-            selectable=True,
-            style=FastGeoPointsStyle(
-                point_radius=2.5,
-                default_point_rgba=(40, 80, 255, 180),
-                ellipses_visible=True
             )
         )
         
@@ -493,8 +494,8 @@ class MapWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.map_widget, 2)
         self.setCentralWidget(container)
         
-        # Add some data
-        self.add_sample_data()
+        # Add data after map is ready
+        self.map_widget.ready.connect(self.add_sample_data)
     
     def add_sample_data(self):
         # Add a vector point
@@ -549,8 +550,6 @@ class MapWindow(QtWidgets.QMainWindow):
                 self.map_widget.set_vector_selection(layer_id, fids)
             elif layer_id == self.fast.id:
                 self.map_widget.set_fast_points_selection(layer_id, fids)
-            elif layer_id == self.fast_geo.id:
-                self.map_widget.set_fast_geopoints_selection(layer_id, fids)
 
 def main():
     app = QtWidgets.QApplication(sys.argv)

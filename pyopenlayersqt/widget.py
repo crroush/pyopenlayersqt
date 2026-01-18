@@ -143,8 +143,24 @@ class OLMapWidget(QWebEngineView):
     ready = Signal()
     perfReceived = Signal(object)
 
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(
+        self,
+        parent: Optional[QtWidgets.QWidget] = None,
+        center: Optional[Tuple[float, float]] = None,
+        zoom: Optional[int] = None,
+    ):
+        """Initialize the map widget.
+
+        Args:
+            parent: Parent widget
+            center: Initial map center as (lon, lat) tuple. Defaults to (0, 0).
+            zoom: Initial zoom level. Defaults to 2.
+        """
         super().__init__(parent)
+
+        # Store initial view settings
+        self._initial_center = center if center is not None else (0.0, 0.0)
+        self._initial_zoom = zoom if zoom is not None else 2
 
         # writable overlays
         self._overlays_dir = _default_overlays_dir()
@@ -316,6 +332,13 @@ class OLMapWidget(QWebEngineView):
 
         if event_type == "ready":
             self._js_ready = True
+            # Set initial view if different from defaults
+            if self._initial_center != (0.0, 0.0) or self._initial_zoom != 2:
+                self._send_now({
+                    "type": "map.set_view",
+                    "center": [float(self._initial_center[0]), float(self._initial_center[1])],
+                    "zoom": int(self._initial_zoom)
+                })
             self._flush_pending()
             self.ready.emit()
             return
