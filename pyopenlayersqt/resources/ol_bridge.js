@@ -176,6 +176,28 @@ function fp_query_extent(entry, extent) {
   const max_ix = Math.floor(extent[2] / cs);
   const min_iy = Math.floor(extent[1] / cs);
   const max_iy = Math.floor(extent[3] / cs);
+  
+  // Performance optimization: limit cell iteration for zoomed-out views
+  // If extent covers too many cells, just return all points
+  const cellsX = max_ix - min_ix + 1;
+  const cellsY = max_iy - min_iy + 1;
+  const totalCells = cellsX * cellsY;
+  
+  // If we'd check more than 1000 cells, it's faster to just iterate all points
+  if (totalCells > 1000) {
+    const out = [];
+    for (let i = 0; i < entry.x.length; i++) {
+      if (entry.deleted[i]) continue;
+      const x = entry.x[i];
+      const y = entry.y[i];
+      if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) {
+        out.push(i);
+      }
+    }
+    return out;
+  }
+  
+  // Normal grid query for zoomed-in views
   const out = [];
   for (let ix = min_ix; ix <= max_ix; ix++) {
     for (let iy = min_iy; iy <= max_iy; iy++) {
@@ -220,6 +242,13 @@ function fp_make_canvas_layer(entry) {
     projection: state.map.getView().getProjection(),
     ratio: 1,
     canvasFunction: function(extent, resolution, pixelRatio, size, projection) {
+      const perfStart = performance.now();
+      
+      // Track render calls during interactions
+      if (state.viewInteracting) {
+        state.renderCount = (state.renderCount || 0) + 1;
+      }
+      
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.floor(size[0] * pixelRatio));
       canvas.height = Math.max(1, Math.floor(size[1] * pixelRatio));
@@ -232,11 +261,18 @@ function fp_make_canvas_layer(entry) {
       const scaleX = canvas.width / (extent[2] - extent[0]);
       const scaleY = canvas.height / (extent[3] - extent[1]);
 
+      const queryStart = performance.now();
       const cand = fp_query_extent(entry, extent);
+      const queryTime = performance.now() - queryStart;
 
       const defCss = rgba_to_css(entry.style.default_rgba);
       const selCss = rgba_to_css(entry.style.selected_rgba);
 
+      // Performance optimization: batch points by color to reduce canvas API calls
+      // Group points by their fill color and radius to draw them together
+      const batchStart = performance.now();
+      const batches = new Map(); // key: "color|radius" -> array of {x, y}
+      
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
         if (entry.deleted[i]) continue;
@@ -251,11 +287,47 @@ function fp_make_canvas_layer(entry) {
         if (u !== 0) fill = rgba_to_css(rgba_from_u32(u));
         if (isSel) fill = selCss;
 
+        const key = fill + "|" + radius;
+        let batch = batches.get(key);
+        if (!batch) {
+          batch = { fill, radius, points: [] };
+          batches.set(key, batch);
+        }
+        batch.points.push({ x, y });
+      }
+      const batchTime = performance.now() - batchStart;
+
+      // Draw all batches
+      const drawStart = performance.now();
+      for (const batch of batches.values()) {
+        ctx.fillStyle = batch.fill;
         ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fillStyle = fill;
+        for (const pt of batch.points) {
+          ctx.moveTo(pt.x + batch.radius, pt.y);
+          ctx.arc(pt.x, pt.y, batch.radius, 0, Math.PI * 2);
+        }
         ctx.fill();
       }
+      const drawTime = performance.now() - drawStart;
+      
+      const totalTime = performance.now() - perfStart;
+      
+      // Emit performance data to Python side
+      if (cand.length > 100) {  // Only log when there are significant points
+        emitToPython("perf", {
+          layer_id: entry.layer_id,
+          operation: "fast_points_render",
+          point_count: cand.length,
+          batch_count: batches.size,
+          times: {
+            query_ms: queryTime.toFixed(2),
+            batch_ms: batchTime.toFixed(2),
+            draw_ms: drawTime.toFixed(2),
+            total_ms: totalTime.toFixed(2)
+          }
+        });
+      }
+      
       return canvas;
     },
   });
@@ -764,7 +836,10 @@ function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
 
 
   function initMap() {
-    const base = new ol.layer.Tile({ source: new ol.source.OSM() });
+    // Disable tile transition for better pan/zoom performance
+    const base = new ol.layer.Tile({ 
+      source: new ol.source.OSM({ transition: 0 })
+    });
     state.base_layer = base;
 
     state.map = new ol.Map({
@@ -837,8 +912,26 @@ function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
 
     log("OpenLayers map initialized");
     state.viewInteracting = false;
-    state.map.on("movestart", function(){ state.viewInteracting = true; });
-    state.map.on("moveend", function(){ state.viewInteracting = false;
+    state.interactionStartTime = null;
+    state.renderCount = 0;
+    
+    state.map.on("movestart", function(){ 
+      state.viewInteracting = true; 
+      state.interactionStartTime = performance.now();
+      state.renderCount = 0;
+    });
+    
+    state.map.on("moveend", function(){ 
+      const interactionTime = performance.now() - state.interactionStartTime;
+      
+      emitToPython("perf", {
+        operation: "map_interaction",
+        interaction_time_ms: interactionTime.toFixed(2),
+        render_calls: state.renderCount,
+        avg_render_ms: state.renderCount > 0 ? (interactionTime / state.renderCount).toFixed(2) : 0
+      });
+      
+      state.viewInteracting = false;
       // redraw fast layers so ellipses appear after interaction ends
       for (const [lid, e] of state.layers.entries()) {
         if (e.type === 'fast_geopoints' && e.ellipsesVisible) fgp_redraw(e);

@@ -143,7 +143,7 @@ class ShowcaseWindow(QMainWindow):
         self._rng = np.random.default_rng(1234)
         self._last_extent: Optional[dict] = None
 
-        self.mapw = OLMapWidget()
+        self.mapw = OLMapWidget(center=(0.0, 0.0), zoom=2)
         self.mapw.ready.connect(self._on_ready)
         self.mapw.selectionChanged.connect(self._on_map_selection)
         self.mapw.watch_view_extent(self._on_extent_changed, debounce_ms=150)
@@ -643,6 +643,7 @@ class ShowcaseWindow(QMainWindow):
         self._status("MAP: ready")
 
     def _on_extent_changed(self, ext: dict) -> None:
+        print(f"extent changed {ext}")
         self._last_extent = ext
 
     def _require_extent(self) -> dict:
