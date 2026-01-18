@@ -264,6 +264,7 @@ function fp_make_canvas_layer(entry) {
       // This provides visual feedback while maintaining responsiveness.
       const isInteracting = state.viewInteracting;
       const minPointsWhileInteracting = parseInt(st.min_points_while_interacting) || 500;
+      // Ensure max >= min to prevent invalid sampling (prevents division issues and maintains minimum quality)
       const maxPointsWhileInteracting = Math.max(minPointsWhileInteracting, parseInt(st.max_points_while_interacting) || 5000);
       const shouldThrottle = isInteracting && cand.length > maxPointsWhileInteracting;
       const step = shouldThrottle ? Math.ceil(cand.length / maxPointsWhileInteracting) : 1;

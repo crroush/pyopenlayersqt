@@ -61,6 +61,7 @@ def main():
 
     # Generate random points for demonstration
     # Using 10,000 points to show performance impact
+    # Note: Fixed seed ensures consistent point placement across runs for reproducible demos
     rng = np.random.default_rng(seed=42)
     n = 10000
     
