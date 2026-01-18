@@ -532,7 +532,7 @@ class MapWindow(QtWidgets.QMainWindow):
             }
             for i in range(n)
         )
-        self.table.model.append_rows(rows)
+        self.table.append_rows(rows)
     
     def on_map_selection(self, selection):
         keys = [(selection.layer_id, fid) for fid in selection.feature_ids]

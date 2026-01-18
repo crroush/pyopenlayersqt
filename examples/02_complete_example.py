@@ -101,7 +101,7 @@ class MapWindow(QtWidgets.QMainWindow):
             }
             for i in range(n)
         )
-        self.table.model.append_rows(rows)
+        self.table.append_rows(rows)
         
         print(f"Added {n} fast points and 1 vector point to map and table")
     

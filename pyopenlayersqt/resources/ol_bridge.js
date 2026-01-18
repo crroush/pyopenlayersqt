@@ -116,7 +116,7 @@ function cmd_map_set_view(msg) {
     view.setCenter(center);
   }
   
-  if (msg.zoom != null) {
+  if (msg.zoom !== null && msg.zoom !== undefined) {
     view.setZoom(msg.zoom);
   }
 }

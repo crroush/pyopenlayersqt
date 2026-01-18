@@ -136,6 +136,10 @@ class OLMapWidget(QWebEngineView):
     JS -> Python: qtBridge.emitEvent(type, payload_json)
     """
 
+    # Default initial view settings
+    DEFAULT_CENTER = (0.0, 0.0)
+    DEFAULT_ZOOM = 2
+
     selectionChanged = Signal(object)  # FeatureSelection
     viewExtentReceived = Signal(object)
     viewExtentChanged = Signal(object)
@@ -159,8 +163,8 @@ class OLMapWidget(QWebEngineView):
         super().__init__(parent)
 
         # Store initial view settings
-        self._initial_center = center if center is not None else (0.0, 0.0)
-        self._initial_zoom = zoom if zoom is not None else 2
+        self._initial_center = center if center is not None else self.DEFAULT_CENTER
+        self._initial_zoom = zoom if zoom is not None else self.DEFAULT_ZOOM
 
         # writable overlays
         self._overlays_dir = _default_overlays_dir()
@@ -333,7 +337,8 @@ class OLMapWidget(QWebEngineView):
         if event_type == "ready":
             self._js_ready = True
             # Set initial view if different from defaults
-            if self._initial_center != (0.0, 0.0) or self._initial_zoom != 2:
+            if (self._initial_center != self.DEFAULT_CENTER or 
+                self._initial_zoom != self.DEFAULT_ZOOM):
                 self._send_now({
                     "type": "map.set_view",
                     "center": [float(self._initial_center[0]), float(self._initial_center[1])],
