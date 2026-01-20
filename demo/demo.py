@@ -811,7 +811,7 @@ class ShowcaseWindow(QMainWindow):
         lon0, lat0 = rand_in_extent(ext, self._rng)
         fid = f"line_{int(time.time()*1000)}"
         n = int(self._rng.integers(3, 7))  # 3-6 points
-        angles = np.sort(self._rng.random(n) * (2.0 * np.pi))
+        angles = self._rng.random(n) * (2.0 * np.pi)
         radii = 0.002 + 0.01 * self._rng.random(n)
         coords = [
             (lon0 + float(np.cos(a) * r), lat0 + float(np.sin(a) * r))
