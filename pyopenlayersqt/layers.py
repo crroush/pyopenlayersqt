@@ -31,7 +31,7 @@ class BaseLayer:
 
 class VectorLayer(BaseLayer):
     """
-    A layer that can hold points/polygons/circles/ellipses as vector features.
+    A layer that can hold points/polygons/circles/ellipses/lines as vector features.
     """
 
     def clear(self) -> None:
