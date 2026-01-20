@@ -136,6 +136,16 @@ vector.add_polygon(
     )
 )
 
+# Add lines (polylines)
+vector.add_line(
+    coords=[(lon1, lat1), (lon2, lat2), (lon3, lat3)],
+    feature_id="ln1",
+    style=PolygonStyle(
+        stroke_color="#00aaff",
+        stroke_width=2.0
+    )
+)
+
 # Add circles (radius in meters)
 vector.add_circle(
     center=(lon, lat),

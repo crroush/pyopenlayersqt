@@ -31,7 +31,7 @@ class BaseLayer:
 
 class VectorLayer(BaseLayer):
     """
-    A layer that can hold points/polygons/circles/ellipses as vector features.
+    A layer that can hold points/polygons/circles/ellipses/lines as vector features.
     """
 
     def clear(self) -> None:
@@ -111,6 +111,33 @@ class VectorLayer(BaseLayer):
                 "style": style.to_js(),
                 "properties": properties or {},
                 "segments": int(segments),
+            }
+        )
+
+    def add_line(
+        self,
+        coords: Sequence[LonLat],
+        feature_id: str = "line0",
+        style: Optional[PolygonStyle] = None,
+        properties: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Add a polyline (non-closed) feature to this vector layer.
+
+        coords: sequence of (lon, lat) tuples describing the line vertices in order.
+        feature_id: the feature id to assign.
+        style: a PolygonStyle (uses stroke_* attributes) or None for defaults.
+        properties: optional dict of properties to attach to the feature.
+        """
+        style = style or PolygonStyle()
+        self._w._send(
+            {
+                "type": "vector.add_line",
+                "layer_id": self.id,
+                "coords": [[float(lon), float(lat)] for (lon, lat) in coords],
+                "id": feature_id,
+                "style": style.to_js(),
+                "properties": properties or {},
             }
         )
 
