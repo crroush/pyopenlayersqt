@@ -1051,6 +1051,21 @@ function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
     e.source.addFeature(f);
   }
 
+  function cmd_vector_add_line(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "vector") return;
+    const coords = (msg.coords || []).map(function(c) {
+      return lonlat_to_3857(c[0], c[1]);
+    });
+    const geom = new ol.geom.LineString(coords);
+    const f = new ol.Feature({ geometry: geom });
+    f.setId(msg.id || "line0");
+    f.set("_layer_id", msg.layer_id);
+    if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
+    f.setStyle(style_from_simple(msg.style || {}));
+    e.source.addFeature(f);
+  }
+
   function cmd_vector_add_ellipse(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
@@ -1120,6 +1135,7 @@ function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
       case "vector.add_points": return cmd_vector_add_points(msg);
       case "vector.add_polygon": return cmd_vector_add_polygon(msg);
       case "vector.add_circle": return cmd_vector_add_circle(msg);
+      case "vector.add_line": return cmd_vector_add_line(msg);
       case "vector.add_ellipse": return cmd_vector_add_ellipse(msg);
 
       case "wms.set_params": return cmd_wms_set_params(msg);

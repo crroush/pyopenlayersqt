@@ -328,6 +328,9 @@ class ShowcaseWindow(QMainWindow):
         b_po = QPushButton("Add polygon")
         b_po.clicked.connect(self._add_vector_polygon)
         btns.addWidget(b_po)
+        b_ln = QPushButton("Add line")
+        b_ln.clicked.connect(self._add_vector_line)
+        btns.addWidget(b_ln)
         layout.addLayout(btns)
         layout.addStretch(1)
         return w
@@ -797,6 +800,33 @@ class ShowcaseWindow(QMainWindow):
                     "layer_id": self.vector.id,
                     "feature_id": fid,
                     "geom_type": "polygon",
+                    "center_lat": lat0,
+                    "center_lon": lon0,
+                }
+            ]
+        )
+
+    def _add_vector_line(self) -> None:
+        ext = self._require_extent()
+        lon0, lat0 = rand_in_extent(ext, self._rng)
+        fid = f"line_{int(time.time()*1000)}"
+        n = int(self._rng.integers(3, 7))  # 3-6 vertices
+        dx = float(ext["lon_max"]) - float(ext["lon_min"])
+        dy = float(ext["lat_max"]) - float(ext["lat_min"])
+        r0 = 0.1 * min(dx, dy)
+        coords = []
+        for i in range(n):
+            offset_lon = (self._rng.random() - 0.5) * r0
+            offset_lat = (self._rng.random() - 0.5) * r0
+            coords.append((lon0 + offset_lon, lat0 + offset_lat))
+        self.vector.add_line(coords, feature_id=fid, style=self._poly_style())
+        self.tablew.append_rows(
+            [
+                {
+                    "layer_kind": "vector",
+                    "layer_id": self.vector.id,
+                    "feature_id": fid,
+                    "geom_type": "line",
                     "center_lat": lat0,
                     "center_lon": lon0,
                 }
