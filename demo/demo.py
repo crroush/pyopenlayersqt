@@ -328,6 +328,9 @@ class ShowcaseWindow(QMainWindow):
         b_po = QPushButton("Add polygon")
         b_po.clicked.connect(self._add_vector_polygon)
         btns.addWidget(b_po)
+        b_ln = QPushButton("Add line")
+        b_ln.clicked.connect(self._add_vector_line)
+        btns.addWidget(b_ln)
         layout.addLayout(btns)
         layout.addStretch(1)
         return w
@@ -802,6 +805,29 @@ class ShowcaseWindow(QMainWindow):
                 }
             ]
         )
+
+    def _add_vector_line(self) -> None:
+        ext = self._require_extent()
+        lon0, lat0 = rand_in_extent(ext, self._rng)
+        fid = f"line_{int(time.time()*1000)}"
+        n = 3 + int(self._rng.integers(0, 4))
+        angles = np.sort(self._rng.random(n) * (2.0 * np.pi))
+        radii = 0.001 + 0.01 * self._rng.random(n)
+        coords = [
+            (lon0 + float(np.cos(a) * r), lat0 + float(np.sin(a) * r))
+            for a, r in zip(angles, radii)
+        ]
+        self.vector.add_line(coords, feature_id=fid, style=self._poly_style())
+        self.tablew.append_rows([
+            {
+                "layer_kind": "vector",
+                "layer_id": self.vector.id,
+                "feature_id": fid,
+                "geom_type": "line",
+                "center_lat": lat0,
+                "center_lon": lon0,
+            }
+        ])
 
     # ---- fast actions ----
     def _add_fast_points(self) -> None:

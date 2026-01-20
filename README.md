@@ -154,6 +154,16 @@ vector.add_ellipse(
     style=EllipseStyle(stroke_color="#ffcc00", fill_opacity=0.12)
 )
 
+# Add lines (non-closed polylines)
+vector.add_line(
+    coords=[(lon1, lat1), (lon2, lat2), (lon3, lat3)],
+    feature_id="ln1",
+    style=PolygonStyle(
+        stroke_color="#00aaff",
+        stroke_width=2.0
+    )
+)
+
 # Remove features
 vector.remove_features(["id1", "poly1"])
 
