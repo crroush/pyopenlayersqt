@@ -17,6 +17,7 @@ import numpy as np
 from PIL import Image
 from matplotlib import cm
 from matplotlib import colors as mcolors
+from matplotlib import colormaps
 from matplotlib.path import Path as MplPath
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
@@ -119,7 +120,7 @@ def build_heatmap_png_bytes(
     vmin = float(np.percentile(z, 2))
     vmax = float(np.percentile(z, 98))
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax, clip=True)
-    cmap = cm.get_cmap(colormap)
+    cmap = colormaps.get_cmap(colormap)
 
     rgba = (cmap(norm(z), bytes=True)).astype(np.uint8)
 
