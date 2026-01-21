@@ -3,6 +3,7 @@
 OpenLayers + Qt (QWebEngine) mapping widget for Python.
 
 A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt application using QWebEngine. Designed for displaying and interacting with large volumes of geospatial data.
+<img width="821" height="503" alt="image" src="https://github.com/user-attachments/assets/ef34e565-12f5-48b3-92e5-bbe752a96992" />
 
 ## Features
 
@@ -75,6 +76,7 @@ map_widget = OLMapWidget()
 # Or create with custom initial view
 map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 ```
+<img width="323" height="257" alt="image" src="https://github.com/user-attachments/assets/1f726e15-0598-4bb6-9223-b2a0d60238ff" />
 
 **Constructor Parameters:**
 
@@ -331,6 +333,7 @@ raster.set_opacity(0.8)
 # Remove layer
 raster.remove()
 ```
+<img width="828" height="506" alt="image" src="https://github.com/user-attachments/assets/5e0038df-0e53-4abb-86db-2cdf5d5615d6" />
 
 ### Style Classes
 
