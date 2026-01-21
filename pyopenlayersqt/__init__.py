@@ -8,6 +8,7 @@ from .models import (
     WMSOptions,
     HeatmapOptions,
     FeatureSelection,
+    LatLon,
     # Fast layers styles
     FastPointsStyle,
     FastGeoPointsStyle,
@@ -30,6 +31,7 @@ __all__ = [
     "WMSOptions",
     "HeatmapOptions",
     "FeatureSelection",
+    "LatLon",
     # Fast layers styles + layers
     "FastPointsStyle",
     "FastPointsLayer",

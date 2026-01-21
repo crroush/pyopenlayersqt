@@ -16,13 +16,13 @@ def main():
     app = QtWidgets.QApplication(sys.argv)
 
     # Create the map widget centered on the US West Coast
-    map_widget = OLMapWidget(center=(-120.0, 37.0), zoom=6)
+    map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 
     # Add a vector layer
     vector_layer = map_widget.add_vector_layer("my_layer", selectable=True)
 
-    # Add some points
-    coords = [(-122.4194, 37.7749), (-118.2437, 34.0522)]  # SF, LA
+    # Add some points (latitude, longitude)
+    coords = [(37.7749, -122.4194), (34.0522, -118.2437)]  # SF, LA
     vector_layer.add_points(
         coords,
         ids=["sf", "la"],

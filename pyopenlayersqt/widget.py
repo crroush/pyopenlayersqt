@@ -137,7 +137,7 @@ class OLMapWidget(QWebEngineView):
     """
 
     # Default initial view settings
-    DEFAULT_CENTER = (0.0, 0.0)
+    DEFAULT_CENTER = (0.0, 0.0)  # (lat, lon) - centered at equator and prime meridian
     DEFAULT_ZOOM = 2
 
     selectionChanged = Signal(object)  # FeatureSelection
@@ -157,12 +157,12 @@ class OLMapWidget(QWebEngineView):
 
         Args:
             parent: Parent widget
-            center: Initial map center as (lon, lat) tuple. Defaults to (0, 0).
+            center: Initial map center as (lat, lon) tuple. Defaults to (0.0, 0.0).
             zoom: Initial zoom level. Defaults to 2.
         """
         super().__init__(parent)
 
-        # Store initial view settings
+        # Store initial view settings (public API is lat,lon)
         self._initial_center = center if center is not None else self.DEFAULT_CENTER
         self._initial_zoom = zoom if zoom is not None else self.DEFAULT_ZOOM
 
@@ -339,9 +339,11 @@ class OLMapWidget(QWebEngineView):
             # Set initial view if different from defaults
             if (self._initial_center != self.DEFAULT_CENTER or 
                 self._initial_zoom != self.DEFAULT_ZOOM):
+                # Swap lat,lon (public API) to lon,lat (internal format)
+                lat, lon = self._initial_center
                 self._send_now({
                     "type": "map.set_view",
-                    "center": [float(self._initial_center[0]), float(self._initial_center[1])],
+                    "center": [float(lon), float(lat)],
                     "zoom": int(self._initial_zoom)
                 })
             self._flush_pending()
@@ -440,10 +442,13 @@ class OLMapWidget(QWebEngineView):
         return FastGeoPointsLayer(self, layer_id, name=name)
 
     def get_view_extent(self, callback):
-        """Request the current visible map extent (lon/lat).
+        """Request the current visible map extent.
 
         Async: callback(extent_dict) is called exactly once.
         extent_dict contains lon_min, lat_min, lon_max, lat_max, zoom, resolution.
+        
+        Note: The extent keys use lon/lat naming but values represent the actual
+        geographic bounds regardless of coordinate ordering used elsewhere in the API.
         """
 
         def once(ext):
@@ -529,21 +534,30 @@ class OLMapWidget(QWebEngineView):
         style: Optional[RasterStyle] = None,
         name: str = "raster",
     ) -> RasterLayer:
-        """
-        image_url may be an http(s) URL, a filesystem path, a server path ("/_overlays/..."),
-        or raw PNG bytes.
+        """Add a raster image overlay to the map.
+        
+        Args:
+            image_url: Can be an http(s) URL, a filesystem path, a server path 
+                      ("/_overlays/..."), or raw PNG bytes.
+            bounds: Two (lat, lon) tuples defining SW and NE corners.
+            style: Raster styling options.
+            name: Layer name.
+        
+        Returns:
+            The created RasterLayer instance.
         """
         layer_id = self._next_id("r")
         style = style or RasterStyle()
         url = self._ensure_overlay_url(image_url)
 
+        # Swap lat,lon (public API) to lon,lat (internal format)
         self._send(
             {
                 "type": "layer.add_raster",
                 "layer_id": layer_id,
                 "name": name,
                 "url": url,
-                "bounds": [[float(lon), float(lat)] for lon, lat in bounds],
+                "bounds": [[float(lon), float(lat)] for lat, lon in bounds],
                 "style": style.to_js(),
             }
         )

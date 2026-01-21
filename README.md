@@ -40,13 +40,13 @@ import sys
 app = QtWidgets.QApplication(sys.argv)
 
 # Create the map widget with custom initial view
-map_widget = OLMapWidget(center=(-120.0, 37.0), zoom=6)
+map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 
 # Add a vector layer
 vector_layer = map_widget.add_vector_layer("my_layer", selectable=True)
 
 # Add some points
-coords = [(-122.4194, 37.7749), (-118.2437, 34.0522)]  # SF, LA
+coords = [(37.7749, -122.4194), (34.0522, -118.2437)]  # SF, LA
 vector_layer.add_points(
     coords,
     ids=["sf", "la"],
@@ -73,13 +73,13 @@ from pyopenlayersqt import OLMapWidget
 map_widget = OLMapWidget()
 
 # Or create with custom initial view
-map_widget = OLMapWidget(center=(-120.0, 37.0), zoom=6)
+map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 ```
 
 **Constructor Parameters:**
 
 - `parent` - Optional parent widget
-- `center` - Initial map center as `(lon, lat)` tuple. Defaults to `(0, 0)`.
+- `center` - Initial map center as `(lat, lon)` tuple. Defaults to `(0, 0)`.
 - `zoom` - Initial zoom level (integer). Defaults to `2` (world view).
 
 **Key Methods:**
@@ -113,7 +113,7 @@ vector = map_widget.add_vector_layer("vector", selectable=True)
 
 # Add points
 vector.add_points(
-    coords=[(lon, lat), ...],
+    coords=[(lat, lon), ...],
     ids=["id1", "id2", ...],
     style=PointStyle(
         radius=6.0,
@@ -126,7 +126,7 @@ vector.add_points(
 
 # Add polygons
 vector.add_polygon(
-    ring=[(lon1, lat1), (lon2, lat2), ...],
+    ring=[(lat1, lon1), (lat2, lon2), ...],
     feature_id="poly1",
     style=PolygonStyle(
         stroke_color="#00aaff",
@@ -138,7 +138,7 @@ vector.add_polygon(
 
 # Add lines (polylines)
 vector.add_line(
-    coords=[(lon1, lat1), (lon2, lat2), (lon3, lat3)],
+    coords=[(lat1, lon1), (lat2, lon2), (lat3, lon3)],
     feature_id="ln1",
     style=PolygonStyle(
         stroke_color="#00aaff",
@@ -148,7 +148,7 @@ vector.add_line(
 
 # Add circles (radius in meters)
 vector.add_circle(
-    center=(lon, lat),
+    center=(lat, lon),
     radius_m=1000.0,
     feature_id="circle1",
     style=CircleStyle(stroke_color="#00aaff", fill_opacity=0.15)
@@ -156,7 +156,7 @@ vector.add_circle(
 
 # Add ellipses (semi-major/minor axes in meters, tilt in degrees from north)
 vector.add_ellipse(
-    center=(lon, lat),
+    center=(lat, lon),
     sma_m=2000.0,  # Semi-major axis
     smi_m=1200.0,  # Semi-minor axis
     tilt_deg=45.0,  # Tilt from true north
@@ -192,7 +192,7 @@ fast = map_widget.add_fast_points_layer(
 )
 
 # Add points (efficient for large datasets)
-coords = [(lon, lat), ...]  # millions of points
+coords = [(lat, lon), ...]  # millions of points
 ids = [f"pt{i}" for i in range(len(coords))]
 
 # Option 1: Single color for all points
@@ -241,7 +241,7 @@ fast_geo = map_widget.add_fast_geopoints_layer(
 )
 
 # Add points with uncertainty ellipses
-coords = [(lon, lat), ...]
+coords = [(lat, lon), ...]
 sma_m = [200.0, 300.0, ...]  # Semi-major axes in meters
 smi_m = [100.0, 150.0, ...]  # Semi-minor axes in meters
 tilt_deg = [45.0, 90.0, ...]  # Tilt from north in degrees
@@ -314,8 +314,8 @@ png_bytes = buf.getvalue()
 
 # Add raster overlay
 bounds = [
-    (lon_min, lat_min),  # Southwest corner
-    (lon_max, lat_max)   # Northeast corner
+    (lat_min, lon_min),  # Southwest corner
+    (lat_max, lon_max)   # Northeast corner
 ]
 
 raster = map_widget.add_raster_image(
@@ -467,7 +467,7 @@ class MapWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("pyopenlayersqt Example")
         
         # Create map widget centered on US West Coast at appropriate zoom
-        self.map_widget = OLMapWidget(center=(-120.0, 37.0), zoom=6)
+        self.map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
         
         # Add layers
         self.vector = self.map_widget.add_vector_layer("vector", selectable=True)
@@ -510,7 +510,7 @@ class MapWindow(QtWidgets.QMainWindow):
     def add_sample_data(self):
         # Add a vector point
         self.vector.add_points(
-            [(-122.4194, 37.7749)],
+            [(37.7749, -122.4194)],
             ids=["sf"],
             style=PointStyle(radius=8.0, fill_color="#ff3333")
         )
@@ -526,9 +526,9 @@ class MapWindow(QtWidgets.QMainWindow):
         # Add fast points
         rng = np.random.default_rng()
         n = 10000
-        lons = -125 + rng.random(n) * 10
         lats = 32 + rng.random(n) * 10
-        coords = list(zip(lons.tolist(), lats.tolist()))
+        lons = -125 + rng.random(n) * 10
+        coords = list(zip(lats.tolist(), lons.tolist()))
         ids = [f"fp{i}" for i in range(n)]
         self.fast.add_points(coords, ids=ids)
         
