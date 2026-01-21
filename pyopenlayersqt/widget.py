@@ -137,7 +137,7 @@ class OLMapWidget(QWebEngineView):
     """
 
     # Default initial view settings
-    DEFAULT_CENTER = (0.0, 0.0)
+    DEFAULT_CENTER = (0.0, 0.0)  # (lat, lon) - centered at equator and prime meridian
     DEFAULT_ZOOM = 2
 
     selectionChanged = Signal(object)  # FeatureSelection
@@ -157,7 +157,7 @@ class OLMapWidget(QWebEngineView):
 
         Args:
             parent: Parent widget
-            center: Initial map center as (lat, lon) tuple. Defaults to (0, 0).
+            center: Initial map center as (lat, lon) tuple. Defaults to (0.0, 0.0).
             zoom: Initial zoom level. Defaults to 2.
         """
         super().__init__(parent)
