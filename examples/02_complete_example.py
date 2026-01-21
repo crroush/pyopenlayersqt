@@ -26,7 +26,7 @@ class MapWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("pyopenlayersqt Complete Example")
         
         # Create map widget centered on US West Coast at appropriate zoom
-        self.map_widget = OLMapWidget(center=(-120.0, 37.0), zoom=6)
+        self.map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
         
         # Add layers
         self.vector = self.map_widget.add_vector_layer("vector", selectable=True)
@@ -67,9 +67,9 @@ class MapWindow(QtWidgets.QMainWindow):
         self.map_widget.ready.connect(self.add_sample_data)
     
     def add_sample_data(self):
-        # Add a vector point
+        # Add a vector point (latitude, longitude)
         self.vector.add_points(
-            [(-122.4194, 37.7749)],
+            [(37.7749, -122.4194)],
             ids=["sf"],
             style=PointStyle(radius=8.0, fill_color="#ff3333")
         )
@@ -85,9 +85,9 @@ class MapWindow(QtWidgets.QMainWindow):
         # Add 10,000 fast points in the visible area
         rng = np.random.default_rng()
         n = 10000
-        lons = -125 + rng.random(n) * 10
         lats = 32 + rng.random(n) * 10
-        coords = list(zip(lons.tolist(), lats.tolist()))
+        lons = -125 + rng.random(n) * 10
+        coords = list(zip(lats.tolist(), lons.tolist()))
         ids = [f"fp{i}" for i in range(n)]
         self.fast.add_points(coords, ids=ids)
         

@@ -52,24 +52,25 @@ from pyopenlayersqt import (
 )
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
 
-LonLat = Tuple[float, float]
+LatLon = Tuple[float, float]
 
 
-def rand_in_extent(ext: dict, rng: np.random.Generator) -> LonLat:
+def rand_in_extent(ext: dict, rng: np.random.Generator) -> LatLon:
+    """Generate random coordinate in extent. Returns (lat, lon) for public API."""
     lon = float(ext["lon_min"]) + rng.random() * (
         float(ext["lon_max"]) - float(ext["lon_min"])
     )
     lat = float(ext["lat_min"]) + rng.random() * (
         float(ext["lat_max"]) - float(ext["lat_min"])
     )
-    return lon, lat
+    return lat, lon  # Return lat,lon for public API
 
 
 def random_polygon_in_extent(
     ext: dict, rng: np.random.Generator, n: int = 10
-) -> List[LonLat]:
-    """Return a simple (non-self-intersecting) ring inside extent."""
-    lon0, lat0 = rand_in_extent(ext, rng)
+) -> List[LatLon]:
+    """Return a simple (non-self-intersecting) ring inside extent as (lat, lon) tuples."""
+    lat0, lon0 = rand_in_extent(ext, rng)
     # Use a small radius in degrees based on extent size.
     dx = float(ext["lon_max"]) - float(ext["lon_min"])
     dy = float(ext["lat_max"]) - float(ext["lat_min"])
@@ -77,7 +78,7 @@ def random_polygon_in_extent(
     angles = np.sort(rng.random(max(4, n)) * (2.0 * np.pi))
     radii = (0.35 + 0.65 * rng.random(len(angles))) * r0
     ring = [
-        (lon0 + float(np.cos(a) * r), lat0 + float(np.sin(a) * r))
+        (lat0 + float(np.sin(a) * r), lon0 + float(np.cos(a) * r))
         for a, r in zip(angles, radii)
     ]
     if ring[0] != ring[-1]:
@@ -92,7 +93,7 @@ def build_heatmap_png_bytes(
     n_points: int = 250,
     grid_size: int = 512,
     colormap: str = "viridis",
-    irregular_mask_ring: Optional[List[LonLat]] = None,
+    irregular_mask_ring: Optional[List[LatLon]] = None,
 ) -> bytes:
     """Simple IDW heatmap rendered to PNG RGBA bytes."""
     lon_min, lon_max = float(ext["lon_min"]), float(ext["lon_max"])
@@ -124,7 +125,9 @@ def build_heatmap_png_bytes(
 
     if irregular_mask_ring is not None and len(irregular_mask_ring) >= 4:
         pts = np.column_stack([grid_lon.ravel(), grid_lat.ravel()])
-        poly = MplPath(np.asarray(irregular_mask_ring, dtype=np.float64))
+        # Convert mask ring from (lat, lon) to (lon, lat) for matplotlib Path
+        ring_lonlat = [(lon, lat) for lat, lon in irregular_mask_ring]
+        poly = MplPath(np.asarray(ring_lonlat, dtype=np.float64))
         inside = poly.contains_points(pts).reshape((grid_size, grid_size))
         rgba[~inside, 3] = 0
 
@@ -611,8 +614,8 @@ class ShowcaseWindow(QMainWindow):
         )
 
         bounds = [
-            (float(ext["lon_min"]), float(ext["lat_min"])),
-            (float(ext["lon_max"]), float(ext["lat_max"])),
+            (float(ext["lat_min"]), float(ext["lon_min"])),
+            (float(ext["lat_max"]), float(ext["lon_max"])),
         ]
 
         op = self._heatmap_opacity_value()
@@ -707,9 +710,9 @@ class ShowcaseWindow(QMainWindow):
     # ---- vector actions ----
     def _add_vector_point(self) -> None:
         ext = self._require_extent()
-        lon, lat = rand_in_extent(ext, self._rng)
+        lat, lon = rand_in_extent(ext, self._rng)
         fid = f"pt_{int(time.time()*1000)}"
-        self.vector.add_points([(lon, lat)], ids=[fid], style=self._point_style())
+        self.vector.add_points([(lat, lon)], ids=[fid], style=self._point_style())
         self.tablew.append_rows(
             [
                 {
@@ -725,11 +728,11 @@ class ShowcaseWindow(QMainWindow):
 
     def _add_vector_circle(self) -> None:
         ext = self._require_extent()
-        lon, lat = rand_in_extent(ext, self._rng)
+        lat, lon = rand_in_extent(ext, self._rng)
         fid = f"circle_{int(time.time()*1000)}"
         radius_m = 250.0 + 1500.0 * self._rng.random()
         self.vector.add_circle(
-            (lon, lat), radius_m, feature_id=fid, style=self._circle_style()
+            (lat, lon), radius_m, feature_id=fid, style=self._circle_style()
         )
         self.tablew.append_rows(
             [
@@ -746,7 +749,7 @@ class ShowcaseWindow(QMainWindow):
 
     def _add_vector_ellipse(self) -> None:
         ext = self._require_extent()
-        lon, lat = rand_in_extent(ext, self._rng)
+        lat, lon = rand_in_extent(ext, self._rng)
         fid = f"ell_{int(time.time()*1000)}"
         if self.ellipse_random.isChecked():
             sma = 400.0 + 2500.0 * self._rng.random()
@@ -760,7 +763,7 @@ class ShowcaseWindow(QMainWindow):
             smi = float(self.ellipse_smi.value())
             tilt = float(self.ellipse_tilt.value())
         self.vector.add_ellipse(
-            (lon, lat),
+            (lat, lon),
             sma,
             smi,
             tilt,
@@ -839,7 +842,7 @@ class ShowcaseWindow(QMainWindow):
         lat_min, lat_max = float(ext["lat_min"]), float(ext["lat_max"])
         lons = lon_min + self._rng.random(n) * (lon_max - lon_min)
         lats = lat_min + self._rng.random(n) * (lat_max - lat_min)
-        coords = list(zip(lons.tolist(), lats.tolist()))
+        coords = list(zip(lats.tolist(), lons.tolist()))  # (lat, lon) for public API
         ids = [f"fp{i}" for i in range(n)]
         colors = None
         if self.fast_color_mode.currentIndex() == 1:
@@ -867,7 +870,7 @@ class ShowcaseWindow(QMainWindow):
         lat_min, lat_max = float(ext["lat_min"]), float(ext["lat_max"])
         lons = lon_min + self._rng.random(n) * (lon_max - lon_min)
         lats = lat_min + self._rng.random(n) * (lat_max - lat_min)
-        coords = list(zip(lons.tolist(), lats.tolist()))
+        coords = list(zip(lats.tolist(), lons.tolist()))  # (lat, lon) for public API
         sma_min, sma_max = float(self.fgp_sma_min.value()), float(
             self.fgp_sma_max.value()
         )
