@@ -30,6 +30,15 @@ const state = {
     dragBox: null,
     base_layer: null,
     viewInteracting: false,
+    // Measurement mode state
+    measureMode: false,
+    measurePoints: [],       // Array of [lon, lat] coordinates
+    measureLayer: null,      // Vector layer for measurement features
+    measureSource: null,     // Vector source for measurement features
+    measureOverlay: null,    // Tooltip overlay
+    measurePointerMoveKey: null,  // Event listener key for map event
+    measureClickKey: null,   // Event listener key for map event
+    measureKeyDownKey: null, // Flag for keydown event listener (true/false)
   };
 
 
@@ -777,6 +786,332 @@ function fp_install_interactions() {
 }
 function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
 
+// ---- Measurement Mode Functions ----
+
+// Calculate geodesic distance using Haversine formula
+function geodesicDistance(lon1, lat1, lon2, lat2) {
+  const R = 6371000; // Earth's radius in meters
+  const phi1 = lat1 * Math.PI / 180;
+  const phi2 = lat2 * Math.PI / 180;
+  const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+  const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+            Math.cos(phi1) * Math.cos(phi2) *
+            Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // Distance in meters
+}
+
+// Format distance for display
+function formatDistance(meters) {
+  if (meters < 1000) {
+    return meters.toFixed(1) + ' m';
+  } else if (meters < 100000) {
+    return (meters / 1000).toFixed(2) + ' km';
+  } else {
+    return (meters / 1000).toFixed(0) + ' km';
+  }
+}
+
+function initMeasurementLayer() {
+  if (state.measureSource) return; // Already initialized
+  
+  state.measureSource = new ol.source.Vector();
+  state.measureLayer = new ol.layer.Vector({
+    source: state.measureSource,
+    style: new ol.style.Style({
+      stroke: new ol.style.Stroke({
+        color: 'rgba(255, 0, 0, 0.8)',
+        width: 2,
+        lineDash: [10, 5]
+      }),
+      fill: new ol.style.Fill({
+        color: 'rgba(255, 0, 0, 0.1)'
+      }),
+      image: new ol.style.Circle({
+        radius: 5,
+        fill: new ol.style.Fill({
+          color: 'rgba(255, 0, 0, 0.8)'
+        }),
+        stroke: new ol.style.Stroke({
+          color: 'rgba(255, 255, 255, 0.8)',
+          width: 2
+        })
+      })
+    }),
+    zIndex: 1000 // Ensure measurement layer is on top
+  });
+  
+  if (state.map) {
+    state.map.addLayer(state.measureLayer);
+  }
+  
+  // Create tooltip overlay
+  const tooltipElement = document.createElement('div');
+  tooltipElement.className = 'ol-tooltip ol-tooltip-measure';
+  tooltipElement.style.cssText = 'position: absolute; background-color: rgba(0, 0, 0, 0.7); color: white; padding: 6px 10px; border-radius: 4px; font-size: 12px; white-space: nowrap; pointer-events: none;';
+  
+  state.measureOverlay = new ol.Overlay({
+    element: tooltipElement,
+    offset: [0, -15],
+    positioning: 'bottom-center',
+    stopEvent: false
+  });
+  
+  if (state.map) {
+    state.map.addOverlay(state.measureOverlay);
+  }
+}
+
+function updateMeasurementTooltip(coord3857, segmentDistance, cumulativeDistance) {
+  if (!state.measureOverlay) return;
+  
+  const element = state.measureOverlay.getElement();
+  if (!element) return;
+  
+  let html = '';
+  if (segmentDistance !== null) {
+    html += '<div>Segment: ' + formatDistance(segmentDistance) + '</div>';
+  }
+  if (cumulativeDistance !== null) {
+    html += '<div>Total: ' + formatDistance(cumulativeDistance) + '</div>';
+  }
+  
+  element.innerHTML = html;
+  state.measureOverlay.setPosition(coord3857);
+}
+
+function calculateMeasurementDistances(mouseCoord) {
+  if (state.measurePoints.length === 0) {
+    return { segment: null, cumulative: null };
+  }
+  
+  const lastPoint = state.measurePoints[state.measurePoints.length - 1];
+  const segmentDistance = geodesicDistance(
+    lastPoint[0], lastPoint[1],
+    mouseCoord[0], mouseCoord[1]
+  );
+  
+  let cumulativeDistance = 0;
+  for (let i = 0; i < state.measurePoints.length - 1; i++) {
+    cumulativeDistance += geodesicDistance(
+      state.measurePoints[i][0], state.measurePoints[i][1],
+      state.measurePoints[i + 1][0], state.measurePoints[i + 1][1]
+    );
+  }
+  cumulativeDistance += segmentDistance;
+  
+  return { segment: segmentDistance, cumulative: cumulativeDistance };
+}
+
+function updateMeasurementGeometry(mouseCoord3857) {
+  if (!state.measureSource) return;
+  
+  // Clear previous temp geometry
+  state.measureSource.getFeatures().forEach(feature => {
+    if (feature.get('_temp')) {
+      state.measureSource.removeFeature(feature);
+    }
+  });
+  
+  if (state.measurePoints.length === 0) return;
+  
+  // Draw line from last point to mouse cursor
+  const lastPoint = state.measurePoints[state.measurePoints.length - 1];
+  const lastPoint3857 = lonlat_to_3857(lastPoint[0], lastPoint[1]);
+  
+  const lineFeature = new ol.Feature({
+    geometry: new ol.geom.LineString([lastPoint3857, mouseCoord3857]),
+    _temp: true
+  });
+  
+  state.measureSource.addFeature(lineFeature);
+}
+
+function onMeasurementPointerMove(evt) {
+  if (!state.measureMode) return;
+  
+  const coord3857 = evt.coordinate;
+  const coord = ol.proj.toLonLat(coord3857);
+  
+  updateMeasurementGeometry(coord3857);
+  
+  const distances = calculateMeasurementDistances(coord);
+  updateMeasurementTooltip(coord3857, distances.segment, distances.cumulative);
+}
+
+function onMeasurementClick(evt) {
+  if (!state.measureMode) return;
+  
+  const coord3857 = evt.coordinate;
+  const coord = ol.proj.toLonLat(coord3857); // [lon, lat]
+  
+  // Add point marker
+  const pointFeature = new ol.Feature({
+    geometry: new ol.geom.Point(coord3857),
+    _permanent: true
+  });
+  state.measureSource.addFeature(pointFeature);
+  
+  // Calculate distances
+  let segmentDistance = null;
+  let cumulativeDistance = 0;
+  
+  if (state.measurePoints.length > 0) {
+    const lastPoint = state.measurePoints[state.measurePoints.length - 1];
+    segmentDistance = geodesicDistance(
+      lastPoint[0], lastPoint[1],
+      coord[0], coord[1]
+    );
+    
+    // Calculate cumulative distance
+    for (let i = 0; i < state.measurePoints.length - 1; i++) {
+      cumulativeDistance += geodesicDistance(
+        state.measurePoints[i][0], state.measurePoints[i][1],
+        state.measurePoints[i + 1][0], state.measurePoints[i + 1][1]
+      );
+    }
+    cumulativeDistance += segmentDistance;
+    
+    // Draw permanent line from previous point to new point
+    const lastPoint3857 = lonlat_to_3857(lastPoint[0], lastPoint[1]);
+    const lineFeature = new ol.Feature({
+      geometry: new ol.geom.LineString([lastPoint3857, coord3857]),
+      _permanent: true
+    });
+    state.measureSource.addFeature(lineFeature);
+  }
+  
+  // Add point to measurement
+  state.measurePoints.push(coord);
+  
+  // Emit event to Python
+  emitToPython('measurement', {
+    segment_distance_m: segmentDistance,
+    cumulative_distance_m: cumulativeDistance,
+    lon: coord[0],
+    lat: coord[1],
+    point_index: state.measurePoints.length - 1
+  });
+}
+
+function onMeasurementKeyDown(evt) {
+  if (!state.measureMode) return;
+  
+  // Exit measurement mode on Escape key
+  if (evt.key === 'Escape' || evt.keyCode === 27) {
+    setMeasureMode(false);
+    evt.preventDefault();
+  }
+}
+
+function setMeasureMode(enabled) {
+  if (!state.map) return;
+  
+  // Initialize measurement layer if needed
+  if (enabled && !state.measureSource) {
+    initMeasurementLayer();
+  }
+  
+  state.measureMode = enabled;
+  
+  if (enabled) {
+    // Reset measurement state
+    state.measurePoints = [];
+    
+    // Hide tooltip initially
+    if (state.measureOverlay) {
+      state.measureOverlay.setPosition(undefined);
+    }
+    
+    // Add event listeners
+    state.measurePointerMoveKey = state.map.on('pointermove', onMeasurementPointerMove);
+    state.measureClickKey = state.map.on('singleclick', onMeasurementClick);
+    // For keydown, just set a flag since addEventListener returns undefined
+    document.addEventListener('keydown', onMeasurementKeyDown);
+    state.measureKeyDownKey = true; // Flag to track if listener is active
+    
+    // Disable selection interactions while measuring
+    if (state.selectInteraction) {
+      state.selectInteraction.setActive(false);
+    }
+    if (state.dragBox) {
+      state.dragBox.setActive(false);
+    }
+    
+    // Change cursor
+    if (state.map.getTargetElement()) {
+      state.map.getTargetElement().style.cursor = 'crosshair';
+    }
+  } else {
+    // Remove event listeners
+    if (state.measurePointerMoveKey) {
+      ol.Observable.unByKey(state.measurePointerMoveKey);
+      state.measurePointerMoveKey = null;
+    }
+    if (state.measureClickKey) {
+      ol.Observable.unByKey(state.measureClickKey);
+      state.measureClickKey = null;
+    }
+    if (state.measureKeyDownKey) {
+      document.removeEventListener('keydown', onMeasurementKeyDown);
+      state.measureKeyDownKey = null;
+    }
+    
+    // Re-enable selection interactions
+    if (state.selectInteraction) {
+      state.selectInteraction.setActive(true);
+    }
+    if (state.dragBox) {
+      state.dragBox.setActive(true);
+    }
+    
+    // Reset cursor
+    if (state.map.getTargetElement()) {
+      state.map.getTargetElement().style.cursor = '';
+    }
+    
+    // Hide tooltip
+    if (state.measureOverlay) {
+      state.measureOverlay.setPosition(undefined);
+    }
+    
+    // Remove temp features
+    if (state.measureSource) {
+      state.measureSource.getFeatures().forEach(feature => {
+        if (feature.get('_temp')) {
+          state.measureSource.removeFeature(feature);
+        }
+      });
+    }
+  }
+}
+
+function clearMeasurements() {
+  state.measurePoints = [];
+  
+  if (state.measureSource) {
+    state.measureSource.clear();
+  }
+  
+  if (state.measureOverlay) {
+    state.measureOverlay.setPosition(undefined);
+  }
+}
+
+function cmd_measure_set_mode(msg) {
+  setMeasureMode(!!msg.enabled);
+}
+
+function cmd_measure_clear(msg) {
+  clearMeasurements();
+}
+
+// ---- End Measurement Mode Functions ----
+
+
   function extent_from_bounds(boundsLonLat) {
     const a = boundsLonLat[0], b = boundsLonLat[1];
     const minLon = Math.min(a[0], b[0]);
@@ -1146,6 +1481,10 @@ function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
     case "map.set_view": return cmd_map_set_view(msg);
       case "map.base.opacity": return cmd_map_base_opacity(msg);
     case "map.set_extent_watch": return cmd_map_set_extent_watch(msg);
+
+    // --- Measurement Mode ---
+    case "measure.set_mode": return cmd_measure_set_mode(msg);
+    case "measure.clear": return cmd_measure_clear(msg);
 
     // --- FastPoints ---
     case "fast_points.add_layer": return cmd_fast_points_add_layer(msg);
