@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from .models import (
     CircleStyle,
     EllipseStyle,
-    LonLat,
+    LatLon,
     PointStyle,
     PolygonStyle,
     RasterStyle,
@@ -49,11 +49,19 @@ class VectorLayer(BaseLayer):
 
     def add_points(
         self,
-        coords: Sequence[LonLat],
+        coords: Sequence[LatLon],
         ids: Optional[Sequence[str]] = None,
         style: Optional[PointStyle] = None,
         properties: Optional[Sequence[Dict[str, Any]]] = None,
     ) -> None:
+        """Add point features to the layer.
+        
+        Args:
+            coords: Sequence of (lat, lon) tuples for each point.
+            ids: Optional sequence of feature IDs. Auto-generated if not provided.
+            style: Point styling. Uses default if not provided.
+            properties: Optional properties dict for each point.
+        """
         style = style or PointStyle()
         ids = list(ids) if ids is not None else [f"pt{i}" for i in range(len(coords))]
         props = (
@@ -61,11 +69,12 @@ class VectorLayer(BaseLayer):
             if properties is not None
             else [{} for _ in range(len(coords))]
         )
+        # Swap lat,lon (public API) to lon,lat (internal format)
         self._w._send(
             {
                 "type": "vector.add_points",
                 "layer_id": self.id,
-                "coords": [[float(lon), float(lat)] for (lon, lat) in coords],
+                "coords": [[float(lon), float(lat)] for (lat, lon) in coords],
                 "ids": list(ids),
                 "style": style.to_js(),
                 "properties": props,
@@ -74,17 +83,26 @@ class VectorLayer(BaseLayer):
 
     def add_polygon(
         self,
-        ring: Sequence[LonLat],
+        ring: Sequence[LatLon],
         feature_id: str = "poly0",
         style: Optional[PolygonStyle] = None,
         properties: Optional[Dict[str, Any]] = None,
     ) -> None:
+        """Add a polygon feature to the layer.
+        
+        Args:
+            ring: Sequence of (lat, lon) tuples defining the polygon boundary.
+            feature_id: ID for this polygon feature.
+            style: Polygon styling. Uses default if not provided.
+            properties: Optional properties dict for this feature.
+        """
         style = style or PolygonStyle()
+        # Swap lat,lon (public API) to lon,lat (internal format)
         self._w._send(
             {
                 "type": "vector.add_polygon",
                 "layer_id": self.id,
-                "ring": [[float(lon), float(lat)] for (lon, lat) in ring],
+                "ring": [[float(lon), float(lat)] for (lat, lon) in ring],
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},
@@ -93,19 +111,31 @@ class VectorLayer(BaseLayer):
 
     def add_circle(
         self,
-        center: LonLat,
+        center: LatLon,
         radius_m: float,
         feature_id: str = "circle0",
         style: Optional[CircleStyle] = None,
         properties: Optional[Dict[str, Any]] = None,
         segments: int = 72,
     ) -> None:
+        """Add a circle feature to the layer.
+        
+        Args:
+            center: Center point as (lat, lon) tuple.
+            radius_m: Radius in meters.
+            feature_id: ID for this circle feature.
+            style: Circle styling. Uses default if not provided.
+            properties: Optional properties dict for this feature.
+            segments: Number of segments to approximate the circle.
+        """
         style = style or CircleStyle()
+        # Swap lat,lon (public API) to lon,lat (internal format)
+        lat, lon = center
         self._w._send(
             {
                 "type": "vector.add_circle",
                 "layer_id": self.id,
-                "center": [float(center[0]), float(center[1])],
+                "center": [float(lon), float(lat)],
                 "radius_m": float(radius_m),
                 "id": feature_id,
                 "style": style.to_js(),
@@ -116,25 +146,26 @@ class VectorLayer(BaseLayer):
 
     def add_line(
         self,
-        coords: Sequence[LonLat],
+        coords: Sequence[LatLon],
         feature_id: str = "line0",
         style: Optional[PolygonStyle] = None,
         properties: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """
-        Add a polyline (non-closed) feature to this vector layer.
+        """Add a polyline (non-closed) feature to this vector layer.
 
-        coords: sequence of (lon, lat) tuples describing the line vertices in order.
-        feature_id: the feature id to assign.
-        style: a PolygonStyle (uses stroke_* attributes) or None for defaults.
-        properties: optional dict of properties to attach to the feature.
+        Args:
+            coords: Sequence of (lat, lon) tuples describing the line vertices in order.
+            feature_id: The feature ID to assign.
+            style: A PolygonStyle (uses stroke_* attributes) or None for defaults.
+            properties: Optional dict of properties to attach to the feature.
         """
         style = style or PolygonStyle()
+        # Swap lat,lon (public API) to lon,lat (internal format)
         self._w._send(
             {
                 "type": "vector.add_line",
                 "layer_id": self.id,
-                "coords": [[float(lon), float(lat)] for (lon, lat) in coords],
+                "coords": [[float(lon), float(lat)] for (lat, lon) in coords],
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},
@@ -143,7 +174,7 @@ class VectorLayer(BaseLayer):
 
     def add_ellipse(
         self,
-        center: LonLat,
+        center: LatLon,
         sma_m: float,
         smi_m: float,
         tilt_deg: float,
@@ -152,12 +183,26 @@ class VectorLayer(BaseLayer):
         properties: Optional[Dict[str, Any]] = None,
         segments: int = 96,
     ) -> None:
+        """Add an ellipse feature to the layer.
+        
+        Args:
+            center: Center point as (lat, lon) tuple.
+            sma_m: Semi-major axis in meters.
+            smi_m: Semi-minor axis in meters.
+            tilt_deg: Tilt angle in degrees clockwise from true north.
+            feature_id: ID for this ellipse feature.
+            style: Ellipse styling. Uses default if not provided.
+            properties: Optional properties dict for this feature.
+            segments: Number of segments to approximate the ellipse.
+        """
         style = style or EllipseStyle()
+        # Swap lat,lon (public API) to lon,lat (internal format)
+        lat, lon = center
         self._w._send(
             {
                 "type": "vector.add_ellipse",
                 "layer_id": self.id,
-                "center": [float(center[0]), float(center[1])],
+                "center": [float(lon), float(lat)],
                 "sma_m": float(sma_m),
                 "smi_m": float(smi_m),
                 "tilt_deg": float(tilt_deg),
@@ -184,8 +229,9 @@ class WMSLayer(BaseLayer):
 
 
 class RasterLayer(BaseLayer):
-    """
-    Image overlay layer (PNG served by the widget HTTP server).
+    """Image overlay layer (PNG served by the widget HTTP server).
+    
+    Bounds are specified as (lat, lon) tuples in the public API.
     """
 
     def __init__(
@@ -193,24 +239,31 @@ class RasterLayer(BaseLayer):
         widget: Any,
         layer_id: str,
         url: str,
-        bounds: List[LonLat],
+        bounds: List[LatLon],
         style: RasterStyle,
         name: str = "",
     ):
         super().__init__(widget, layer_id, name=name or layer_id)
         self.url = url
-        self.bounds = bounds  # [minLonLat, maxLonLat] or 4-corner ring (we use extent)
+        self.bounds = bounds  # [(lat, lon), (lat, lon)] - SW and NE corners
         self.style = style
 
-    def set_image(self, url: str, bounds: List[LonLat]) -> None:
+    def set_image(self, url: str, bounds: List[LatLon]) -> None:
+        """Update the raster image.
+        
+        Args:
+            url: URL or path to the image.
+            bounds: Two (lat, lon) tuples defining SW and NE corners.
+        """
         self.url = url
         self.bounds = bounds
+        # Swap lat,lon (public API) to lon,lat (internal format)
         self._w._send(
             {
                 "type": "raster.set_image",
                 "layer_id": self.id,
                 "url": url,
-                "bounds": [[float(lon), float(lat)] for lon, lat in bounds],
+                "bounds": [[float(lon), float(lat)] for lat, lon in bounds],
             }
         )
 
@@ -224,6 +277,8 @@ class FastPointsLayer:
 
     Backed by a JS-side spatial grid index + canvas renderer.
     No per-point ol.Feature objects.
+    
+    Coordinates are specified as (lat, lon) tuples in the public API.
     """
 
     def __init__(
@@ -239,10 +294,20 @@ class FastPointsLayer:
         ids: list[str] | None = None,
         colors_rgba: list[tuple[int, int, int, int]] | None = None,
     ) -> None:
+        """Add points to the layer.
+        
+        Args:
+            coords: List of (lat, lon) tuples for each point.
+            ids: Optional list of feature IDs. Auto-generated if not provided.
+            colors_rgba: Optional list of (r, g, b, a) tuples (0-255) for each point.
+        """
+        # Swap lat,lon (public API) to lon,lat (internal format)
+        coords_internal = [[lon, lat] for lat, lon in coords]
+        
         msg: dict = {
             "type": "fast_points.add_points",
             "layer_id": self.id,
-            "coords": coords,
+            "coords": coords_internal,
         }
         if ids is not None:
             msg["ids"] = ids
@@ -304,7 +369,7 @@ class FastGeoPointsLayer:
     """High-volume geolocation layer: points with attached uncertainty ellipses.
 
     Each point has:
-      - lon/lat
+      - lat/lon (specified as (lat, lon) tuple in public API)
       - sma_m, smi_m (meters)
       - tilt_deg clockwise from true north
 
@@ -327,6 +392,17 @@ class FastGeoPointsLayer:
         colors_rgba: list[tuple[int, int, int, int]] | None = None,
         chunk_size: int = 50000,
     ) -> None:
+        """Add points with uncertainty ellipses to the layer.
+        
+        Args:
+            coords: List of (lat, lon) tuples for each point.
+            sma_m: List of semi-major axis values in meters.
+            smi_m: List of semi-minor axis values in meters.
+            tilt_deg: List of tilt angles in degrees clockwise from true north.
+            ids: Optional list of feature IDs. Auto-generated if not provided.
+            colors_rgba: Optional list of (r, g, b, a) tuples (0-255) for each point.
+            chunk_size: Number of points per chunk to avoid large JSON payloads.
+        """
         if not (len(coords) == len(sma_m) == len(smi_m) == len(tilt_deg)):
             raise ValueError("coords/sma_m/smi_m/tilt_deg must have the same length")
 
@@ -340,10 +416,13 @@ class FastGeoPointsLayer:
 
         for start in range(0, n, chunk_size):
             end = min(n, start + chunk_size)
+            # Swap lat,lon (public API) to lon,lat (internal format)
+            coords_chunk = [[lon, lat] for lat, lon in coords[start:end]]
+            
             msg: dict = {
                 "type": "fast_geopoints.add_points",
                 "layer_id": self.id,
-                "coords": coords[start:end],
+                "coords": coords_chunk,
                 "sma_m": [float(x) for x in sma_m[start:end]],
                 "smi_m": [float(x) for x in smi_m[start:end]],
                 "tilt_deg": [float(x) for x in tilt_deg[start:end]],

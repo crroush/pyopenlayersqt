@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 Color = Union[str, Tuple[int, int, int], Tuple[int, int, int, int]]  # "#RRGGBB", "rgba(...)", or tuples
-LonLat = Tuple[float, float]  # (lon, lat)
+LatLon = Tuple[float, float]  # (lat, lon) - Public API uses latitude first
 
 
 def _color_to_css(c: Color, alpha: Optional[float] = None) -> str:
