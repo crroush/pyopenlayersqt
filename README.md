@@ -17,6 +17,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
 - **📊 Feature Table Widget**: High-performance table widget for displaying and managing features
 - **🔄 Bidirectional Sync**: Seamless selection synchronization between map and table
 - **📏 Distance Measurement**: Interactive measurement mode with geodesic distance calculations
+- **🎚️ Range Slider Widget**: Dual-handle range slider for filtering features by numeric or timestamp ranges
 
 ## Installation
 
@@ -490,6 +491,53 @@ def on_map_selection(selection):
 
 map_widget.selectionChanged.connect(on_map_selection)
 ```
+
+### RangeSliderWidget
+
+Dual-handle range slider for filtering features by numeric or timestamp ranges:
+
+```python
+from pyopenlayersqt.range_slider import RangeSliderWidget
+
+# Numeric range slider
+value_slider = RangeSliderWidget(
+    min_val=0.0,
+    max_val=100.0,
+    step=1.0,
+    label="Filter by Value"
+)
+
+# Connect to filter function
+def on_value_range_changed(min_val, max_val):
+    # Filter features based on value range
+    visible_ids = [f["id"] for f in features if min_val <= f["value"] <= max_val]
+    hidden_ids = [f["id"] for f in features if not (min_val <= f["value"] <= max_val)]
+    
+    # Hide/show features on map
+    layer.hide_features(hidden_ids)
+    layer.show_features(visible_ids)
+    
+    # Hide/show rows in table
+    table.hide_rows_by_keys([(layer_id, fid) for fid in hidden_ids])
+    table.show_rows_by_keys([(layer_id, fid) for fid in visible_ids])
+
+value_slider.rangeChanged.connect(on_value_range_changed)
+
+# ISO8601 timestamp range slider
+timestamps = ["2024-01-01T00:00:00Z", "2024-01-15T12:00:00Z", "2024-01-31T23:59:59Z"]
+timestamp_slider = RangeSliderWidget(
+    values=sorted(set(timestamps)),  # Unique sorted timestamps
+    label="Filter by Timestamp"
+)
+
+timestamp_slider.rangeChanged.connect(on_timestamp_range_changed)
+
+# Reset filters
+layer.show_all_features()  # Show all on map
+table.show_all_rows()      # Show all in table
+```
+
+See [examples/05_range_slider_filter.py](examples/05_range_slider_filter.py) for a complete working example with map and table filtering.
 
 ## Complete Example
 

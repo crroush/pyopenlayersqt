@@ -363,6 +363,39 @@ class FastPointsLayer:
             }
         )
 
+    def hide_features(self, feature_ids: Sequence[str]) -> None:
+        """Hide features by id (temporarily hide from view; can be unhidden)."""
+        fids = [str(x) for x in feature_ids]
+        self._mapw._send(
+            {
+                "type": "fast_points.hide_ids",
+                "layer_id": self.id,
+                "feature_ids": fids,
+                "ids": fids,
+            }
+        )
+
+    def show_features(self, feature_ids: Sequence[str]) -> None:
+        """Show previously hidden features by id."""
+        fids = [str(x) for x in feature_ids]
+        self._mapw._send(
+            {
+                "type": "fast_points.show_ids",
+                "layer_id": self.id,
+                "feature_ids": fids,
+                "ids": fids,
+            }
+        )
+
+    def show_all_features(self) -> None:
+        """Show all hidden features (reset filter)."""
+        self._mapw._send(
+            {
+                "type": "fast_points.show_all",
+                "layer_id": self.id,
+            }
+        )
+
 
 
 class FastGeoPointsLayer:
@@ -487,5 +520,38 @@ class FastGeoPointsLayer:
                 "type": "fast_geopoints.set_ellipses_visible",
                 "layer_id": self.id,
                 "visible": bool(visible),
+            }
+        )
+
+    def hide_features(self, feature_ids: Sequence[str]) -> None:
+        """Hide features by id (temporarily hide from view; can be unhidden)."""
+        fids = [str(x) for x in feature_ids]
+        self._mapw._send(
+            {
+                "type": "fast_geopoints.hide_ids",
+                "layer_id": self.id,
+                "feature_ids": fids,
+                "ids": fids,
+            }
+        )
+
+    def show_features(self, feature_ids: Sequence[str]) -> None:
+        """Show previously hidden features by id."""
+        fids = [str(x) for x in feature_ids]
+        self._mapw._send(
+            {
+                "type": "fast_geopoints.show_ids",
+                "layer_id": self.id,
+                "feature_ids": fids,
+                "ids": fids,
+            }
+        )
+
+    def show_all_features(self) -> None:
+        """Show all hidden features (reset filter)."""
+        self._mapw._send(
+            {
+                "type": "fast_geopoints.show_all",
+                "layer_id": self.id,
             }
         )
