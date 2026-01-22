@@ -10,6 +10,7 @@ Key goals:
   - Column schema is configurable (no hard-coded column names).
   - Row objects can be any Python objects (dataclass, dict, custom class).
   - Efficient selection sync with debounced user selection signal.
+  - Sortable columns with support for timestamps, numbers, and strings.
 
 Typical usage:
 
@@ -21,6 +22,7 @@ Typical usage:
             ColumnSpec("Lat", lambda r: r.center_lat, fmt=lambda v: f"{v:.6f}"),
             ColumnSpec("Lon", lambda r: r.center_lon, fmt=lambda v: f"{v:.6f}"),
         ],
+        sorting_enabled=True,  # Enable sorting (default)
     )
 
     table.append_rows(rows_iterable)
@@ -30,6 +32,9 @@ Typical usage:
 
     # map -> table selection
     table.select_keys([(layer_id, feature_id), ...])
+    
+    # Disable sorting if needed
+    table.set_sorting_enabled(False)
 
 Google-style docstrings + PEP8.
 """
@@ -65,6 +70,8 @@ class ColumnSpec:
     getter: ValueGetter
     fmt: Optional[ValueFormatter] = None
     tooltip: Optional[Callable[[Any], str]] = None
+    sortable: bool = True
+    sort_key: Optional[Callable[[Any], Any]] = None
 
 
 class ConfigurableTableModel(QtCore.QAbstractTableModel):
@@ -81,6 +88,8 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._rows: List[Any] = []
         self._key_fn: KeyFn = key_fn
         self._row_by_key: Dict[FeatureKey, int] = {}
+        self._sort_column: int = -1
+        self._sort_order: Qt.SortOrder = Qt.AscendingOrder
 
     def rowCount(
         self, parent: QtCore.QModelIndex = QtCore.QModelIndex()
@@ -212,6 +221,74 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
             return None
         return self._rows[row_index]
 
+    def sort(self, column: int, order: Qt.SortOrder = Qt.AscendingOrder) -> None:  # noqa: N802
+        """Sort the table by the given column."""
+        if column < 0 or column >= len(self._columns):
+            return
+
+        col_spec = self._columns[column]
+        if not col_spec.sortable:
+            return
+
+        self._sort_column = column
+        self._sort_order = order
+
+        # Create a sort key function that handles various data types
+        def make_sort_key(row: Any) -> Any:
+            try:
+                value = col_spec.getter(row)
+                # Use custom sort_key if provided
+                if col_spec.sort_key is not None:
+                    return col_spec.sort_key(value)
+                # Handle None values - sort them to the end
+                if value is None:
+                    return (1, "")
+                # Try to convert to comparable types
+                # For numeric strings or actual numbers
+                try:
+                    return (0, float(value))
+                except (ValueError, TypeError):
+                    pass
+                # For strings (including ISO8601 timestamps)
+                return (0, str(value))
+            except Exception:
+                # If getter fails, sort to end
+                return (1, "")
+
+        self.layoutAboutToBeChanged.emit()
+        
+        # Store the persistent indexes before sorting
+        persistent_indexes = self.persistentIndexList()
+        old_rows = self._rows[:]
+        
+        # Sort the rows
+        reverse = (order == Qt.DescendingOrder)
+        self._rows.sort(key=make_sort_key, reverse=reverse)
+        
+        # Rebuild the key mapping
+        self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        
+        # Update persistent indexes
+        new_indexes = []
+        for old_index in persistent_indexes:
+            if not old_index.isValid():
+                new_indexes.append(old_index)
+                continue
+            old_row = old_index.row()
+            if old_row < 0 or old_row >= len(old_rows):
+                new_indexes.append(old_index)
+                continue
+            # Find the new position of this row
+            row_obj = old_rows[old_row]
+            try:
+                new_row = self._rows.index(row_obj)
+                new_indexes.append(self.index(new_row, old_index.column()))
+            except ValueError:
+                new_indexes.append(old_index)
+        
+        self.changePersistentIndexList(persistent_indexes, new_indexes)
+        self.layoutChanged.emit()
+
 
 class FeatureTableWidget(QWidget):
     """A reusable, configurable table widget."""
@@ -225,6 +302,7 @@ class FeatureTableWidget(QWidget):
         columns: Optional[Sequence[ColumnSpec]] = None,
         key_fn: Optional[KeyFn] = None,
         debounce_ms: int = 90,
+        sorting_enabled: bool = True,
     ) -> None:
         super().__init__(parent)
 
@@ -281,7 +359,7 @@ class FeatureTableWidget(QWidget):
         self.table.setModel(self.model)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.table.setSortingEnabled(False)
+        self.table.setSortingEnabled(sorting_enabled)
         self.table.setWordWrap(False)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
@@ -299,6 +377,10 @@ class FeatureTableWidget(QWidget):
     ) -> None:
         """Update table schema."""
         self.model.set_schema(columns=columns, key_fn=key_fn)
+
+    def set_sorting_enabled(self, enabled: bool) -> None:
+        """Enable or disable sorting on the table."""
+        self.table.setSortingEnabled(enabled)
 
     def clear(self) -> None:
         self.model.clear()
