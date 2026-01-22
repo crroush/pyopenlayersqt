@@ -889,12 +889,20 @@ function geodesicDistance(lon1, lat1, lon2, lat2) {
 // Generate intermediate points along a great-circle path
 // Returns array of [lon, lat] coordinates including start and end points
 function interpolateGeodesicLine(lon1, lat1, lon2, lat2, numSegments = null) {
+  // Segment distance threshold for determining number of interpolation segments
+  const SEGMENT_DISTANCE_METERS = 100000; // 100 km
+  
   // Calculate distance to determine number of segments if not provided
   const distance = geodesicDistance(lon1, lat1, lon2, lat2);
   
+  // Handle very short distances - just return start and end points
+  if (distance < 1.0) {
+    return [[lon1, lat1], [lon2, lat2]];
+  }
+  
   // Use one segment per ~100km for smooth curves, minimum 1, maximum 100
   if (numSegments === null) {
-    numSegments = Math.max(1, Math.min(100, Math.floor(distance / 100000)));
+    numSegments = Math.max(1, Math.min(100, Math.floor(distance / SEGMENT_DISTANCE_METERS)));
   }
   
   const points = [];
@@ -907,6 +915,12 @@ function interpolateGeodesicLine(lon1, lat1, lon2, lat2, numSegments = null) {
   
   // Calculate angular distance
   const d = distance / 6371000; // Angular distance in radians
+  
+  // Handle very small angular distances - just return start and end points
+  // This prevents division by zero in slerp calculation
+  if (d < 1e-10) {
+    return [[lon1, lat1], [lon2, lat2]];
+  }
   
   for (let i = 0; i <= numSegments; i++) {
     const f = i / numSegments;
