@@ -179,7 +179,7 @@ function fp_index_insert(entry, i) {
   arr.push(i);
 }
 
-function fp_query_extent(entry, extent) {
+function fp_query_extent(entry, extent, resolution) {
   const cs = entry.cellSize;
   const min_ix = Math.floor(extent[0] / cs);
   const max_ix = Math.floor(extent[2] / cs);
@@ -187,19 +187,52 @@ function fp_query_extent(entry, extent) {
   const max_iy = Math.floor(extent[3] / cs);
   
   // Performance optimization: limit cell iteration for zoomed-out views
-  // If extent covers too many cells, just return all points
+  // If extent covers too many cells, use decimation strategy
   const cellsX = max_ix - min_ix + 1;
   const cellsY = max_iy - min_iy + 1;
   const totalCells = cellsX * cellsY;
   
-  // If we'd check more than 1000 cells, it's faster to just iterate all points
+  // If we'd check more than 1000 cells, use smart decimation
   if (totalCells > 1000) {
     const out = [];
+    // LOD: Skip points based on resolution to avoid rendering points closer than ~2.5px
+    // This dramatically reduces point count in zoomed-out views
+    const skipThreshold = resolution ? resolution * 2.5 : 0;
+    const skipThresholdSq = skipThreshold * skipThreshold;
+    
+    // For very large extents, use grid-based sampling for better spatial distribution
+    if (totalCells > 5000 && skipThreshold > 0) {
+      // Sample grid cells instead of all cells - much faster
+      const sampleRate = Math.max(1, Math.floor(Math.sqrt(totalCells / 1000)));
+      for (let ix = min_ix; ix <= max_ix; ix += sampleRate) {
+        for (let iy = min_iy; iy <= max_iy; iy += sampleRate) {
+          const arr = entry.grid.get(fp_cell_key(ix, iy));
+          if (!arr) continue;
+          for (let j = 0; j < arr.length; j++) {
+            const i = arr[j];
+            if (entry.deleted[i]) continue;
+            out.push(i);
+          }
+        }
+      }
+      return out;
+    }
+    
+    // Standard large-extent query with optional LOD decimation
+    let lastX = -Infinity, lastY = -Infinity;
     for (let i = 0; i < entry.x.length; i++) {
       if (entry.deleted[i]) continue;
       const x = entry.x[i];
       const y = entry.y[i];
       if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) {
+        // LOD: Skip points too close to last rendered point
+        if (skipThreshold > 0) {
+          const dx = x - lastX;
+          const dy = y - lastY;
+          if (dx*dx + dy*dy < skipThresholdSq) continue;
+          lastX = x;
+          lastY = y;
+        }
         out.push(i);
       }
     }
@@ -221,7 +254,8 @@ function fp_query_extent(entry, extent) {
 function fp_pick_nearest(entry, coord3857, radius_m) {
   const r = radius_m;
   const ext = [coord3857[0]-r, coord3857[1]-r, coord3857[0]+r, coord3857[1]+r];
-  const cand = fp_query_extent(entry, ext);
+  // No LOD for selection - use all points within radius
+  const cand = fp_query_extent(entry, ext, null);
   let best = -1;
   let bestd2 = r*r;
   for (let k = 0; k < cand.length; k++) {
@@ -271,7 +305,8 @@ function fp_make_canvas_layer(entry) {
       const scaleY = canvas.height / (extent[3] - extent[1]);
 
       const queryStart = performance.now();
-      const cand = fp_query_extent(entry, extent);
+      // Pass resolution for LOD/decimation in zoomed-out views
+      const cand = fp_query_extent(entry, extent, resolution);
       const queryTime = performance.now() - queryStart;
 
       const defCss = rgba_to_css(entry.style.default_rgba);
@@ -533,7 +568,8 @@ function fgp_make_canvas_layer(entry) {
       const scaleX = canvas.width / (extent[2] - extent[0]);
       const scaleY = canvas.height / (extent[3] - extent[1]);
 
-      const cand = fp_query_extent(entry, extent);
+      // Pass resolution for LOD/decimation in zoomed-out views
+      const cand = fp_query_extent(entry, extent, resolution);
 
       const TAU = Math.PI * 2;
 
@@ -551,6 +587,10 @@ function fgp_make_canvas_layer(entry) {
         const fillEll = !!st.fill_ellipses;
         const fillCss = rgba_to_css(st.ellipse_fill_rgba || [255,204,0,40]);
 
+        // LOD: For extremely zoomed-out views with many candidates, reduce ellipse density
+        // This prevents rendering thousands of overlapping ellipses
+        const ellipseLOD = (cand.length > 5000) ? Math.ceil(cand.length / 5000) : 1;
+
         // Unselected first
         ctx.lineWidth = strokeW;
         ctx.strokeStyle = strokeCss;
@@ -558,6 +598,9 @@ function fgp_make_canvas_layer(entry) {
         let nInPath = 0;
         ctx.beginPath();
         for (let k = 0; k < cand.length; k++) {
+          // LOD: Skip some ellipses in zoomed-out views to reduce draw calls
+          if (ellipseLOD > 1 && k % ellipseLOD !== 0) continue;
+          
           const i = cand[k];
           if (entry.deleted[i] || entry.hidden[i]) continue;
           const fid = entry.ids[i];
@@ -852,7 +895,8 @@ function fp_install_interactions() {
     const extent = dragBox.getGeometry().getExtent();
     for (const [layer_id, entry] of state.layers.entries()) {
       if ((entry.type !== "fast_points" && entry.type !== "fast_geopoints") || !entry.selectable) continue;
-      const cand = fp_query_extent(entry, extent);
+      // No LOD for selection - use all points in extent
+      const cand = fp_query_extent(entry, extent, null);
       const next = new Set();
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
