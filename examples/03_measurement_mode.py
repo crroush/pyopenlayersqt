@@ -5,6 +5,7 @@ This example demonstrates the distance measurement feature:
 - Toggle measurement mode with a button
 - Click on the map to create measurement points
 - See segment and cumulative distances in a tooltip
+- Lines follow great-circle (geodesic) paths for accurate visualization
 - Measurement events are logged to the console
 - Press Escape to exit measurement mode
 - Clear measurements with a button
