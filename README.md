@@ -16,6 +16,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
 - **✅ Feature Selection**: Interactive feature selection with Python ↔ JavaScript sync
 - **📊 Feature Table Widget**: High-performance table widget for displaying and managing features
 - **🔄 Bidirectional Sync**: Seamless selection synchronization between map and table
+- **📏 Distance Measurement**: Interactive measurement mode with geodesic distance calculations
 
 ## Installation
 
@@ -92,6 +93,8 @@ map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 - `add_wms(options, name)` - Add a WMS (Web Map Service) layer
 - `add_raster_image(image, bounds, style, name)` - Add a raster image overlay
 - `set_base_opacity(opacity)` - Set OSM base layer opacity (0.0-1.0)
+- `set_measure_mode(enabled)` - Enable/disable interactive distance measurement mode
+- `clear_measurements()` - Clear all measurement points and lines
 - `get_view_extent(callback)` - Get current map extent asynchronously
 - `watch_view_extent(callback, debounce_ms)` - Subscribe to extent changes
 
@@ -387,6 +390,45 @@ def on_selection_changed(selection):
 
 map_widget.selectionChanged.connect(on_selection_changed)
 ```
+
+### Distance Measurement Mode
+
+Interactive distance measurement with geodesic calculations:
+
+```python
+import json
+
+# Enable measurement mode
+map_widget.set_measure_mode(True)
+
+# Listen for measurement events
+def on_js_event(event_type, payload_json):
+    if event_type == 'measurement':
+        data = json.loads(payload_json)
+        segment_m = data['segment_distance_m']      # Distance from previous point
+        cumulative_m = data['cumulative_distance_m']  # Total distance from start
+        lon, lat = data['lon'], data['lat']
+        print(f"Point at ({lat:.5f}, {lon:.5f})")
+        print(f"Segment: {segment_m:.1f} m, Total: {cumulative_m:.1f} m")
+
+map_widget.jsEvent.connect(on_js_event)
+
+# Clear all measurements
+map_widget.clear_measurements()
+
+# Disable measurement mode
+map_widget.set_measure_mode(False)
+```
+
+**Features:**
+- Click on map to create measurement anchor points
+- Live polyline drawn from last point to cursor
+- Tooltip displays segment and cumulative distances
+- Uses Haversine formula for accurate great-circle distances
+- Press `Escape` to exit measurement mode
+- Measurement events emitted to Python with distances and coordinates
+
+See [examples/03_measurement_mode.py](examples/03_measurement_mode.py) for a complete working example.
 
 ### FeatureTableWidget
 

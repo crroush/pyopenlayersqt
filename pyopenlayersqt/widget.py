@@ -563,6 +563,22 @@ class OLMapWidget(QWebEngineView):
         )
         return RasterLayer(self, layer_id, url, list(bounds), style, name=name)
 
+    def set_measure_mode(self, enabled: bool) -> None:
+        """Enable or disable measurement mode.
+        
+        When enabled, clicking on the map creates anchor points for distance measurement.
+        Each click emits a 'measurement' event via jsEvent signal with segment and cumulative distances.
+        Press Escape to exit measurement mode.
+        
+        Args:
+            enabled: True to enable measurement mode, False to disable.
+        """
+        self._send({"type": "measure.set_mode", "enabled": bool(enabled)})
+
+    def clear_measurements(self) -> None:
+        """Clear all measurement points and lines from the map."""
+        self._send({"type": "measure.clear"})
+
     @property
     def base_url(self) -> str:
         return self._base_url
