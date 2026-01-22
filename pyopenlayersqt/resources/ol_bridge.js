@@ -21,6 +21,29 @@
     }
   })();
 
+// --- Performance tuning constants for LOD (Level of Detail) rendering ---
+// These constants control the automatic decimation and sampling strategies
+// for rendering large point datasets in zoomed-out views.
+const LOD_CONFIG = {
+  // Threshold for switching from grid index to full scan (number of grid cells)
+  GRID_CELL_THRESHOLD: 1000,
+  
+  // Threshold for enabling grid sampling (number of grid cells)
+  GRID_SAMPLING_THRESHOLD: 5000,
+  
+  // Target number of grid cells when sampling (used to calculate sample rate)
+  GRID_SAMPLING_TARGET: 1000,
+  
+  // Pixel distance threshold for point decimation (points closer than this are culled)
+  POINT_DECIMATION_PX: 2.5,
+  
+  // Threshold for ellipse decimation (number of candidate ellipses)
+  ELLIPSE_DECIMATION_THRESHOLD: 5000,
+  
+  // Target number of ellipses when decimating
+  ELLIPSE_DECIMATION_TARGET: 5000,
+};
+
 const state = {
     map: null,
     layers: new Map(),     // layer_id -> {type, layer, source, selectable}
@@ -181,10 +204,10 @@ function fp_index_insert(entry, i) {
 
 // Query points within an extent using spatial grid index.
 // Performance optimization with Level-of-Detail (LOD) for large extents:
-// - For zoomed-in views (<=1000 cells): Use efficient grid index lookup
-// - For zoomed-out views (>1000 cells): Apply LOD/decimation strategies
-//   - Resolution-based culling: Skip points closer than ~2.5 pixels
-//   - Grid sampling: For very large extents (>5000 cells), sample grid cells
+// - For zoomed-in views (<=LOD_CONFIG.GRID_CELL_THRESHOLD cells): Use efficient grid index lookup
+// - For zoomed-out views (>LOD_CONFIG.GRID_CELL_THRESHOLD cells): Apply LOD/decimation strategies
+//   - Resolution-based culling: Skip points closer than LOD_CONFIG.POINT_DECIMATION_PX pixels
+//   - Grid sampling: For very large extents (>LOD_CONFIG.GRID_SAMPLING_THRESHOLD cells), sample grid cells
 // - For selection (resolution=null): Disable LOD to ensure all points are selectable
 //
 // This dramatically improves performance when rendering 100k+ points at zoomed-out
@@ -202,18 +225,18 @@ function fp_query_extent(entry, extent, resolution) {
   const cellsY = max_iy - min_iy + 1;
   const totalCells = cellsX * cellsY;
   
-  // If we'd check more than 1000 cells, use smart decimation
-  if (totalCells > 1000) {
+  // If we'd check more than GRID_CELL_THRESHOLD cells, use smart decimation
+  if (totalCells > LOD_CONFIG.GRID_CELL_THRESHOLD) {
     const out = [];
-    // LOD: Skip points based on resolution to avoid rendering points closer than ~2.5px
+    // LOD: Skip points based on resolution to avoid rendering points closer than POINT_DECIMATION_PX
     // This dramatically reduces point count in zoomed-out views
-    const skipThreshold = resolution ? resolution * 2.5 : 0;
+    const skipThreshold = resolution ? resolution * LOD_CONFIG.POINT_DECIMATION_PX : 0;
     const skipThresholdSq = skipThreshold * skipThreshold;
     
     // For very large extents, use grid-based sampling for better spatial distribution
-    if (totalCells > 5000 && skipThreshold > 0) {
+    if (totalCells > LOD_CONFIG.GRID_SAMPLING_THRESHOLD && skipThreshold > 0) {
       // Sample grid cells instead of all cells - much faster
-      const sampleRate = Math.max(1, Math.floor(Math.sqrt(totalCells / 1000)));
+      const sampleRate = Math.max(1, Math.floor(Math.sqrt(totalCells / LOD_CONFIG.GRID_SAMPLING_TARGET)));
       for (let ix = min_ix; ix <= max_ix; ix += sampleRate) {
         for (let iy = min_iy; iy <= max_iy; iy += sampleRate) {
           const arr = entry.grid.get(fp_cell_key(ix, iy));
@@ -599,7 +622,9 @@ function fgp_make_canvas_layer(entry) {
 
         // LOD: For extremely zoomed-out views with many candidates, reduce ellipse density
         // This prevents rendering thousands of overlapping ellipses
-        const ellipseLOD = (cand.length > 5000) ? Math.ceil(cand.length / 5000) : 1;
+        const ellipseLOD = (cand.length > LOD_CONFIG.ELLIPSE_DECIMATION_THRESHOLD) 
+          ? Math.ceil(cand.length / LOD_CONFIG.ELLIPSE_DECIMATION_TARGET) 
+          : 1;
 
         // Unselected first
         ctx.lineWidth = strokeW;

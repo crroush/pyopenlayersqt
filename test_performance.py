@@ -286,8 +286,13 @@ class PerformanceTestWindow(QtWidgets.QMainWindow):
             f"  Total: {avg_total:.2f} ms\n"
             f"  Query: {avg_query:.2f} ms\n"
             f"  Draw: {avg_draw:.2f} ms\n"
-            f"  FPS: ~{1000/avg_total:.1f}" if avg_total > 0 else "  FPS: N/A"
         )
+        
+        # Add FPS if we have valid timing data
+        if avg_total > 0.001:  # Use small epsilon to avoid division by zero
+            stats_text += f"  FPS: ~{1000/avg_total:.1f}"
+        else:
+            stats_text += "  FPS: N/A"
         
         self.stats_label.setText(stats_text)
     
