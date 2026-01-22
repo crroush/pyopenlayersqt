@@ -32,16 +32,9 @@ from datetime import datetime
 from typing import Any, List, Optional, Tuple, Union
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtCore import Qt, Signal, QRect, QPoint
-from PySide6.QtGui import QPainter, QPen, QColor, QBrush
+from PySide6.QtCore import Qt, Signal, QRect
+from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
-
-
-from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtCore import Qt, Signal, QRect, QPoint
-from PySide6.QtGui import QPainter, QPen, QColor, QBrush
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
-
 
 class DualHandleSlider(QWidget):
     """A single slider widget with two draggable handles for min/max selection."""
