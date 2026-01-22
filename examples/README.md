@@ -44,6 +44,40 @@ A comprehensive example demonstrating:
 - Click on table rows to select features (updates map)
 - Efficient rendering with canvas-based fast points layer
 
+### 03_measurement_mode.py
+
+Interactive distance measurement mode:
+- Enable/disable measurement mode
+- Click to add measurement points
+- Display geodesic distances
+- Clear measurements
+
+### 04_sortable_table.py
+
+Feature table sorting capabilities:
+- Automatic sorting enabled by default
+- Per-column sortable configuration
+- Custom sort keys for special sorting logic
+- Support for ISO8601 timestamps, numbers, and strings
+
+### 05_range_slider_filter.py
+
+Range slider widget with map and table filtering:
+- Dual-handle range sliders for numeric and timestamp filtering
+- Filter 5,000 points by value (0-100) and timestamp (30-day range)
+- Features hidden temporarily (not removed) and can be shown again
+- Bidirectional sync between map, table, and filters
+- Points colored by value (green=low, red=high)
+- Reset filters to show all points
+
+**Key features:**
+- `RangeSliderWidget` for numeric values (0-100)
+- `RangeSliderWidget` for ISO8601 timestamps
+- `hide_features()` and `show_features()` on FastPointsLayer
+- `hide_rows_by_keys()` and `show_rows_by_keys()` on FeatureTableWidget
+- Live filtering updates as sliders are adjusted
+- Info panel showing visible/hidden counts
+
 ## Requirements
 
 All examples require:
