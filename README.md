@@ -733,6 +733,12 @@ map_widget.jsEvent.connect(on_js_event)
 4. **Debounce Extent Watching**: Use appropriate `debounce_ms` when watching extent changes to avoid excessive updates
 5. **Cull Tiny Ellipses**: Set `min_ellipse_px` in `FastGeoPointsStyle` to skip rendering very small ellipses
 6. **Skip Ellipses While Interacting**: Enable `skip_ellipses_while_interacting` for smoother panning/zooming
+7. **Automatic LOD**: Fast layers automatically use Level-of-Detail (LOD) rendering in zoomed-out views:
+   - Points closer than ~2.5 pixels are automatically decimated to reduce overdraw
+   - Very large extents (>5000 grid cells) use grid-based sampling for optimal performance
+   - Zoomed-in views maintain full precision with efficient spatial indexing
+   - Selection always uses full precision regardless of zoom level
+   - Performance improvements are most noticeable with 100k+ points at world/continental zoom levels
 
 ## Architecture
 

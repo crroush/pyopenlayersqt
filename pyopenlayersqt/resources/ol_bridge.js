@@ -179,6 +179,16 @@ function fp_index_insert(entry, i) {
   arr.push(i);
 }
 
+// Query points within an extent using spatial grid index.
+// Performance optimization with Level-of-Detail (LOD) for large extents:
+// - For zoomed-in views (<=1000 cells): Use efficient grid index lookup
+// - For zoomed-out views (>1000 cells): Apply LOD/decimation strategies
+//   - Resolution-based culling: Skip points closer than ~2.5 pixels
+//   - Grid sampling: For very large extents (>5000 cells), sample grid cells
+// - For selection (resolution=null): Disable LOD to ensure all points are selectable
+//
+// This dramatically improves performance when rendering 100k+ points at zoomed-out
+// views while maintaining full precision when zoomed in.
 function fp_query_extent(entry, extent, resolution) {
   const cs = entry.cellSize;
   const min_ix = Math.floor(extent[0] / cs);
