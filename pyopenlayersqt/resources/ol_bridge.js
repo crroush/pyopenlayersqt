@@ -244,7 +244,12 @@ function fp_query_extent(entry, extent, resolution) {
           for (let j = 0; j < arr.length; j++) {
             const i = arr[j];
             if (entry.deleted[i]) continue;
-            out.push(i);
+            // Filter by extent since grid cells may contain points outside the requested extent
+            const x = entry.x[i];
+            const y = entry.y[i];
+            if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) {
+              out.push(i);
+            }
           }
         }
       }
