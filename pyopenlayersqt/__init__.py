@@ -20,6 +20,7 @@ from .layers import (
 )
 
 from .features_table import FeatureTableWidget
+from .range_slider import RangeSliderWidget
 
 __all__ = [
     "OLMapWidget",
@@ -39,5 +40,6 @@ __all__ = [
     "FastGeoPointsLayer",
     # Reusable Qt widgets
     "FeatureTableWidget",
+    "RangeSliderWidget",
 ]
 

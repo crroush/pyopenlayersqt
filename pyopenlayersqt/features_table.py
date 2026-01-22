@@ -90,6 +90,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._row_by_key: Dict[FeatureKey, int] = {}
         self._sort_column: int = -1
         self._sort_order: Qt.SortOrder = Qt.AscendingOrder
+        self._hidden_keys: set[FeatureKey] = set()  # Track hidden rows
 
     def rowCount(
         self, parent: QtCore.QModelIndex = QtCore.QModelIndex()
@@ -461,3 +462,29 @@ class FeatureTableWidget(QWidget):
             return
         self._pending_emit = False
         self.selectionKeysChanged.emit(self.selected_keys())
+
+    def hide_rows_by_keys(self, keys: Sequence[FeatureKey]) -> None:
+        """Hide rows by their keys (rows remain in model but are not displayed)."""
+        for key in keys:
+            row_idx = self.model.row_for_key(key)
+            if row_idx is not None:
+                self.table.setRowHidden(row_idx, True)
+        self.model._hidden_keys.update(keys)
+
+    def show_rows_by_keys(self, keys: Sequence[FeatureKey]) -> None:
+        """Show previously hidden rows by their keys."""
+        for key in keys:
+            row_idx = self.model.row_for_key(key)
+            if row_idx is not None:
+                self.table.setRowHidden(row_idx, False)
+        self.model._hidden_keys.difference_update(keys)
+
+    def show_all_rows(self) -> None:
+        """Show all hidden rows (reset any filtering)."""
+        for i in range(len(self.model.rows)):
+            self.table.setRowHidden(i, False)
+        self.model._hidden_keys.clear()
+
+    def is_row_hidden(self, row_index: int) -> bool:
+        """Check if a row is hidden."""
+        return self.table.isRowHidden(row_index)

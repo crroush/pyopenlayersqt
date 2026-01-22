@@ -226,7 +226,7 @@ function fp_pick_nearest(entry, coord3857, radius_m) {
   let bestd2 = r*r;
   for (let k = 0; k < cand.length; k++) {
     const i = cand[k];
-    if (entry.deleted[i]) continue;
+    if (entry.deleted[i] || entry.hidden[i]) continue;
     const dx = entry.x[i] - coord3857[0];
     const dy = entry.y[i] - coord3857[1];
     const d2 = dx*dx + dy*dy;
@@ -284,7 +284,7 @@ function fp_make_canvas_layer(entry) {
       
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
-        if (entry.deleted[i]) continue;
+        if (entry.deleted[i] || entry.hidden[i]) continue;
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
         const fid = entry.ids[i];
@@ -360,6 +360,7 @@ function cmd_fast_points_add_layer(msg) {
     ids: [],
     color_u32: [],
     deleted: [],
+    hidden: [],
     grid: new Map(),
     cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
@@ -389,6 +390,7 @@ function cmd_fast_points_add_points(msg) {
     const fid = (ids ? ids[i] : String(startIndex + i));
     entry.ids.push(fid);
     entry.deleted.push(false);
+    entry.hidden.push(false);
     entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
     fp_index_insert(entry, startIndex + i);
   }
@@ -459,6 +461,45 @@ function cmd_fast_points_select_set(msg) {
     fgp_emit_selection(entry);
 }
 
+function cmd_fast_points_hide_ids(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== "fast_points") return;
+  const raw = (msg.feature_ids || msg.ids || []);
+  const ids = new Set(raw.map(x => String(x)));
+  if (ids.size === 0) return;
+  for (let i = 0; i < entry.ids.length; i++) {
+    const fid = entry.ids[i];
+    if (!entry.deleted[i] && ids.has(String(fid))) {
+      entry.hidden[i] = true;
+    }
+  }
+  fp_redraw(entry);
+}
+
+function cmd_fast_points_show_ids(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== "fast_points") return;
+  const raw = (msg.feature_ids || msg.ids || []);
+  const ids = new Set(raw.map(x => String(x)));
+  if (ids.size === 0) return;
+  for (let i = 0; i < entry.ids.length; i++) {
+    const fid = entry.ids[i];
+    if (!entry.deleted[i] && ids.has(String(fid))) {
+      entry.hidden[i] = false;
+    }
+  }
+  fp_redraw(entry);
+}
+
+function cmd_fast_points_show_all(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== "fast_points") return;
+  for (let i = 0; i < entry.hidden.length; i++) {
+    entry.hidden[i] = false;
+  }
+  fp_redraw(entry);
+}
+
 // --- FastGeoPoints (points + uncertainty ellipses; index-backed canvas layer) ---
 const _FGP_EARTH_R = 6378137.0;
 function _fgp_lat_from_y(y3857) {
@@ -518,7 +559,7 @@ function fgp_make_canvas_layer(entry) {
         ctx.beginPath();
         for (let k = 0; k < cand.length; k++) {
           const i = cand[k];
-          if (entry.deleted[i]) continue;
+          if (entry.deleted[i] || entry.hidden[i]) continue;
           const fid = entry.ids[i];
           if (entry.selectedIds.has(fid)) continue;
           const rx = (entry.a[i] / resolution) * pixelRatio;
@@ -553,7 +594,7 @@ function fgp_make_canvas_layer(entry) {
         ctx.beginPath();
         for (let k = 0; k < cand.length; k++) {
           const i = cand[k];
-          if (entry.deleted[i]) continue;
+          if (entry.deleted[i] || entry.hidden[i]) continue;
           const fid = entry.ids[i];
           if (!entry.selectedIds.has(fid)) continue;
           const rx = (entry.a[i] / resolution) * pixelRatio;
@@ -580,7 +621,7 @@ function fgp_make_canvas_layer(entry) {
 
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
-        if (entry.deleted[i]) continue;
+        if (entry.deleted[i] || entry.hidden[i]) continue;
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
         const fid = entry.ids[i];
@@ -623,6 +664,7 @@ function cmd_fast_geopoints_add_layer(msg) {
     ids: [],
     color_u32: [],
     deleted: [],
+    hidden: [],
     a: [],
     b: [],
     rot: [],
@@ -659,6 +701,7 @@ function cmd_fast_geopoints_add_points(msg) {
     const fid = (ids ? ids[i] : String(startIndex + i));
     entry.ids.push(fid);
     entry.deleted.push(false);
+    entry.hidden.push(false);
     entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
 
     // Convert meters to local WebMercator meters using sec(lat)
@@ -679,7 +722,7 @@ function cmd_fast_geopoints_add_points(msg) {
 function cmd_fast_geopoints_clear(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
-  entry.x = []; entry.y = []; entry.ids = []; entry.color_u32 = []; entry.deleted = [];
+  entry.x = []; entry.y = []; entry.ids = []; entry.color_u32 = []; entry.deleted = []; entry.hidden = [];
   entry.a = []; entry.b = []; entry.rot = [];
   entry.grid = new Map();
   entry.selectedIds = new Set();
@@ -735,6 +778,45 @@ function cmd_fast_geopoints_select_set(msg) {
   entry.selectedIds = new Set(msg.feature_ids || []);
   fgp_redraw(entry);
   fgp_emit_selection(entry);
+}
+
+function cmd_fast_geopoints_hide_ids(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== 'fast_geopoints') return;
+  const raw = (msg.feature_ids || msg.ids || []);
+  const ids = new Set(raw.map(x => String(x)));
+  if (ids.size === 0) return;
+  for (let i = 0; i < entry.ids.length; i++) {
+    const fid = entry.ids[i];
+    if (!entry.deleted[i] && ids.has(String(fid))) {
+      entry.hidden[i] = true;
+    }
+  }
+  fgp_redraw(entry);
+}
+
+function cmd_fast_geopoints_show_ids(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== 'fast_geopoints') return;
+  const raw = (msg.feature_ids || msg.ids || []);
+  const ids = new Set(raw.map(x => String(x)));
+  if (ids.size === 0) return;
+  for (let i = 0; i < entry.ids.length; i++) {
+    const fid = entry.ids[i];
+    if (!entry.deleted[i] && ids.has(String(fid))) {
+      entry.hidden[i] = false;
+    }
+  }
+  fgp_redraw(entry);
+}
+
+function cmd_fast_geopoints_show_all(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== 'fast_geopoints') return;
+  for (let i = 0; i < entry.hidden.length; i++) {
+    entry.hidden[i] = false;
+  }
+  fgp_redraw(entry);
 }
 
 function fp_install_interactions() {
@@ -1494,9 +1576,12 @@ function cmd_measure_clear(msg) {
     case "fast_points.set_visible": return cmd_fast_points_set_visible(msg);
     case "fast_points.set_selectable": return cmd_fast_points_set_selectable(msg);
     case "fast_points.select.set": return cmd_fast_points_select_set(msg);
+    case "fast_points.remove_ids": return cmd_fast_points_remove_ids(msg);
+    case "fast_points.hide_ids": return cmd_fast_points_hide_ids(msg);
+    case "fast_points.show_ids": return cmd_fast_points_show_ids(msg);
+    case "fast_points.show_all": return cmd_fast_points_show_all(msg);
       case "base.set_opacity": return cmd_base_set_opacity(msg);
       case "vector.remove_features": cmd_vector_remove_features(msg); break;
-      case "fast_points.remove_ids": return cmd_fast_points_remove_ids(msg);
 
     // --- FastGeoPoints ---
     case "fast_geopoints.add_layer": return cmd_fast_geopoints_add_layer(msg);
@@ -1508,6 +1593,9 @@ function cmd_measure_clear(msg) {
     case "fast_geopoints.set_selectable": return cmd_fast_geopoints_set_selectable(msg);
     case "fast_geopoints.set_ellipses_visible": return cmd_fast_geopoints_set_ellipses_visible(msg);
     case "fast_geopoints.select.set": return cmd_fast_geopoints_select_set(msg);
+    case "fast_geopoints.hide_ids": return cmd_fast_geopoints_hide_ids(msg);
+    case "fast_geopoints.show_ids": return cmd_fast_geopoints_show_ids(msg);
+    case "fast_geopoints.show_all": return cmd_fast_geopoints_show_all(msg);
 
       default:
         jsError("Unknown command:", t, msg);
