@@ -203,15 +203,8 @@ function fp_index_insert(entry, i) {
 }
 
 // Query points within an extent using spatial grid index.
-// Performance optimization with Level-of-Detail (LOD) for large extents:
-// - For zoomed-in views (<=LOD_CONFIG.GRID_CELL_THRESHOLD cells): Use efficient grid index lookup
-// - For zoomed-out views (>LOD_CONFIG.GRID_CELL_THRESHOLD cells): Apply LOD/decimation strategies
-//   - Resolution-based culling: Skip points closer than LOD_CONFIG.POINT_DECIMATION_PX pixels
-//   - Grid sampling: For very large extents (>LOD_CONFIG.GRID_SAMPLING_THRESHOLD cells), sample grid cells
-// - For selection (resolution=null): Disable LOD to ensure all points are selectable
-//
-// This dramatically improves performance when rendering 100k+ points at zoomed-out
-// views while maintaining full precision when zoomed in.
+// Accepts optional resolution parameter for future LOD optimizations.
+// Currently uses original behavior: returns all points in extent.
 function fp_query_extent(entry, extent, resolution) {
   const cs = entry.cellSize;
   const min_ix = Math.floor(extent[0] / cs);
@@ -220,57 +213,19 @@ function fp_query_extent(entry, extent, resolution) {
   const max_iy = Math.floor(extent[3] / cs);
   
   // Performance optimization: limit cell iteration for zoomed-out views
-  // If extent covers too many cells, use decimation strategy
+  // If extent covers too many cells, just return all points
   const cellsX = max_ix - min_ix + 1;
   const cellsY = max_iy - min_iy + 1;
   const totalCells = cellsX * cellsY;
   
-  // If we'd check more than GRID_CELL_THRESHOLD cells, use smart decimation
-  if (totalCells > LOD_CONFIG.GRID_CELL_THRESHOLD) {
+  // If we'd check more than 1000 cells, it's faster to just iterate all points
+  if (totalCells > 1000) {
     const out = [];
-    // LOD: Skip points based on resolution to avoid rendering points closer than POINT_DECIMATION_PX
-    // This dramatically reduces point count in zoomed-out views
-    const skipThreshold = resolution ? resolution * LOD_CONFIG.POINT_DECIMATION_PX : 0;
-    const skipThresholdSq = skipThreshold * skipThreshold;
-    
-    // For very large extents, use grid-based sampling for better spatial distribution
-    if (totalCells > LOD_CONFIG.GRID_SAMPLING_THRESHOLD && skipThreshold > 0) {
-      // Sample grid cells instead of all cells - much faster
-      const sampleRate = Math.max(1, Math.floor(Math.sqrt(totalCells / LOD_CONFIG.GRID_SAMPLING_TARGET)));
-      for (let ix = min_ix; ix <= max_ix; ix += sampleRate) {
-        for (let iy = min_iy; iy <= max_iy; iy += sampleRate) {
-          const arr = entry.grid.get(fp_cell_key(ix, iy));
-          if (!arr) continue;
-          for (let j = 0; j < arr.length; j++) {
-            const i = arr[j];
-            if (entry.deleted[i]) continue;
-            // Filter by extent since grid cells may contain points outside the requested extent
-            const x = entry.x[i];
-            const y = entry.y[i];
-            if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) {
-              out.push(i);
-            }
-          }
-        }
-      }
-      return out;
-    }
-    
-    // Standard large-extent query with optional LOD decimation
-    let lastX = -Infinity, lastY = -Infinity;
     for (let i = 0; i < entry.x.length; i++) {
       if (entry.deleted[i]) continue;
       const x = entry.x[i];
       const y = entry.y[i];
       if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) {
-        // LOD: Skip points too close to last rendered point
-        if (skipThreshold > 0) {
-          const dx = x - lastX;
-          const dy = y - lastY;
-          if (dx*dx + dy*dy < skipThresholdSq) continue;
-          lastX = x;
-          lastY = y;
-        }
         out.push(i);
       }
     }
@@ -625,12 +580,6 @@ function fgp_make_canvas_layer(entry) {
         const fillEll = !!st.fill_ellipses;
         const fillCss = rgba_to_css(st.ellipse_fill_rgba || [255,204,0,40]);
 
-        // LOD: For extremely zoomed-out views with many candidates, reduce ellipse density
-        // This prevents rendering thousands of overlapping ellipses
-        const ellipseLOD = (cand.length > LOD_CONFIG.ELLIPSE_DECIMATION_THRESHOLD) 
-          ? Math.ceil(cand.length / LOD_CONFIG.ELLIPSE_DECIMATION_TARGET) 
-          : 1;
-
         // Unselected first
         ctx.lineWidth = strokeW;
         ctx.strokeStyle = strokeCss;
@@ -638,9 +587,6 @@ function fgp_make_canvas_layer(entry) {
         let nInPath = 0;
         ctx.beginPath();
         for (let k = 0; k < cand.length; k++) {
-          // LOD: Skip some ellipses in zoomed-out views to reduce draw calls
-          if (ellipseLOD > 1 && k % ellipseLOD !== 0) continue;
-          
           const i = cand[k];
           if (entry.deleted[i] || entry.hidden[i]) continue;
           const fid = entry.ids[i];
