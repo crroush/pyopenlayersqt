@@ -251,7 +251,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
                     pass
                 # For strings (including ISO8601 timestamps)
                 return (0, str(value))
-            except Exception:
+            except (AttributeError, KeyError, TypeError):
                 # If getter fails, sort to end
                 return (1, "")
 
@@ -268,7 +268,11 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         # Rebuild the key mapping
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
         
-        # Update persistent indexes
+        # Build a reverse mapping for efficient lookup (O(n) instead of O(n²))
+        old_row_to_new_row = {id(old_rows[i]): i for i in range(len(old_rows))}
+        new_row_positions = {id(self._rows[i]): i for i in range(len(self._rows))}
+        
+        # Update persistent indexes efficiently
         new_indexes = []
         for old_index in persistent_indexes:
             if not old_index.isValid():
@@ -278,12 +282,12 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
             if old_row < 0 or old_row >= len(old_rows):
                 new_indexes.append(old_index)
                 continue
-            # Find the new position of this row
-            row_obj = old_rows[old_row]
-            try:
-                new_row = self._rows.index(row_obj)
+            # Find the new position of this row using the mapping
+            row_obj_id = id(old_rows[old_row])
+            new_row = new_row_positions.get(row_obj_id)
+            if new_row is not None:
                 new_indexes.append(self.index(new_row, old_index.column()))
-            except ValueError:
+            else:
                 new_indexes.append(old_index)
         
         self.changePersistentIndexList(persistent_indexes, new_indexes)
