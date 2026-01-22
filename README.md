@@ -16,7 +16,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
 - **✅ Feature Selection**: Interactive feature selection with Python ↔ JavaScript sync
 - **📊 Feature Table Widget**: High-performance table widget for displaying and managing features
 - **🔄 Bidirectional Sync**: Seamless selection synchronization between map and table
-- **📏 Distance Measurement**: Interactive measurement mode with geodesic distance calculations
+- **📏 Distance Measurement**: Interactive measurement mode with geodesic distance calculations and great-circle path visualization
 - **🎚️ Range Slider Widget**: Dual-handle range slider for filtering features by numeric or timestamp ranges
 
 ## Installation
@@ -426,6 +426,8 @@ map_widget.set_measure_mode(False)
 - Live polyline drawn from last point to cursor
 - Tooltip displays segment and cumulative distances
 - Uses Haversine formula for accurate great-circle distances
+- **Lines follow great-circle paths** - measurement lines curve to represent the true shortest path on Earth's surface
+- Curved paths are especially visible for long distances (e.g., New York to London)
 - Press `Escape` to exit measurement mode
 - Measurement events emitted to Python with distances and coordinates
 
