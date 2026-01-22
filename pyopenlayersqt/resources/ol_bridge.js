@@ -886,6 +886,48 @@ function geodesicDistance(lon1, lat1, lon2, lat2) {
   return R * c; // Distance in meters
 }
 
+// Generate intermediate points along a great-circle path
+// Returns array of [lon, lat] coordinates including start and end points
+function interpolateGeodesicLine(lon1, lat1, lon2, lat2, numSegments = null) {
+  // Calculate distance to determine number of segments if not provided
+  const distance = geodesicDistance(lon1, lat1, lon2, lat2);
+  
+  // Use one segment per ~100km for smooth curves, minimum 1, maximum 100
+  if (numSegments === null) {
+    numSegments = Math.max(1, Math.min(100, Math.floor(distance / 100000)));
+  }
+  
+  const points = [];
+  
+  // Convert to radians
+  const lat1Rad = lat1 * Math.PI / 180;
+  const lon1Rad = lon1 * Math.PI / 180;
+  const lat2Rad = lat2 * Math.PI / 180;
+  const lon2Rad = lon2 * Math.PI / 180;
+  
+  // Calculate angular distance
+  const d = distance / 6371000; // Angular distance in radians
+  
+  for (let i = 0; i <= numSegments; i++) {
+    const f = i / numSegments;
+    
+    // Spherical linear interpolation (slerp)
+    const a = Math.sin((1 - f) * d) / Math.sin(d);
+    const b = Math.sin(f * d) / Math.sin(d);
+    
+    const x = a * Math.cos(lat1Rad) * Math.cos(lon1Rad) + b * Math.cos(lat2Rad) * Math.cos(lon2Rad);
+    const y = a * Math.cos(lat1Rad) * Math.sin(lon1Rad) + b * Math.cos(lat2Rad) * Math.sin(lon2Rad);
+    const z = a * Math.sin(lat1Rad) + b * Math.sin(lat2Rad);
+    
+    const latRad = Math.atan2(z, Math.sqrt(x * x + y * y));
+    const lonRad = Math.atan2(y, x);
+    
+    points.push([lonRad * 180 / Math.PI, latRad * 180 / Math.PI]);
+  }
+  
+  return points;
+}
+
 // Format distance for display
 function formatDistance(meters) {
   if (meters < 1000) {
@@ -1000,12 +1042,21 @@ function updateMeasurementGeometry(mouseCoord3857) {
   
   if (state.measurePoints.length === 0) return;
   
-  // Draw line from last point to mouse cursor
+  // Draw great-circle line from last point to mouse cursor
   const lastPoint = state.measurePoints[state.measurePoints.length - 1];
-  const lastPoint3857 = lonlat_to_3857(lastPoint[0], lastPoint[1]);
+  const mouseCoord = ol.proj.toLonLat(mouseCoord3857);
+  
+  // Generate intermediate points along the great-circle path
+  const geodesicPoints = interpolateGeodesicLine(
+    lastPoint[0], lastPoint[1],
+    mouseCoord[0], mouseCoord[1]
+  );
+  
+  // Convert all points to Web Mercator projection
+  const coords3857 = geodesicPoints.map(pt => lonlat_to_3857(pt[0], pt[1]));
   
   const lineFeature = new ol.Feature({
-    geometry: new ol.geom.LineString([lastPoint3857, mouseCoord3857]),
+    geometry: new ol.geom.LineString(coords3857),
     _temp: true
   });
   
@@ -1057,10 +1108,17 @@ function onMeasurementClick(evt) {
     }
     cumulativeDistance += segmentDistance;
     
-    // Draw permanent line from previous point to new point
-    const lastPoint3857 = lonlat_to_3857(lastPoint[0], lastPoint[1]);
+    // Draw permanent great-circle line from previous point to new point
+    const geodesicPoints = interpolateGeodesicLine(
+      lastPoint[0], lastPoint[1],
+      coord[0], coord[1]
+    );
+    
+    // Convert all points to Web Mercator projection
+    const coords3857 = geodesicPoints.map(pt => lonlat_to_3857(pt[0], pt[1]));
+    
     const lineFeature = new ol.Feature({
-      geometry: new ol.geom.LineString([lastPoint3857, coord3857]),
+      geometry: new ol.geom.LineString(coords3857),
       _permanent: true
     });
     state.measureSource.addFeature(lineFeature);
