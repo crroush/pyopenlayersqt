@@ -50,6 +50,11 @@ from PySide6.QtCore import Qt, QRunnable, QThreadPool, Signal, QObject, QTimer
 
 from pyopenlayersqt import OLMapWidget, RasterStyle
 
+# Configuration constants
+PROCESS_TERMINATION_TIMEOUT = 0.5  # Seconds to wait for process termination
+PROCESS_CLEANUP_TIMEOUT = 1.0  # Seconds to wait during cleanup on close
+RESULT_POLL_INTERVAL_MS = 100  # Milliseconds between result queue polls
+
 
 class WorkerSignals(QObject):
     """Signals for background worker to communicate with main thread."""
@@ -439,7 +444,7 @@ class BackgroundWorkerWindow(QtWidgets.QMainWindow):
         if self.active_process is not None and self.active_process.is_alive():
             print(f"Terminating previous multiprocessing worker (generation {old_generation})")
             self.active_process.terminate()
-            self.active_process.join(timeout=0.5)
+            self.active_process.join(timeout=PROCESS_TERMINATION_TIMEOUT)
             self.active_process = None
         
         # Stop polling for results
@@ -478,8 +483,8 @@ class BackgroundWorkerWindow(QtWidgets.QMainWindow):
         )
         self.active_process.start()
         
-        # Start polling for results (check every 100ms)
-        self.result_poll_timer.start(100)
+        # Start polling for results
+        self.result_poll_timer.start(RESULT_POLL_INTERVAL_MS)
         
         print(f"Started multiprocessing worker in separate process (PID: {self.active_process.pid})")
     
@@ -488,24 +493,25 @@ class BackgroundWorkerWindow(QtWidgets.QMainWindow):
         if self.result_queue is None:
             return
         
-        # Non-blocking check for results
-        if not self.result_queue.empty():
-            try:
-                result = self.result_queue.get_nowait()
+        # Use get_nowait() with try-except instead of checking empty()
+        # to avoid race condition between check and get
+        try:
+            result = self.result_queue.get_nowait()
+            
+            # Stop polling
+            self.result_poll_timer.stop()
+            
+            # Process result
+            generation = result['generation']
+            
+            if result['status'] == 'success':
+                self.on_worker_finished(generation, result['png_bytes'], result['bounds'])
+            elif result['status'] == 'error':
+                self.on_worker_error(generation, result['error'])
                 
-                # Stop polling
-                self.result_poll_timer.stop()
-                
-                # Process result
-                generation = result['generation']
-                
-                if result['status'] == 'success':
-                    self.on_worker_finished(generation, result['png_bytes'], result['bounds'])
-                elif result['status'] == 'error':
-                    self.on_worker_error(generation, result['error'])
-                    
-            except Exception as e:
-                print(f"Error reading from queue: {e}")
+        except Exception:
+            # Queue is empty or other error - will retry on next poll
+            pass
 
     
     def on_worker_progress(self, generation: int, message: str):
@@ -580,7 +586,7 @@ class BackgroundWorkerWindow(QtWidgets.QMainWindow):
         if self.active_process is not None and self.active_process.is_alive():
             print("Terminating active process on close...")
             self.active_process.terminate()
-            self.active_process.join(timeout=1.0)
+            self.active_process.join(timeout=PROCESS_CLEANUP_TIMEOUT)
         
         # Stop polling timer
         self.result_poll_timer.stop()
