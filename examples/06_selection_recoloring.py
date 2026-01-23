@@ -34,6 +34,7 @@ class SelectionRecoloringWindow(QtWidgets.QMainWindow):
         
         # Connect to selection events
         self.map_widget.selectionChanged.connect(self.on_selection_changed)
+        print("Selection change handler connected")
         
         # Create layers
         self.vector_layer = None
@@ -46,10 +47,10 @@ class SelectionRecoloringWindow(QtWidgets.QMainWindow):
         # Layout
         controls_layout = QtWidgets.QVBoxLayout()
         controls_layout.addWidget(QtWidgets.QLabel("<b>Instructions:</b>"))
-        controls_layout.addWidget(QtWidgets.QLabel("• Ctrl/Cmd+Click on points to select them"))
-        controls_layout.addWidget(QtWidgets.QLabel("• Ctrl/Cmd+Click again to deselect"))
-        controls_layout.addWidget(QtWidgets.QLabel("• Ctrl/Cmd+Drag to box-select multiple points"))
-        controls_layout.addWidget(QtWidgets.QLabel("• Use buttons to change colors of selected items"))
+        controls_layout.addWidget(QtWidgets.QLabel("• Vector points (large): Click to select"))
+        controls_layout.addWidget(QtWidgets.QLabel("• Fast points (small): Ctrl/Cmd+Click to select"))
+        controls_layout.addWidget(QtWidgets.QLabel("• Ctrl/Cmd+Drag for box-select"))
+        controls_layout.addWidget(QtWidgets.QLabel("• Color buttons enable when items selected"))
         controls_layout.addWidget(QtWidgets.QLabel(""))
         controls_layout.addWidget(QtWidgets.QLabel("<b>Recolor Selected Items:</b>"))
         controls_layout.addWidget(self.red_button)
@@ -118,10 +119,10 @@ class SelectionRecoloringWindow(QtWidgets.QMainWindow):
         print("="*60)
         print("MAP READY - Adding sample data")
         print("To select items:")
-        print("  - For VECTOR points (large circles): Ctrl/Cmd+Click")
-        print("  - For FAST points (small dots): Ctrl/Cmd+Click")  
-        print("  - For FAST GEO points (with ellipses): Ctrl/Cmd+Click")
-        print("When items are selected, buttons should automatically enable")
+        print("  - VECTOR points (large circles): Click to select, Ctrl/Cmd+Click to toggle")
+        print("  - FAST points (small colored dots): Ctrl/Cmd+Click to select/toggle")  
+        print("  - FAST GEO points (dots with ellipses): Ctrl/Cmd+Click to select/toggle")
+        print("When items are selected, color buttons will enable")
         print("="*60)
         
         # Add vector layer with a few points
