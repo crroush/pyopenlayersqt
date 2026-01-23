@@ -29,8 +29,8 @@ class SelectionRecoloringWindow(QtWidgets.QMainWindow):
         # Create map widget centered on San Francisco Bay Area
         self.map_widget = OLMapWidget(center=(37.7749, -122.4194), zoom=10)
         
-        # Track current selection
-        self.current_selection = None
+        # Track selections for all layers (layer_id -> list of feature_ids)
+        self.selections = {}
         
         # Connect to selection events
         self.map_widget.selectionChanged.connect(self.on_selection_changed)
@@ -234,10 +234,19 @@ class SelectionRecoloringWindow(QtWidgets.QMainWindow):
     
     def on_selection_changed(self, selection):
         """Handle selection change from map."""
-        self.current_selection = selection
-        has_selection = len(selection.feature_ids) > 0
-        print(f"Selection changed: {selection.layer_id}, {len(selection.feature_ids)} features, enabling buttons: {has_selection}")
+        # Update selections for this layer
+        if len(selection.feature_ids) > 0:
+            self.selections[selection.layer_id] = selection.feature_ids
+        elif selection.layer_id in self.selections:
+            # Clear selection for this layer
+            del self.selections[selection.layer_id]
+        
+        has_selection = len(self.selections) > 0
+        total_features = sum(len(ids) for ids in self.selections.values())
+        
+        print(f"Selection changed: {selection.layer_id}, {len(selection.feature_ids)} features, total selections: {total_features}")
         print(f"  Feature IDs: {selection.feature_ids}")
+        print(f"  All selections: {list(self.selections.keys())}")
         self.update_info_label()
         
         # Enable/disable buttons based on selection
@@ -248,79 +257,79 @@ class SelectionRecoloringWindow(QtWidgets.QMainWindow):
     
     def update_info_label(self):
         """Update the info label with current selection."""
-        if self.current_selection is None or len(self.current_selection.feature_ids) == 0:
+        if len(self.selections) == 0:
             self.info_label.setText("No selection\n\nClick on points to select them")
         else:
-            layer_id = self.current_selection.layer_id
-            count = len(self.current_selection.feature_ids)
+            total_features = sum(len(ids) for ids in self.selections.values())
             
-            # Determine layer type
-            if layer_id == (self.vector_layer.id if self.vector_layer else ""):
-                layer_type = "Vector Layer"
-            elif layer_id == (self.fast_layer.id if self.fast_layer else ""):
-                layer_type = "Fast Points Layer"
-            elif layer_id == (self.fast_geo_layer.id if self.fast_geo_layer else ""):
-                layer_type = "Fast Geo Points Layer"
-            else:
-                layer_type = "Unknown Layer"
+            # Build a summary of selections by layer
+            layer_summaries = []
+            for layer_id, feature_ids in self.selections.items():
+                # Determine layer type
+                if layer_id == (self.vector_layer.id if self.vector_layer else ""):
+                    layer_type = "Vector"
+                elif layer_id == (self.fast_layer.id if self.fast_layer else ""):
+                    layer_type = "Fast Points"
+                elif layer_id == (self.fast_geo_layer.id if self.fast_geo_layer else ""):
+                    layer_type = "Fast Geo"
+                else:
+                    layer_type = "Unknown"
+                
+                layer_summaries.append(f"{layer_type}: {len(feature_ids)} items")
             
-            ids_str = ", ".join(self.current_selection.feature_ids[:5])
-            if count > 5:
-                ids_str += f"... ({count - 5} more)"
+            summary_text = "<br>".join(layer_summaries)
             
             self.info_label.setText(
-                f"<b>Selected: {count} item(s)</b><br>"
-                f"Layer: {layer_type}<br>"
-                f"IDs: {ids_str}"
+                f"<b>Selected: {total_features} item(s) total</b><br>"
+                f"{summary_text}"
             )
     
     def recolor_selection(self, r, g, b):
-        """Recolor the selected features."""
-        if self.current_selection is None or len(self.current_selection.feature_ids) == 0:
+        """Recolor the selected features across all layers."""
+        if len(self.selections) == 0:
             print("No selection to recolor")
             return
         
-        layer_id = self.current_selection.layer_id
-        feature_ids = self.current_selection.feature_ids
+        total_recolored = 0
         
-        print(f"Recoloring {len(feature_ids)} features on layer {layer_id} to RGB({r}, {g}, {b})")
-        
-        # Determine which layer and use appropriate method
-        print(f"  Checking layer IDs:")
-        print(f"    vector_layer.id = {self.vector_layer.id if self.vector_layer else 'None'}")
-        print(f"    fast_layer.id = {self.fast_layer.id if self.fast_layer else 'None'}")
-        print(f"    fast_geo_layer.id = {self.fast_geo_layer.id if self.fast_geo_layer else 'None'}")
-        print(f"    selection layer_id = {layer_id}")
-        
-        if layer_id == self.vector_layer.id:
-            # For vector layer, update feature styles
-            styles = [
-                PointStyle(
-                    radius=10.0,
-                    fill_color=(r, g, b),
-                    fill_opacity=0.9,
-                    stroke_color="#000000",
-                    stroke_width=1.0
-                )
-                for _ in feature_ids
-            ]
-            self.vector_layer.update_feature_styles(feature_ids, styles)
-            print(f"Updated {len(feature_ids)} vector point styles")
+        # Recolor selections on each layer
+        for layer_id, feature_ids in self.selections.items():
+            print(f"Recoloring {len(feature_ids)} features on layer {layer_id} to RGB({r}, {g}, {b})")
             
-        elif layer_id == self.fast_layer.id:
-            # For fast points layer, set colors
-            colors_rgba = [(r, g, b, 200) for _ in feature_ids]
-            self.fast_layer.set_colors(feature_ids, colors_rgba)
-            print(f"Updated {len(feature_ids)} fast point colors")
+            if layer_id == self.vector_layer.id:
+                # For vector layer, update feature styles
+                styles = [
+                    PointStyle(
+                        radius=10.0,
+                        fill_color=(r, g, b),
+                        fill_opacity=0.9,
+                        stroke_color="#000000",
+                        stroke_width=1.0
+                    )
+                    for _ in feature_ids
+                ]
+                self.vector_layer.update_feature_styles(feature_ids, styles)
+                print(f"  Updated {len(feature_ids)} vector point styles")
+                total_recolored += len(feature_ids)
+                
+            elif layer_id == self.fast_layer.id:
+                # For fast points layer, set colors
+                colors_rgba = [(r, g, b, 200) for _ in feature_ids]
+                self.fast_layer.set_colors(feature_ids, colors_rgba)
+                print(f"  Updated {len(feature_ids)} fast point colors")
+                total_recolored += len(feature_ids)
+                
+            elif layer_id == self.fast_geo_layer.id:
+                # For fast geo points layer, set colors
+                colors_rgba = [(r, g, b, 200) for _ in feature_ids]
+                self.fast_geo_layer.set_colors(feature_ids, colors_rgba)
+                print(f"  Updated {len(feature_ids)} fast geo point colors")
+                total_recolored += len(feature_ids)
             
-        elif layer_id == self.fast_geo_layer.id:
-            # For fast geo points layer, set colors
-            colors_rgba = [(r, g, b, 200) for _ in feature_ids]
-            self.fast_geo_layer.set_colors(feature_ids, colors_rgba)
-            print(f"Updated {len(feature_ids)} fast geo point colors")
+            else:
+                print(f"  Unknown layer: {layer_id}")
         
-        else:
-            print(f"Unknown layer: {layer_id}")
+        print(f"Total recolored: {total_recolored} features across {len(self.selections)} layer(s)")
 
 
 def main():
