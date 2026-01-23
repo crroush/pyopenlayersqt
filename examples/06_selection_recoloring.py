@@ -286,6 +286,12 @@ class SelectionRecoloringWindow(QtWidgets.QMainWindow):
         print(f"Recoloring {len(feature_ids)} features on layer {layer_id} to RGB({r}, {g}, {b})")
         
         # Determine which layer and use appropriate method
+        print(f"  Checking layer IDs:")
+        print(f"    vector_layer.id = {self.vector_layer.id if self.vector_layer else 'None'}")
+        print(f"    fast_layer.id = {self.fast_layer.id if self.fast_layer else 'None'}")
+        print(f"    fast_geo_layer.id = {self.fast_geo_layer.id if self.fast_geo_layer else 'None'}")
+        print(f"    selection layer_id = {layer_id}")
+        
         if layer_id == self.vector_layer.id:
             # For vector layer, update feature styles
             styles = [
