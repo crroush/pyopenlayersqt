@@ -15,6 +15,13 @@ Key Pattern:
 4. Results are applied to map only if the generation token matches current
 5. This prevents stale results from updating the UI
 
+Important Note on Cancellation:
+- For Python code with loops/iterations: Cancel flag can be checked between iterations
+- For atomic C++ operations (large numpy/scipy calls): Operation completes but results
+  are discarded if generation token doesn't match. GUI stays responsive, computation
+  finishes in background without blocking.
+- For truly interruptible operations: Use multiprocessing.Process with terminate()
+
 This pattern is essential for:
 - Dynamic data loading based on map extent
 - Real-time heatmap/polygon generation
@@ -102,6 +109,10 @@ class HeatmapWorker(QRunnable):
             z = np.zeros((self.grid_size, self.grid_size), dtype=np.float64)
             
             # Process in chunks to allow periodic cancel checks
+            # NOTE: For atomic operations (large numpy/scipy calls that run entirely
+            # in C++), cancellation won't interrupt mid-execution. The operation
+            # completes but results are discarded via generation token check.
+            # Break into chunks when possible to enable more responsive cancellation.
             chunk_size = max(1, self.grid_size // 10)
             for i in range(0, self.grid_size, chunk_size):
                 if self.cancelled:
@@ -112,6 +123,8 @@ class HeatmapWorker(QRunnable):
                 chunk_lon = grid_lon[i:end_i, :]
                 
                 # Compute distances from each grid point to all data points
+                # This numpy operation is atomic (runs in C++) but chunking allows
+                # cancel checks between chunks rather than waiting for entire grid
                 d2 = (
                     (chunk_lon[..., None] - lons[None, None, :]) ** 2
                     + (chunk_lat[..., None] - lats[None, None, :]) ** 2
