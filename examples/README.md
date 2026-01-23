@@ -78,6 +78,25 @@ Range slider widget with map and table filtering:
 - Live filtering updates as sliders are adjusted
 - Info panel showing visible/hidden counts
 
+### 06_selection_recoloring.py
+
+Selection and color updating across all layer types:
+- FastPointsLayer with per-point colors
+- FastGeoPointsLayer with per-point colors and uncertainty ellipses
+- VectorLayer with point features
+- Select features by clicking (Ctrl/Cmd+click for multi-select)
+- Change colors of selected features with buttons
+- Demonstrates `set_colors()` method for fast layers
+- Demonstrates `update_feature_styles()` method for vector layers
+
+**Key features:**
+- 5 vector points with different colors (large markers)
+- 100 fast points with random colors (small markers)
+- 50 fast geo points with uncertainty ellipses and random colors
+- Click to select points on any layer
+- Use color buttons to recolor selected items
+- Shows how to update colors for selected items on any layer type
+
 ## Requirements
 
 All examples require:
@@ -97,3 +116,4 @@ pip install PySide6 numpy
 - **Performance**: For > 1000 points, use `FastPointsLayer` instead of `VectorLayer`
 - **Selection**: Features are selectable by clicking or Ctrl+drag (box selection)
 - **Table Sync**: The complete example shows how to keep map and table selections synchronized
+- **Recoloring**: Use `set_colors()` for fast layers or `update_feature_styles()` for vector layers to change colors
