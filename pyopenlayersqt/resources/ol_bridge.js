@@ -1702,7 +1702,7 @@ function cmd_measure_clear(msg) {
     case "fast_points.show_all": return cmd_fast_points_show_all(msg);
     case "fast_points.set_colors": return cmd_fast_points_set_colors(msg);
       case "base.set_opacity": return cmd_base_set_opacity(msg);
-      case "vector.remove_features": cmd_vector_remove_features(msg); break;
+      case "vector.remove_features": return cmd_vector_remove_features(msg);
       case "vector.update_styles": return cmd_vector_update_styles(msg);
 
     // --- FastGeoPoints ---

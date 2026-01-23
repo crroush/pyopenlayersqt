@@ -39,7 +39,7 @@ class VectorLayer(BaseLayer):
 
     def remove_features(self, feature_ids: Sequence[str]) -> None:
         """Remove vector features by id."""
-        self._w.send(
+        self._w._send(
             {
                 "type": "vector.remove_features",
                 "layer_id": self.id,
