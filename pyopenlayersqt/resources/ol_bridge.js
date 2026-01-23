@@ -500,6 +500,30 @@ function cmd_fast_points_show_all(msg) {
   fp_redraw(entry);
 }
 
+function cmd_fast_points_set_colors(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== "fast_points") return;
+  const fids = msg.feature_ids || [];
+  const colors = msg.colors || [];
+  if (fids.length !== colors.length) return;
+  
+  // Build a map of id -> index for fast lookup
+  const idToIdx = new Map();
+  for (let i = 0; i < entry.ids.length; i++) {
+    idToIdx.set(entry.ids[i], i);
+  }
+  
+  // Update colors for the specified features
+  for (let k = 0; k < fids.length; k++) {
+    const idx = idToIdx.get(String(fids[k]));
+    if (idx !== undefined) {
+      entry.color_u32[idx] = colors[k] >>> 0;
+    }
+  }
+  
+  fp_redraw(entry);
+}
+
 // --- FastGeoPoints (points + uncertainty ellipses; index-backed canvas layer) ---
 const _FGP_EARTH_R = 6378137.0;
 function _fgp_lat_from_y(y3857) {
@@ -819,6 +843,30 @@ function cmd_fast_geopoints_show_all(msg) {
   fgp_redraw(entry);
 }
 
+function cmd_fast_geopoints_set_colors(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== 'fast_geopoints') return;
+  const fids = msg.feature_ids || [];
+  const colors = msg.colors || [];
+  if (fids.length !== colors.length) return;
+  
+  // Build a map of id -> index for fast lookup
+  const idToIdx = new Map();
+  for (let i = 0; i < entry.ids.length; i++) {
+    idToIdx.set(entry.ids[i], i);
+  }
+  
+  // Update colors for the specified features
+  for (let k = 0; k < fids.length; k++) {
+    const idx = idToIdx.get(String(fids[k]));
+    if (idx !== undefined) {
+      entry.color_u32[idx] = colors[k] >>> 0;
+    }
+  }
+  
+  fgp_redraw(entry);
+}
+
 function fp_install_interactions() {
   state.map.on("singleclick", function(evt) {
     const orig = evt.originalEvent;
@@ -860,9 +908,12 @@ function fp_install_interactions() {
         const x = entry.x[i], y = entry.y[i];
         if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) next.add(entry.ids[i]);
       }
-      entry.selectedIds = next;
-      fp_redraw(entry);
-      fp_emit_selection(entry);
+      // Only emit selection if something was selected in this layer or if clearing previous selection
+      if (next.size > 0 || entry.selectedIds.size > 0) {
+        entry.selectedIds = next;
+        fp_redraw(entry);
+        fp_emit_selection(entry);
+      }
     }
   });
 }
@@ -1652,8 +1703,10 @@ function cmd_measure_clear(msg) {
     case "fast_points.hide_ids": return cmd_fast_points_hide_ids(msg);
     case "fast_points.show_ids": return cmd_fast_points_show_ids(msg);
     case "fast_points.show_all": return cmd_fast_points_show_all(msg);
+    case "fast_points.set_colors": return cmd_fast_points_set_colors(msg);
       case "base.set_opacity": return cmd_base_set_opacity(msg);
-      case "vector.remove_features": cmd_vector_remove_features(msg); break;
+      case "vector.remove_features": return cmd_vector_remove_features(msg);
+      case "vector.update_styles": return cmd_vector_update_styles(msg);
 
     // --- FastGeoPoints ---
     case "fast_geopoints.add_layer": return cmd_fast_geopoints_add_layer(msg);
@@ -1668,6 +1721,7 @@ function cmd_measure_clear(msg) {
     case "fast_geopoints.hide_ids": return cmd_fast_geopoints_hide_ids(msg);
     case "fast_geopoints.show_ids": return cmd_fast_geopoints_show_ids(msg);
     case "fast_geopoints.show_all": return cmd_fast_geopoints_show_all(msg);
+    case "fast_geopoints.set_colors": return cmd_fast_geopoints_set_colors(msg);
 
       default:
         jsError("Unknown command:", t, msg);
@@ -1716,6 +1770,22 @@ function cmd_vector_remove_features(msg) {
   for (let i = 0; i < ids.length; i++) {
     const f = e.source.getFeatureById(ids[i]);
     if (f) e.source.removeFeature(f);
+  }
+}
+
+function cmd_vector_update_styles(msg) {
+  const e = getLayerEntry(msg.layer_id);
+  if (!e || e.type !== "vector") return;
+  const ids = msg.feature_ids || [];
+  const styles = msg.styles || [];
+  if (ids.length !== styles.length) return;
+  
+  for (let i = 0; i < ids.length; i++) {
+    const f = e.source.getFeatureById(String(ids[i]));
+    if (f) {
+      const style = style_from_simple(styles[i]);
+      f.setStyle(style);
+    }
   }
 }
 })();

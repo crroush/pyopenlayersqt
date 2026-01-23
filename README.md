@@ -170,6 +170,14 @@ vector.add_ellipse(
     style=EllipseStyle(stroke_color="#ffcc00", fill_opacity=0.12)
 )
 
+# Update styles of specific features (e.g., selected features)
+feature_ids = ["id1", "id2"]
+new_styles = [
+    PointStyle(radius=8.0, fill_color="#ff0000", fill_opacity=1.0),
+    PointStyle(radius=8.0, fill_color="#00ff00", fill_opacity=1.0),
+]
+vector.update_feature_styles(feature_ids, new_styles)
+
 # Remove features
 vector.remove_features(["id1", "poly1"])
 
@@ -210,6 +218,11 @@ fast.add_points(coords, ids=ids, colors_rgba=colors)
 
 # Remove specific points
 fast.remove_points(["pt1", "pt2"])
+
+# Update colors of specific points (e.g., selected points)
+feature_ids = ["pt10", "pt25", "pt50"]
+new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
+fast.set_colors(feature_ids, new_colors)
 
 # Clear all points
 fast.clear()
@@ -263,6 +276,11 @@ fast_geo.add_points_with_ellipses(
 
 # Toggle ellipse visibility
 fast_geo.set_ellipses_visible(False)
+
+# Update colors of specific points (e.g., selected points)
+feature_ids = ["geo5", "geo12", "geo20"]
+new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
+fast_geo.set_colors(feature_ids, new_colors)
 
 # Remove points
 fast_geo.remove_ids(["geo1", "geo2"])
@@ -391,6 +409,66 @@ def on_selection_changed(selection):
 
 map_widget.selectionChanged.connect(on_selection_changed)
 ```
+
+### Selection and Recoloring
+
+Update colors or styles of selected features across all layer types:
+
+```python
+# For VectorLayer: Update feature styles
+selected_ids = ["pt1", "pt2", "pt3"]
+new_styles = [
+    PointStyle(radius=10.0, fill_color="#ff0000"),
+    PointStyle(radius=10.0, fill_color="#00ff00"),
+    PointStyle(radius=10.0, fill_color="#0000ff"),
+]
+vector_layer.update_feature_styles(selected_ids, new_styles)
+
+# For FastPointsLayer: Update colors
+selected_ids = ["fp1", "fp2", "fp3"]
+new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
+fast_layer.set_colors(selected_ids, new_colors)
+
+# For FastGeoPointsLayer: Update colors
+selected_ids = ["geo1", "geo2", "geo3"]
+new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
+fast_geo_layer.set_colors(selected_ids, new_colors)
+```
+
+**Complete workflow example with multi-layer selection support:**
+```python
+# Track selections for all layers (layer_id -> list of feature_ids)
+selections = {}
+
+def on_selection_changed(selection):
+    global selections
+    # Update selections for this layer
+    if len(selection.feature_ids) > 0:
+        selections[selection.layer_id] = selection.feature_ids
+    elif selection.layer_id in selections:
+        # Clear selection for this layer
+        del selections[selection.layer_id]
+    
+    total = sum(len(ids) for ids in selections.values())
+    print(f"Total selected: {total} features across {len(selections)} layer(s)")
+
+map_widget.selectionChanged.connect(on_selection_changed)
+
+# Recolor all selected items across all layers
+def recolor_selected_red():
+    for layer_id, feature_ids in selections.items():
+        if layer_id == vector_layer.id:
+            styles = [PointStyle(fill_color="#ff0000") for _ in feature_ids]
+            vector_layer.update_feature_styles(feature_ids, styles)
+        elif layer_id == fast_layer.id:
+            colors = [(255, 0, 0, 255) for _ in feature_ids]
+            fast_layer.set_colors(feature_ids, colors)
+        elif layer_id == fast_geo_layer.id:
+            colors = [(255, 0, 0, 255) for _ in feature_ids]
+            fast_geo_layer.set_colors(feature_ids, colors)
+```
+
+See [examples/06_selection_recoloring.py](examples/06_selection_recoloring.py) for a complete interactive example.
 
 ### Distance Measurement Mode
 
