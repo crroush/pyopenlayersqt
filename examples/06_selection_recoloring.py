@@ -46,8 +46,9 @@ class SelectionRecoloringWindow(QtWidgets.QMainWindow):
         # Layout
         controls_layout = QtWidgets.QVBoxLayout()
         controls_layout.addWidget(QtWidgets.QLabel("<b>Instructions:</b>"))
-        controls_layout.addWidget(QtWidgets.QLabel("• Click on points to select them"))
-        controls_layout.addWidget(QtWidgets.QLabel("• Ctrl/Cmd+Click for multi-select"))
+        controls_layout.addWidget(QtWidgets.QLabel("• Ctrl/Cmd+Click on points to select them"))
+        controls_layout.addWidget(QtWidgets.QLabel("• Ctrl/Cmd+Click again to deselect"))
+        controls_layout.addWidget(QtWidgets.QLabel("• Ctrl/Cmd+Drag to box-select multiple points"))
         controls_layout.addWidget(QtWidgets.QLabel("• Use buttons to change colors of selected items"))
         controls_layout.addWidget(QtWidgets.QLabel(""))
         controls_layout.addWidget(QtWidgets.QLabel("<b>Recolor Selected Items:</b>"))
@@ -114,6 +115,15 @@ class SelectionRecoloringWindow(QtWidgets.QMainWindow):
     
     def add_sample_data(self):
         """Add sample data to the map."""
+        print("="*60)
+        print("MAP READY - Adding sample data")
+        print("To select items:")
+        print("  - For VECTOR points (large circles): Ctrl/Cmd+Click")
+        print("  - For FAST points (small dots): Ctrl/Cmd+Click")  
+        print("  - For FAST GEO points (with ellipses): Ctrl/Cmd+Click")
+        print("When items are selected, buttons should automatically enable")
+        print("="*60)
+        
         # Add vector layer with a few points
         self.vector_layer = self.map_widget.add_vector_layer("vector", selectable=True)
         
@@ -224,11 +234,16 @@ class SelectionRecoloringWindow(QtWidgets.QMainWindow):
     def on_selection_changed(self, selection):
         """Handle selection change from map."""
         self.current_selection = selection
-        print(f"Selection changed: {selection.layer_id}, {len(selection.feature_ids)} features")
+        has_selection = len(selection.feature_ids) > 0
+        print(f"Selection changed: {selection.layer_id}, {len(selection.feature_ids)} features, enabling buttons: {has_selection}")
+        print(f"  Feature IDs: {selection.feature_ids}")
         self.update_info_label()
         
         # Enable/disable buttons based on selection
-        self.set_buttons_enabled(len(selection.feature_ids) > 0)
+        self.set_buttons_enabled(has_selection)
+        
+        # Verify buttons are actually enabled
+        print(f"  Red button enabled: {self.red_button.isEnabled()}")
     
     def update_info_label(self):
         """Update the info label with current selection."""
