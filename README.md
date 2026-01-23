@@ -435,26 +435,37 @@ new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
 fast_geo_layer.set_colors(selected_ids, new_colors)
 ```
 
-**Complete workflow example:**
+**Complete workflow example with multi-layer selection support:**
 ```python
-# Track selection
-current_selection = None
+# Track selections for all layers (layer_id -> list of feature_ids)
+selections = {}
 
 def on_selection_changed(selection):
-    global current_selection
-    current_selection = selection
-    print(f"Selected {len(selection.feature_ids)} features on {selection.layer_id}")
+    global selections
+    # Update selections for this layer
+    if len(selection.feature_ids) > 0:
+        selections[selection.layer_id] = selection.feature_ids
+    elif selection.layer_id in selections:
+        # Clear selection for this layer
+        del selections[selection.layer_id]
+    
+    total = sum(len(ids) for ids in selections.values())
+    print(f"Total selected: {total} features across {len(selections)} layer(s)")
 
 map_widget.selectionChanged.connect(on_selection_changed)
 
-# Recolor selected items
+# Recolor all selected items across all layers
 def recolor_selected_red():
-    if current_selection and current_selection.layer_id == vector_layer.id:
-        styles = [PointStyle(fill_color="#ff0000") for _ in current_selection.feature_ids]
-        vector_layer.update_feature_styles(current_selection.feature_ids, styles)
-    elif current_selection and current_selection.layer_id == fast_layer.id:
-        colors = [(255, 0, 0, 255) for _ in current_selection.feature_ids]
-        fast_layer.set_colors(current_selection.feature_ids, colors)
+    for layer_id, feature_ids in selections.items():
+        if layer_id == vector_layer.id:
+            styles = [PointStyle(fill_color="#ff0000") for _ in feature_ids]
+            vector_layer.update_feature_styles(feature_ids, styles)
+        elif layer_id == fast_layer.id:
+            colors = [(255, 0, 0, 255) for _ in feature_ids]
+            fast_layer.set_colors(feature_ids, colors)
+        elif layer_id == fast_geo_layer.id:
+            colors = [(255, 0, 0, 255) for _ in feature_ids]
+            fast_geo_layer.set_colors(feature_ids, colors)
 ```
 
 See [examples/06_selection_recoloring.py](examples/06_selection_recoloring.py) for a complete interactive example.
