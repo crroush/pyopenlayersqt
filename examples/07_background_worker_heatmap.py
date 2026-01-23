@@ -21,6 +21,7 @@ Important Note on Cancellation:
   are discarded if generation token doesn't match. GUI stays responsive, computation
   finishes in background without blocking.
 - For truly interruptible operations: Use multiprocessing.Process with terminate()
+  (note: may cause resource leaks; prefer generation token pattern for most cases)
 
 This pattern is essential for:
 - Dynamic data loading based on map extent
@@ -110,9 +111,10 @@ class HeatmapWorker(QRunnable):
             
             # Process in chunks to allow periodic cancel checks
             # NOTE: For atomic operations (large numpy/scipy calls that run entirely
-            # in C++), cancellation won't interrupt mid-execution. The operation
-            # completes but results are discarded via generation token check.
-            # Break into chunks when possible to enable more responsive cancellation.
+            # in C++ like matrix multiplication, FFT, linear algebra), cancellation
+            # won't interrupt mid-execution. The operation completes but results are
+            # discarded via generation token check. Break into chunks when possible
+            # to enable more responsive cancellation.
             chunk_size = max(1, self.grid_size // 10)
             for i in range(0, self.grid_size, chunk_size):
                 if self.cancelled:
