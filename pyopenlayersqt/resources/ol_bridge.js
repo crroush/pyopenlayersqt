@@ -908,9 +908,12 @@ function fp_install_interactions() {
         const x = entry.x[i], y = entry.y[i];
         if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) next.add(entry.ids[i]);
       }
-      entry.selectedIds = next;
-      fp_redraw(entry);
-      fp_emit_selection(entry);
+      // Only emit selection if something was selected in this layer or if clearing previous selection
+      if (next.size > 0 || entry.selectedIds.size > 0) {
+        entry.selectedIds = next;
+        fp_redraw(entry);
+        fp_emit_selection(entry);
+      }
     }
   });
 }
