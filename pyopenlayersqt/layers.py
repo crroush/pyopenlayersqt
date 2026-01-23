@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from .models import (
     CircleStyle,
@@ -44,6 +44,35 @@ class VectorLayer(BaseLayer):
                 "type": "vector.remove_features",
                 "layer_id": self.id,
                 "feature_ids": [str(x) for x in feature_ids],
+            }
+        )
+
+    def update_feature_styles(
+        self,
+        feature_ids: Sequence[str],
+        styles: Sequence[PointStyle | PolygonStyle | CircleStyle | EllipseStyle],
+    ) -> None:
+        """Update styles for specific features by ID.
+        
+        This allows changing colors and other style properties of selected or any features.
+        
+        Args:
+            feature_ids: List of feature IDs to update.
+            styles: List of style objects, one per feature ID. Use the appropriate
+                    style type for each feature (PointStyle, PolygonStyle, etc.).
+        """
+        if len(feature_ids) != len(styles):
+            raise ValueError("feature_ids and styles must have the same length")
+        
+        fids = [str(x) for x in feature_ids]
+        styles_js = [s.to_js() for s in styles]
+        
+        self._w._send(
+            {
+                "type": "vector.update_styles",
+                "layer_id": self.id,
+                "feature_ids": fids,
+                "styles": styles_js,
             }
         )
 
@@ -396,6 +425,38 @@ class FastPointsLayer:
             }
         )
 
+    def set_colors(
+        self,
+        feature_ids: Sequence[str],
+        colors_rgba: list[tuple[int, int, int, int]],
+    ) -> None:
+        """Update colors for specific features by ID.
+        
+        This allows changing colors of selected or any other features.
+        
+        Args:
+            feature_ids: List of feature IDs to update.
+            colors_rgba: List of (r, g, b, a) tuples (0-255), one per feature ID.
+        """
+        if len(feature_ids) != len(colors_rgba):
+            raise ValueError("feature_ids and colors_rgba must have the same length")
+        
+        fids = [str(x) for x in feature_ids]
+        packed: list[int] = []
+        for r, g, b, a in colors_rgba:
+            packed.append(
+                ((r & 255) << 24) | ((g & 255) << 16) | ((b & 255) << 8) | (a & 255)
+            )
+        
+        self._mapw._send(
+            {
+                "type": "fast_points.set_colors",
+                "layer_id": self.id,
+                "feature_ids": fids,
+                "colors": packed,
+            }
+        )
+
 
 
 class FastGeoPointsLayer:
@@ -553,5 +614,37 @@ class FastGeoPointsLayer:
             {
                 "type": "fast_geopoints.show_all",
                 "layer_id": self.id,
+            }
+        )
+
+    def set_colors(
+        self,
+        feature_ids: Sequence[str],
+        colors_rgba: list[tuple[int, int, int, int]],
+    ) -> None:
+        """Update colors for specific features by ID.
+        
+        This allows changing colors of selected or any other features.
+        
+        Args:
+            feature_ids: List of feature IDs to update.
+            colors_rgba: List of (r, g, b, a) tuples (0-255), one per feature ID.
+        """
+        if len(feature_ids) != len(colors_rgba):
+            raise ValueError("feature_ids and colors_rgba must have the same length")
+        
+        fids = [str(x) for x in feature_ids]
+        packed: list[int] = []
+        for r, g, b, a in colors_rgba:
+            packed.append(
+                ((r & 255) << 24) | ((g & 255) << 16) | ((b & 255) << 8) | (a & 255)
+            )
+        
+        self._mapw._send(
+            {
+                "type": "fast_geopoints.set_colors",
+                "layer_id": self.id,
+                "feature_ids": fids,
+                "colors": packed,
             }
         )
