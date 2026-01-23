@@ -786,6 +786,59 @@ handle = map_widget.watch_view_extent(on_extent_changed, debounce_ms=150)
 handle.cancel()
 ```
 
+### Responsive GUI with Background Workers
+
+For heavy computations triggered by extent changes, use background workers with cancellation to keep the GUI responsive:
+
+```python
+from PySide6.QtCore import QRunnable, QThreadPool
+
+class HeavyComputationWorker(QRunnable):
+    def __init__(self, extent, generation):
+        super().__init__()
+        self.extent = extent
+        self.generation = generation
+        self.cancelled = False
+    
+    def cancel(self):
+        self.cancelled = True
+    
+    def run(self):
+        # Heavy computation (e.g., heatmap, polygon generation)
+        for chunk in process_in_chunks(self.extent):
+            if self.cancelled:
+                return  # Exit early if cancelled
+            compute_chunk(chunk)
+        
+        # Emit results with generation token
+        self.signals.finished.emit(self.generation, results)
+
+# In your main window:
+def on_extent_changed(self, extent):
+    # Cancel previous worker
+    if self.active_worker:
+        self.active_worker.cancel()
+    
+    # Start new worker with incremented generation
+    self.current_generation += 1
+    worker = HeavyComputationWorker(extent, self.current_generation)
+    self.active_worker = worker
+    QThreadPool.globalInstance().start(worker)
+
+def on_worker_finished(self, generation, results):
+    # Only apply if generation matches (not stale)
+    if generation == self.current_generation:
+        update_map_layer(results)
+```
+
+**Key Pattern:**
+- **Generation Token**: Each extent change gets a unique token
+- **Worker Cancellation**: Previous workers cancelled when extent changes
+- **Stale Result Filtering**: Results only applied if generation matches
+- **Responsive UI**: Heavy work runs in thread pool, UI stays interactive
+
+See [examples/07_background_worker_heatmap.py](examples/07_background_worker_heatmap.py) for a complete working example.
+
 ## Advanced: Direct JavaScript Communication
 
 For advanced use cases, you can send custom messages to the JavaScript bridge:

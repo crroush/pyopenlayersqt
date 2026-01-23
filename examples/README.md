@@ -97,6 +97,34 @@ Selection and color updating across all layer types:
 - Use color buttons to recolor selected items
 - Shows how to update colors for selected items on any layer type
 
+### 07_background_worker_heatmap.py
+
+Responsive GUI with background workers and cancellation:
+- Heavy heatmap computation offloaded to `QRunnable`/`QThreadPool`
+- `watch_view_extent()` to trigger computation on map pan/zoom
+- Generation token + cancel flag mechanism to handle rapid interactions
+- Stale computations cancelled automatically, only latest result shown
+- GUI remains fully responsive during heavy processing
+
+**Key Pattern:**
+1. Each extent change gets unique generation token
+2. Previous worker cancelled (won't update UI)
+3. Worker checks cancel flag periodically during computation
+4. Results applied only if generation token still matches
+5. Prevents stale/outdated results from updating the map
+
+**Key features:**
+- Background thread pool for heavy computation
+- Real-time heatmap generation based on visible map extent
+- Automatic cancellation of outdated computations
+- Console output showing worker lifecycle (start, cancel, finish, ignore stale)
+- Demonstrates best practices for responsive UI with long-running operations
+
+**Use this pattern for:**
+- Dynamic data loading based on map extent
+- Real-time polygon/heatmap generation
+- Any heavy computation that should respond to rapid user interactions
+
 ## Requirements
 
 All examples require:
