@@ -611,6 +611,14 @@ Dual-handle range slider for filtering features by numeric or timestamp ranges:
 
 ```python
 from pyopenlayersqt.range_slider import RangeSliderWidget
+from pyopenlayersqt import FastPointsStyle
+
+# Create a fast points layer (required for hide/show features)
+fast_layer = map_widget.add_fast_points_layer(
+    "filterable_points",
+    selectable=True,
+    style=FastPointsStyle(radius=3.0, default_rgba=(0, 180, 100, 200))
+)
 
 # Numeric range slider
 value_slider = RangeSliderWidget(
@@ -626,11 +634,14 @@ def on_value_range_changed(min_val, max_val):
     visible_ids = [f["id"] for f in features if min_val <= f["value"] <= max_val]
     hidden_ids = [f["id"] for f in features if not (min_val <= f["value"] <= max_val)]
     
-    # Hide/show features on map
-    layer.hide_features(hidden_ids)
-    layer.show_features(visible_ids)
+    # Hide/show features on map (FastPointsLayer and FastGeoPointsLayer only)
+    if hidden_ids:
+        fast_layer.hide_features(hidden_ids)
+    if visible_ids:
+        fast_layer.show_features(visible_ids)
     
     # Hide/show rows in table
+    layer_id = fast_layer.id
     table.hide_rows_by_keys([(layer_id, fid) for fid in hidden_ids])
     table.show_rows_by_keys([(layer_id, fid) for fid in visible_ids])
 
@@ -645,9 +656,9 @@ timestamp_slider = RangeSliderWidget(
 
 timestamp_slider.rangeChanged.connect(on_timestamp_range_changed)
 
-# Reset filters
-layer.show_all_features()  # Show all on map
-table.show_all_rows()      # Show all in table
+# Reset filters - show all features again
+fast_layer.show_all_features()  # Show all on map
+table.show_all_rows()  # Show all in table
 ```
 
 See [examples/05_range_slider_filter.py](examples/05_range_slider_filter.py) for a complete working example with map and table filtering.
