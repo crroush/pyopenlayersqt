@@ -17,6 +17,9 @@ extension-pkg-allow-list=PySide6
 # Disable no-self-argument for static method patterns
 # Disable arguments-differ for Qt method overrides
 # Disable refactoring suggestions (consider-using-max-builtin, etc.)
+# Disable too-many-instance-attributes for comprehensive demo showcase
+# Disable too-many-statements for comprehensive demo methods
+# Disable import-outside-toplevel for optional QColor support
 disable=import-error,
         no-member,
         attribute-defined-outside-init,
@@ -34,7 +37,10 @@ disable=import-error,
         arguments-differ,
         too-many-positional-arguments,
         consider-using-max-builtin,
-        consider-using-min-builtin
+        consider-using-min-builtin,
+        too-many-instance-attributes,
+        too-many-statements,
+        import-outside-toplevel
 
 [BASIC]
 # Allow module names that start with numbers (for example files)

@@ -1618,6 +1618,24 @@ function cmd_measure_clear(msg) {
     e.source.addFeature(f);
   }
 
+  function cmd_vector_set_opacity(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "vector") return;
+    if (typeof msg.opacity === "number") e.layer.setOpacity(msg.opacity);
+  }
+
+  function cmd_vector_set_visible(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "vector") return;
+    e.layer.setVisible(!!msg.visible);
+  }
+
+  function cmd_vector_set_selectable(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "vector") return;
+    e.selectable = !!msg.selectable;
+  }
+
   function cmd_wms_set_params(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "wms") return;
@@ -1677,6 +1695,9 @@ function cmd_measure_clear(msg) {
       case "vector.add_circle": return cmd_vector_add_circle(msg);
       case "vector.add_ellipse": return cmd_vector_add_ellipse(msg);
       case "vector.add_line": return cmd_vector_add_line(msg);
+      case "vector.set_opacity": return cmd_vector_set_opacity(msg);
+      case "vector.set_visible": return cmd_vector_set_visible(msg);
+      case "vector.set_selectable": return cmd_vector_set_selectable(msg);
 
       case "wms.set_params": return cmd_wms_set_params(msg);
       case "raster.set_image": return cmd_raster_set_image(msg);

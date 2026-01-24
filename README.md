@@ -140,6 +140,35 @@ map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 
 ### Layer Types
 
+All layer types in pyopenlayersqt inherit from a common `BaseLayer` class, providing consistent functionality across different layer implementations.
+
+#### Common Layer Methods
+
+All layers (VectorLayer, FastPointsLayer, FastGeoPointsLayer, WMSLayer, RasterLayer) support these core methods:
+
+```python
+# Set layer opacity (0.0 = transparent, 1.0 = opaque)
+layer.set_opacity(0.7)
+
+# Remove the layer from the map
+layer.remove()
+```
+
+**Feature-based layers** (VectorLayer, FastPointsLayer, FastGeoPointsLayer) also support:
+
+```python
+# Show/hide the layer
+layer.set_visible(True)
+
+# Enable/disable feature selection
+layer.set_selectable(True)
+
+# Clear all features from the layer
+layer.clear()
+```
+
+Each layer type also has specialized methods for its specific use case, as detailed below.
+
 #### VectorLayer
 
 For standard vector features with full styling control.
@@ -245,8 +274,13 @@ ids = [f"pt{i}" for i in range(len(coords))]
 # Option 1: Single color for all points
 fast.add_points(coords, ids=ids)
 
-# Option 2: Per-point colors
-colors = [(r, g, b, a), ...]  # RGBA tuples
+# Option 2: Per-point colors using RGBA tuples
+colors = [(r, g, b, a), ...]  # RGBA tuples (0-255)
+fast.add_points(coords, ids=ids, colors_rgba=colors)
+
+# Option 3: Per-point colors using QColor objects
+from PySide6.QtGui import QColor
+colors = [QColor(255, 0, 0, 180), QColor(0, 255, 0, 180), ...]
 fast.add_points(coords, ids=ids, colors_rgba=colors)
 
 # Remove specific points
@@ -254,8 +288,18 @@ fast.remove_points(["pt1", "pt2"])
 
 # Update colors of specific points (e.g., selected points)
 feature_ids = ["pt10", "pt25", "pt50"]
+# Can use RGBA tuples
 new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
 fast.set_colors(feature_ids, new_colors)
+# Or QColor objects
+from PySide6.QtGui import QColor
+new_colors = [QColor("red"), QColor("green"), QColor("blue")]
+fast.set_colors(feature_ids, new_colors)
+
+# Temporarily hide/show features (without removing them)
+fast.hide_features(["pt100", "pt200"])
+fast.show_features(["pt100"])
+fast.show_all_features()  # Show all hidden features
 
 # Clear all points
 fast.clear()
@@ -312,8 +356,18 @@ fast_geo.set_ellipses_visible(False)
 
 # Update colors of specific points (e.g., selected points)
 feature_ids = ["geo5", "geo12", "geo20"]
+# Can use RGBA tuples
 new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
 fast_geo.set_colors(feature_ids, new_colors)
+# Or QColor objects
+from PySide6.QtGui import QColor
+new_colors = [QColor("red"), QColor("green"), QColor("blue")]
+fast_geo.set_colors(feature_ids, new_colors)
+
+# Temporarily hide/show features (without removing them)
+fast_geo.hide_features(["geo100", "geo200"])
+fast_geo.show_features(["geo100"])
+fast_geo.show_all_features()  # Show all hidden features
 
 # Remove points
 fast_geo.remove_ids(["geo1", "geo2"])
