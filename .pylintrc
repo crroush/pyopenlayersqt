@@ -1,0 +1,23 @@
+[MAIN]
+# Allow PySide6 as extension package to avoid import warnings
+extension-pkg-allow-list=PySide6
+
+[MESSAGES CONTROL]
+# Disable import-error since dependencies may not be installed in all environments
+disable=import-error
+
+[BASIC]
+# Allow module names that start with numbers (for example files)
+module-naming-style=any
+
+[DESIGN]
+# Relax design constraints for demo and example files
+max-args=10
+max-attributes=15
+max-locals=25
+max-statements=60
+max-branches=15
+
+[FORMAT]
+# Maximum line length
+max-line-length=100

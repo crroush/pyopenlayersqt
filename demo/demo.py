@@ -15,11 +15,10 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
-from matplotlib import cm
 from matplotlib import colors as mcolors
 from matplotlib import colormaps
 from matplotlib.path import Path as MplPath
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,

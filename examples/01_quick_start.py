@@ -8,9 +8,11 @@ This example shows the most basic usage of pyopenlayersqt:
 - Displaying the map
 """
 
-from PySide6 import QtWidgets
-from pyopenlayersqt import OLMapWidget, PointStyle
 import sys
+
+from PySide6 import QtWidgets
+
+from pyopenlayersqt import OLMapWidget, PointStyle
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
