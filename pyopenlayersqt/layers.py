@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from .models import (
     CircleStyle,
@@ -13,17 +13,68 @@ from .models import (
 )
 
 
-def _pack_rgba_colors(colors_rgba: List[tuple[int, int, int, int]]) -> List[int]:
-    """Convert list of RGBA tuples to packed 32-bit integers.
+def _qcolor_to_rgba(color: Any) -> tuple[int, int, int, int]:
+    """Convert a QColor object to an RGBA tuple.
     
     Args:
-        colors_rgba: List of (r, g, b, a) tuples with values 0-255.
+        color: QColor object from PySide6.QtGui
+        
+    Returns:
+        Tuple of (r, g, b, a) with values 0-255.
+    """
+    # Import here to avoid circular dependency and allow layers.py to work without Qt
+    try:
+        from PySide6.QtGui import QColor
+        if isinstance(color, QColor):
+            return (color.red(), color.green(), color.blue(), color.alpha())
+    except ImportError:
+        pass
+    raise TypeError(f"Expected QColor object, got {type(color)}")
+
+
+def _normalize_color(color: Union[tuple[int, int, int, int], Any]) -> tuple[int, int, int, int]:
+    """Normalize a color to RGBA tuple format.
+    
+    Accepts either:
+    - RGBA tuple: (r, g, b, a) with values 0-255
+    - QColor object from PySide6.QtGui
+    
+    Args:
+        color: Either an RGBA tuple or a QColor object
+        
+    Returns:
+        Tuple of (r, g, b, a) with values 0-255.
+    """
+    if isinstance(color, tuple) and len(color) == 4:
+        return color
+    # Try to convert from QColor
+    try:
+        from PySide6.QtGui import QColor
+        if isinstance(color, QColor):
+            return _qcolor_to_rgba(color)
+    except ImportError:
+        pass
+    raise TypeError(
+        f"Color must be either an RGBA tuple (r, g, b, a) or a QColor object, got {type(color)}"
+    )
+
+
+def _pack_rgba_colors(colors: List[Union[tuple[int, int, int, int], Any]]) -> List[int]:
+    """Convert list of colors to packed 32-bit integers.
+    
+    Accepts colors as either:
+    - RGBA tuples: (r, g, b, a) with values 0-255
+    - QColor objects from PySide6.QtGui
+    
+    Args:
+        colors: List of RGBA tuples or QColor objects.
     
     Returns:
         List of packed 32-bit integers.
     """
     packed: List[int] = []
-    for r, g, b, a in colors_rgba:
+    for color in colors:
+        r, g, b, a = _normalize_color(color)
         packed.append(
             ((r & 255) << 24) | ((g & 255) << 16) | ((b & 255) << 8) | (a & 255)
         )
@@ -408,14 +459,16 @@ class FastPointsLayer(BaseLayer):
         self,
         coords: list[tuple[float, float]],
         ids: list[str] | None = None,
-        colors_rgba: list[tuple[int, int, int, int]] | None = None,
+        colors_rgba: list[Union[tuple[int, int, int, int], Any]] | None = None,
     ) -> None:
         """Add points to the layer.
 
         Args:
             coords: List of (lat, lon) tuples for each point.
             ids: Optional list of feature IDs. Auto-generated if not provided.
-            colors_rgba: Optional list of (r, g, b, a) tuples (0-255) for each point.
+            colors_rgba: Optional list of colors. Each color can be either:
+                - RGBA tuple: (r, g, b, a) with values 0-255
+                - QColor object from PySide6.QtGui
         """
         # Swap lat,lon (public API) to lon,lat (internal format)
         coords_internal = [[lon, lat] for lat, lon in coords]
@@ -480,7 +533,7 @@ class FastPointsLayer(BaseLayer):
     def set_colors(
         self,
         feature_ids: Sequence[str],
-        colors_rgba: list[tuple[int, int, int, int]],
+        colors_rgba: list[Union[tuple[int, int, int, int], Any]],
     ) -> None:
         """Update colors for specific features by ID.
 
@@ -488,7 +541,9 @@ class FastPointsLayer(BaseLayer):
 
         Args:
             feature_ids: List of feature IDs to update.
-            colors_rgba: List of (r, g, b, a) tuples (0-255), one per feature ID.
+            colors_rgba: List of colors, one per feature ID. Each color can be either:
+                - RGBA tuple: (r, g, b, a) with values 0-255
+                - QColor object from PySide6.QtGui
         """
         if len(feature_ids) != len(colors_rgba):
             raise ValueError("feature_ids and colors_rgba must have the same length")
@@ -531,7 +586,7 @@ class FastGeoPointsLayer(BaseLayer):
         smi_m: list[float],
         tilt_deg: list[float],
         ids: list[str] | None = None,
-        colors_rgba: list[tuple[int, int, int, int]] | None = None,
+        colors_rgba: list[Union[tuple[int, int, int, int], Any]] | None = None,
         chunk_size: int = 50000,
     ) -> None:
         """Add points with uncertainty ellipses to the layer.
@@ -542,7 +597,9 @@ class FastGeoPointsLayer(BaseLayer):
             smi_m: List of semi-minor axis values in meters.
             tilt_deg: List of tilt angles in degrees clockwise from true north.
             ids: Optional list of feature IDs. Auto-generated if not provided.
-            colors_rgba: Optional list of (r, g, b, a) tuples (0-255) for each point.
+            colors_rgba: Optional list of colors. Each color can be either:
+                - RGBA tuple: (r, g, b, a) with values 0-255
+                - QColor object from PySide6.QtGui
             chunk_size: Number of points per chunk to avoid large JSON payloads.
         """
         if not len(coords) == len(sma_m) == len(smi_m) == len(tilt_deg):
@@ -631,7 +688,7 @@ class FastGeoPointsLayer(BaseLayer):
     def set_colors(
         self,
         feature_ids: Sequence[str],
-        colors_rgba: list[tuple[int, int, int, int]],
+        colors_rgba: list[Union[tuple[int, int, int, int], Any]],
     ) -> None:
         """Update colors for specific features by ID.
 
@@ -639,7 +696,9 @@ class FastGeoPointsLayer(BaseLayer):
 
         Args:
             feature_ids: List of feature IDs to update.
-            colors_rgba: List of (r, g, b, a) tuples (0-255), one per feature ID.
+            colors_rgba: List of colors, one per feature ID. Each color can be either:
+                - RGBA tuple: (r, g, b, a) with values 0-255
+                - QColor object from PySide6.QtGui
         """
         if len(feature_ids) != len(colors_rgba):
             raise ValueError("feature_ids and colors_rgba must have the same length")

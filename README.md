@@ -274,8 +274,13 @@ ids = [f"pt{i}" for i in range(len(coords))]
 # Option 1: Single color for all points
 fast.add_points(coords, ids=ids)
 
-# Option 2: Per-point colors
-colors = [(r, g, b, a), ...]  # RGBA tuples
+# Option 2: Per-point colors using RGBA tuples
+colors = [(r, g, b, a), ...]  # RGBA tuples (0-255)
+fast.add_points(coords, ids=ids, colors_rgba=colors)
+
+# Option 3: Per-point colors using QColor objects
+from PySide6.QtGui import QColor
+colors = [QColor(255, 0, 0, 180), QColor(0, 255, 0, 180), ...]
 fast.add_points(coords, ids=ids, colors_rgba=colors)
 
 # Remove specific points
@@ -283,7 +288,12 @@ fast.remove_points(["pt1", "pt2"])
 
 # Update colors of specific points (e.g., selected points)
 feature_ids = ["pt10", "pt25", "pt50"]
+# Can use RGBA tuples
 new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
+fast.set_colors(feature_ids, new_colors)
+# Or QColor objects
+from PySide6.QtGui import QColor
+new_colors = [QColor("red"), QColor("green"), QColor("blue")]
 fast.set_colors(feature_ids, new_colors)
 
 # Temporarily hide/show features (without removing them)
@@ -346,7 +356,12 @@ fast_geo.set_ellipses_visible(False)
 
 # Update colors of specific points (e.g., selected points)
 feature_ids = ["geo5", "geo12", "geo20"]
+# Can use RGBA tuples
 new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
+fast_geo.set_colors(feature_ids, new_colors)
+# Or QColor objects
+from PySide6.QtGui import QColor
+new_colors = [QColor("red"), QColor("green"), QColor("blue")]
 fast_geo.set_colors(feature_ids, new_colors)
 
 # Temporarily hide/show features (without removing them)
