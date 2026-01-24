@@ -4,12 +4,14 @@ extension-pkg-allow-list=PySide6
 
 [MESSAGES CONTROL]
 # Disable import-error since dependencies may not be installed in all environments
+# Disable no-member for PySide6 objects when dependencies are not installed
 # Disable attribute-defined-outside-init for demo files which use lazy initialization
 # Disable too-few-public-methods for demo window classes
 # Disable redefined-outer-name for nested main functions
 # Disable too-many-lines for comprehensive demo files
 # Disable duplicate-code for similar patterns in example files
 disable=import-error,
+        no-member,
         attribute-defined-outside-init,
         too-few-public-methods,
         redefined-outer-name,
