@@ -154,7 +154,7 @@ layer.set_opacity(0.7)
 layer.remove()
 ```
 
-**Fast point layers** (FastPointsLayer, FastGeoPointsLayer) support additional control methods:
+**Feature-based layers** (VectorLayer, FastPointsLayer, FastGeoPointsLayer) also support:
 
 ```python
 # Show/hide the layer
@@ -166,8 +166,6 @@ layer.set_selectable(True)
 # Clear all features from the layer
 layer.clear()
 ```
-
-**Note:** VectorLayer also supports `clear()` but does not support `set_visible()` or `set_selectable()` as vector layers are always visible and selectable in the current implementation.
 
 Each layer type also has specialized methods for its specific use case, as detailed below.
 
