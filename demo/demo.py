@@ -20,8 +20,10 @@ from matplotlib import colormaps
 from matplotlib.path import Path as MplPath
 from PySide6 import QtWidgets
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -320,19 +322,33 @@ class ShowcaseWindow(QMainWindow):
 
         style_box = QGroupBox("Vector style")
         form = QFormLayout(style_box)
-        self.vec_stroke = QLineEdit("#00aaff")
-        self.vec_fill = QLineEdit("#00aaff")
-        self.vec_fill_op = QDoubleSpinBox()
-        self.vec_fill_op.setRange(0.0, 1.0)
-        self.vec_fill_op.setValue(0.15)
-        self.vec_fill_op.setSingleStep(0.05)
+
+        # Stroke color picker
+        self.vec_stroke_color = QColor("#00aaff")
+        self.vec_stroke_btn = QPushButton()
+        self.vec_stroke_btn.setStyleSheet(f"background-color: {self.vec_stroke_color.name()}")
+        self.vec_stroke_btn.setMaximumWidth(100)
+        self.vec_stroke_btn.clicked.connect(self._choose_stroke_color)
+        form.addRow("Stroke color", self.vec_stroke_btn)
+
         self.vec_stroke_w = QDoubleSpinBox()
         self.vec_stroke_w.setRange(0.0, 10.0)
         self.vec_stroke_w.setValue(2.0)
         self.vec_stroke_w.setSingleStep(0.5)
-        form.addRow("Stroke", self.vec_stroke)
         form.addRow("Stroke width", self.vec_stroke_w)
-        form.addRow("Fill", self.vec_fill)
+
+        # Fill color picker
+        self.vec_fill_color = QColor("#00aaff")
+        self.vec_fill_btn = QPushButton()
+        self.vec_fill_btn.setStyleSheet(f"background-color: {self.vec_fill_color.name()}")
+        self.vec_fill_btn.setMaximumWidth(100)
+        self.vec_fill_btn.clicked.connect(self._choose_fill_color)
+        form.addRow("Fill color", self.vec_fill_btn)
+
+        self.vec_fill_op = QDoubleSpinBox()
+        self.vec_fill_op.setRange(0.0, 1.0)
+        self.vec_fill_op.setValue(0.15)
+        self.vec_fill_op.setSingleStep(0.05)
         form.addRow("Fill opacity", self.vec_fill_op)
         layout.addWidget(style_box)
 
@@ -779,12 +795,26 @@ class ShowcaseWindow(QMainWindow):
         self.fgp_opacity_label.setText(f"{op:.2f}")
         self.fast_geo.set_opacity(op)
 
+    def _choose_stroke_color(self) -> None:
+        """Open color picker for stroke color."""
+        color = QColorDialog.getColor(self.vec_stroke_color, self, "Choose Stroke Color")
+        if color.isValid():
+            self.vec_stroke_color = color
+            self.vec_stroke_btn.setStyleSheet(f"background-color: {color.name()}")
+
+    def _choose_fill_color(self) -> None:
+        """Open color picker for fill color."""
+        color = QColorDialog.getColor(self.vec_fill_color, self, "Choose Fill Color")
+        if color.isValid():
+            self.vec_fill_color = color
+            self.vec_fill_btn.setStyleSheet(f"background-color: {color.name()}")
+
     # ---- styles ----
     def _poly_style(self) -> PolygonStyle:
         return PolygonStyle(
-            stroke_color=self.vec_stroke.text().strip(),
+            stroke_color=self.vec_stroke_color.name(),
             stroke_width=float(self.vec_stroke_w.value()),
-            fill_color=self.vec_fill.text().strip(),
+            fill_color=self.vec_fill_color.name(),
             fill_opacity=float(self.vec_fill_op.value()),
             fill=True,
         )
