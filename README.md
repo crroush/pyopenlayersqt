@@ -5,6 +5,39 @@ OpenLayers + Qt (QWebEngine) mapping widget for Python.
 A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt application using QWebEngine. Designed for displaying and interacting with large volumes of geospatial data.
 <img width="821" height="503" alt="image" src="https://github.com/user-attachments/assets/ef34e565-12f5-48b3-92e5-bbe752a96992" />
 
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+  - [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Core Components](#core-components)
+  - [OLMapWidget](#olmapwidget)
+  - [Layer Types](#layer-types)
+    - [VectorLayer](#vectorlayer)
+    - [FastPointsLayer](#fastpointslayer)
+    - [FastGeoPointsLayer](#fastgeopointslayer)
+    - [WMSLayer](#wmslayer)
+    - [RasterLayer](#rasterlayer)
+  - [Style Classes](#style-classes)
+  - [Feature Selection](#feature-selection)
+  - [Selection and Recoloring](#selection-and-recoloring)
+  - [Distance Measurement Mode](#distance-measurement-mode)
+  - [FeatureTableWidget](#featuretablewidget)
+  - [RangeSliderWidget](#rangesliderwidget)
+- [Complete Example](#complete-example)
+- [Running the Demo](#running-the-demo)
+- [View Extent Tracking](#view-extent-tracking)
+- [Advanced: Direct JavaScript Communication](#advanced-direct-javascript-communication)
+- [Performance Tips](#performance-tips)
+- [Architecture](#architecture)
+- [License](#license)
+- [Contributing](#contributing)
+- [Versioning and Releases](#versioning-and-releases)
+  - [For Maintainers: Creating a Release](#for-maintainers-creating-a-release)
+  - [PyPI Setup Requirements](#pypi-setup-requirements)
+- [Credits](#credits)
+
 ## Features
 
 - **🗺️ Interactive Map Widget**: Fully-featured OpenLayers map embedded in PySide6/Qt
@@ -578,6 +611,14 @@ Dual-handle range slider for filtering features by numeric or timestamp ranges:
 
 ```python
 from pyopenlayersqt.range_slider import RangeSliderWidget
+from pyopenlayersqt import FastPointsStyle
+
+# Create a fast points layer (required for hide/show features)
+fast_layer = map_widget.add_fast_points_layer(
+    "filterable_points",
+    selectable=True,
+    style=FastPointsStyle(radius=3.0, default_rgba=(0, 180, 100, 200))
+)
 
 # Numeric range slider
 value_slider = RangeSliderWidget(
@@ -593,11 +634,14 @@ def on_value_range_changed(min_val, max_val):
     visible_ids = [f["id"] for f in features if min_val <= f["value"] <= max_val]
     hidden_ids = [f["id"] for f in features if not (min_val <= f["value"] <= max_val)]
     
-    # Hide/show features on map
-    layer.hide_features(hidden_ids)
-    layer.show_features(visible_ids)
+    # Hide/show features on map (FastPointsLayer and FastGeoPointsLayer only)
+    if hidden_ids:
+        fast_layer.hide_features(hidden_ids)
+    if visible_ids:
+        fast_layer.show_features(visible_ids)
     
     # Hide/show rows in table
+    layer_id = fast_layer.id
     table.hide_rows_by_keys([(layer_id, fid) for fid in hidden_ids])
     table.show_rows_by_keys([(layer_id, fid) for fid in visible_ids])
 
@@ -612,9 +656,9 @@ timestamp_slider = RangeSliderWidget(
 
 timestamp_slider.rangeChanged.connect(on_timestamp_range_changed)
 
-# Reset filters
-layer.show_all_features()  # Show all on map
-table.show_all_rows()      # Show all in table
+# Reset filters - show all features again
+fast_layer.show_all_features()  # Show all on map
+table.show_all_rows()  # Show all in table
 ```
 
 See [examples/05_range_slider_filter.py](examples/05_range_slider_filter.py) for a complete working example with map and table filtering.
