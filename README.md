@@ -144,7 +144,7 @@ All layer types in pyopenlayersqt inherit from a common `BaseLayer` class, provi
 
 #### Common Layer Methods
 
-All layers (VectorLayer, FastPointsLayer, FastGeoPointsLayer, WMSLayer, RasterLayer) support these methods:
+All layers (VectorLayer, FastPointsLayer, FastGeoPointsLayer, WMSLayer, RasterLayer) support these core methods:
 
 ```python
 # Set layer opacity (0.0 = transparent, 1.0 = opaque)
@@ -152,11 +152,19 @@ layer.set_opacity(0.7)
 
 # Remove the layer from the map
 layer.remove()
+```
 
-# For layers that support visibility control (Fast layers, Vector layers)
-layer.set_visible(True)  # Show/hide the layer
-layer.set_selectable(True)  # Enable/disable feature selection
-layer.clear()  # Clear all features from the layer
+**Feature-based layers** (VectorLayer, FastPointsLayer, FastGeoPointsLayer) also support:
+
+```python
+# Show/hide the layer
+layer.set_visible(True)
+
+# Enable/disable feature selection
+layer.set_selectable(True)
+
+# Clear all features from the layer
+layer.clear()
 ```
 
 Each layer type also has specialized methods for its specific use case, as detailed below.
