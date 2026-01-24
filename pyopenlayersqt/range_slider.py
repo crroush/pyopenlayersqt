@@ -28,12 +28,10 @@ Google-style docstrings + PEP8.
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, List, Optional, Tuple, Union
 
-from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt, Signal, QRect
-from PySide6.QtGui import QPainter, QPen, QColor
+from PySide6.QtGui import QPainter, QPen, QColor, QPaintEvent, QMouseEvent
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 class DualHandleSlider(QWidget):
@@ -131,7 +129,7 @@ class DualHandleSlider(QWidget):
         r = self._handle_radius
         return QRect(x - r, y - r, 2 * r, 2 * r)
 
-    def paintEvent(self, event: QtGui.QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         """Paint the slider."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -156,7 +154,7 @@ class DualHandleSlider(QWidget):
         painter.drawRoundedRect(selected_rect, self._track_height / 2, self._track_height / 2)
 
         # Draw handles
-        for value, is_max in [(self._min_value, False), (self._max_value, True)]:
+        for value, _ in [(self._min_value, False), (self._max_value, True)]:
             handle_rect = self._get_handle_rect(value)
 
             # Handle shadow
@@ -176,7 +174,7 @@ class DualHandleSlider(QWidget):
             inner_rect = handle_rect.adjusted(4, 4, -4, -4)
             painter.drawEllipse(inner_rect)
 
-    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+    def mousePressEvent(self, event: QMouseEvent) -> None:
         """Handle mouse press events."""
         if event.button() == Qt.LeftButton:
             pos = event.pos().x()
@@ -202,7 +200,7 @@ class DualHandleSlider(QWidget):
                     self.setMaxValue(value)
                     self._dragging_handle = 'max'
 
-    def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Handle mouse move events."""
         if self._dragging_handle:
             pos = event.pos().x()
@@ -222,7 +220,7 @@ class DualHandleSlider(QWidget):
             else:
                 self.setCursor(Qt.ArrowCursor)
 
-    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """Handle mouse release events."""
         if event.button() == Qt.LeftButton:
             self._dragging_handle = None
@@ -338,14 +336,12 @@ class RangeSliderWidget(QWidget):
             if 0 <= idx < len(self._iso_values):
                 return self._iso_values[idx]
             return ""
-        else:
-            # Format numeric value nicely
-            if self._step >= 1.0:
-                return str(int(numeric_value))
-            else:
-                return f"{numeric_value:.2f}"
+        # Format numeric value nicely
+        if self._step >= 1.0:
+            return str(int(numeric_value))
+        return f"{numeric_value:.2f}"
 
-    def _on_range_changed(self, min_slider_val: int, max_slider_val: int) -> None:
+    def _on_range_changed(self, _min_slider_val: int, _max_slider_val: int) -> None:
         """Handle range change from the dual-handle slider."""
         self._update_labels()
         self._emit_range_changed()
@@ -385,8 +381,7 @@ class RangeSliderWidget(QWidget):
 
         if self._is_iso8601:
             return (self._format_value(min_val), self._format_value(max_val))
-        else:
-            return (min_val, max_val)
+        return (min_val, max_val)
 
     def set_range(self, min_value: Union[float, str], max_value: Union[float, str]) -> None:
         """Set the current range programmatically.

@@ -104,7 +104,7 @@ class _StaticServer:
                 # everything else from package dir
                 return str(pkg_dir / rel)
 
-            def log_message(self, fmt: str, *args: Any) -> None:
+            def log_message(self, _fmt: str, *args: Any) -> None:
                 return  # quiet
 
         self._httpd = ThreadingHTTPServer((self.host, int(self.port)), Handler)
@@ -296,7 +296,8 @@ class OLMapWidget(QWebEngineView):
         Accepts:
           - http(s) url => returned as-is
           - '/_overlays/..' or '/vendor/..' => returned as-is
-          - filesystem path => copied into overlays dir and returned as '/_overlays/<uuid>.<ext>?ts=...'
+          - filesystem path => copied into overlays dir and returned as
+            '/_overlays/<uuid>.<ext>?ts=...'
           - PNG bytes => written into overlays dir and returned similarly
         """
         ts = int(time.time() * 1000)
@@ -337,7 +338,7 @@ class OLMapWidget(QWebEngineView):
         if event_type == "ready":
             self._js_ready = True
             # Set initial view if different from defaults
-            if (self._initial_center != self.DEFAULT_CENTER or 
+            if (self._initial_center != self.DEFAULT_CENTER or
                 self._initial_zoom != self.DEFAULT_ZOOM):
                 # Swap lat,lon (public API) to lon,lat (internal format)
                 lat, lon = self._initial_center
@@ -446,7 +447,7 @@ class OLMapWidget(QWebEngineView):
 
         Async: callback(extent_dict) is called exactly once.
         extent_dict contains lon_min, lat_min, lon_max, lat_max, zoom, resolution.
-        
+
         Note: The extent keys use lon/lat naming but values represent the actual
         geographic bounds regardless of coordinate ordering used elsewhere in the API.
         """
@@ -535,14 +536,14 @@ class OLMapWidget(QWebEngineView):
         name: str = "raster",
     ) -> RasterLayer:
         """Add a raster image overlay to the map.
-        
+
         Args:
-            image_url: Can be an http(s) URL, a filesystem path, a server path 
+            image_url: Can be an http(s) URL, a filesystem path, a server path
                       ("/_overlays/..."), or raw PNG bytes.
             bounds: Two (lat, lon) tuples defining SW and NE corners.
             style: Raster styling options.
             name: Layer name.
-        
+
         Returns:
             The created RasterLayer instance.
         """
@@ -565,11 +566,12 @@ class OLMapWidget(QWebEngineView):
 
     def set_measure_mode(self, enabled: bool) -> None:
         """Enable or disable measurement mode.
-        
+
         When enabled, clicking on the map creates anchor points for distance measurement.
-        Each click emits a 'measurement' event via jsEvent signal with segment and cumulative distances.
+        Each click emits a 'measurement' event via jsEvent signal with segment and
+        cumulative distances.
         Press Escape to exit measurement mode.
-        
+
         Args:
             enabled: True to enable measurement mode, False to disable.
         """

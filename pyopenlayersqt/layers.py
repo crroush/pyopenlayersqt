@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence
 
 from .models import (
     CircleStyle,
@@ -497,7 +496,7 @@ class FastGeoPointsLayer:
             colors_rgba: Optional list of (r, g, b, a) tuples (0-255) for each point.
             chunk_size: Number of points per chunk to avoid large JSON payloads.
         """
-        if not (len(coords) == len(sma_m) == len(smi_m) == len(tilt_deg)):
+        if not len(coords) == len(sma_m) == len(smi_m) == len(tilt_deg):
             raise ValueError("coords/sma_m/smi_m/tilt_deg must have the same length")
 
         n = len(coords)

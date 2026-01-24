@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-Color = Union[str, Tuple[int, int, int], Tuple[int, int, int, int]]  # "#RRGGBB", "rgba(...)", or tuples
+# "#RRGGBB", "rgba(...)", or tuples
+Color = Union[str, Tuple[int, int, int], Tuple[int, int, int, int]]
 LatLon = Tuple[float, float]  # (lat, lon) - Public API uses latitude first
 
 
@@ -79,7 +80,10 @@ class CircleStyle:
         return {
             "stroke": _color_to_css(self.stroke_color, self.stroke_opacity),
             "stroke_width": float(self.stroke_width),
-            "fill": _color_to_css(self.fill_color, self.fill_opacity) if self.fill else "rgba(0,0,0,0)",
+            "fill": (
+                _color_to_css(self.fill_color, self.fill_opacity)
+                if self.fill else "rgba(0,0,0,0)"
+            ),
         }
 
 
@@ -99,7 +103,10 @@ class PolygonStyle:
         return {
             "stroke": _color_to_css(self.stroke_color, self.stroke_opacity),
             "stroke_width": float(self.stroke_width),
-            "fill": _color_to_css(self.fill_color, self.fill_opacity) if self.fill else "rgba(0,0,0,0)",
+            "fill": (
+                _color_to_css(self.fill_color, self.fill_opacity)
+                if self.fill else "rgba(0,0,0,0)"
+            ),
         }
 
 
@@ -121,7 +128,10 @@ class EllipseStyle:
         return {
             "stroke": _color_to_css(self.stroke_color, self.stroke_opacity),
             "stroke_width": float(self.stroke_width),
-            "fill": _color_to_css(self.fill_color, self.fill_opacity) if self.fill else "rgba(0,0,0,0)",
+            "fill": (
+                _color_to_css(self.fill_color, self.fill_opacity)
+                if self.fill else "rgba(0,0,0,0)"
+            ),
         }
 
 
@@ -180,7 +190,6 @@ class FeatureSelection:
     count: int = 0
     raw: Dict[str, Any] = field(default_factory=dict)
 
-from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class FastPointsStyle:
@@ -246,8 +255,14 @@ class FastGeoPointsStyle:
             "selected_point_rgba": list(self.selected_point_rgba),
             "ellipse_stroke_rgba": list(self.ellipse_stroke_rgba),
             "ellipse_stroke_width": float(self.ellipse_stroke_width),
-            "selected_ellipse_stroke_rgba": (list(self.selected_ellipse_stroke_rgba) if self.selected_ellipse_stroke_rgba is not None else None),
-            "selected_ellipse_stroke_width": (float(self.selected_ellipse_stroke_width) if self.selected_ellipse_stroke_width is not None else None),
+            "selected_ellipse_stroke_rgba": (
+                list(self.selected_ellipse_stroke_rgba)
+                if self.selected_ellipse_stroke_rgba is not None else None
+            ),
+            "selected_ellipse_stroke_width": (
+                float(self.selected_ellipse_stroke_width)
+                if self.selected_ellipse_stroke_width is not None else None
+            ),
             "fill_ellipses": bool(self.fill_ellipses),
             "ellipse_fill_rgba": list(self.ellipse_fill_rgba),
             "ellipses_visible": bool(self.ellipses_visible),

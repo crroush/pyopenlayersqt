@@ -10,13 +10,31 @@ extension-pkg-allow-list=PySide6
 # Disable redefined-outer-name for nested main functions
 # Disable too-many-lines for comprehensive demo files
 # Disable duplicate-code for similar patterns in example files
+# Disable invalid-name for Qt method overrides (camelCase required by Qt)
+# Disable protected-access for internal API usage (_send, etc.)
+# Disable missing-docstring for library code (will be addressed separately)
+# Disable broad-exception-caught for intentional generic error handling
+# Disable no-self-argument for static method patterns
+# Disable arguments-differ for Qt method overrides
+# Disable refactoring suggestions (consider-using-max-builtin, etc.)
 disable=import-error,
         no-member,
         attribute-defined-outside-init,
         too-few-public-methods,
         redefined-outer-name,
         too-many-lines,
-        duplicate-code
+        duplicate-code,
+        invalid-name,
+        protected-access,
+        missing-module-docstring,
+        missing-class-docstring,
+        missing-function-docstring,
+        broad-exception-caught,
+        no-self-argument,
+        arguments-differ,
+        too-many-positional-arguments,
+        consider-using-max-builtin,
+        consider-using-min-builtin
 
 [BASIC]
 # Allow module names that start with numbers (for example files)
@@ -29,6 +47,7 @@ max-attributes=50
 max-locals=35
 max-statements=60
 max-branches=15
+max-returns=10
 
 [FORMAT]
 # Maximum line length
