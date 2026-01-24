@@ -13,28 +13,116 @@ from .models import (
 )
 
 
+def _pack_rgba_colors(colors_rgba: List[tuple[int, int, int, int]]) -> List[int]:
+    """Convert list of RGBA tuples to packed 32-bit integers.
+    
+    Args:
+        colors_rgba: List of (r, g, b, a) tuples with values 0-255.
+    
+    Returns:
+        List of packed 32-bit integers.
+    """
+    packed: List[int] = []
+    for r, g, b, a in colors_rgba:
+        packed.append(
+            ((r & 255) << 24) | ((g & 255) << 16) | ((b & 255) << 8) | (a & 255)
+        )
+    return packed
+
+
 class BaseLayer:
+    """Base class for all layer types.
+
+    Provides common functionality for layer management including opacity,
+    visibility, selectability, and removal operations.
+    """
+
+    # Subclasses can override this to customize message type prefixes
+    _layer_type_prefix: Optional[str] = None
+
     def __init__(self, widget: Any, layer_id: str, name: str = ""):
+        """Initialize a layer.
+
+        Args:
+            widget: The map widget or widget instance.
+            layer_id: Unique identifier for this layer.
+            name: Optional human-readable name (defaults to layer_id).
+        """
         self._w = widget
         self.id = layer_id
         self.name = name or layer_id
 
     def remove(self) -> None:
+        """Remove this layer from the map."""
         self._w._send({"type": "layer.remove", "layer_id": self.id})
 
     def set_opacity(self, opacity: float) -> None:
-        self._w._send(
-            {"type": "layer.opacity", "layer_id": self.id, "opacity": float(opacity)}
+        """Set the opacity of this layer.
+
+        Args:
+            opacity: Opacity value between 0.0 (transparent) and 1.0 (opaque).
+        """
+        msg_type = (
+            f"{self._layer_type_prefix}.set_opacity"
+            if self._layer_type_prefix
+            else "layer.opacity"
         )
+        self._w._send(
+            {"type": msg_type, "layer_id": self.id, "opacity": float(opacity)}
+        )
+
+    def set_visible(self, visible: bool) -> None:
+        """Set the visibility of this layer.
+
+        Args:
+            visible: True to show the layer, False to hide it.
+        """
+        if not self._layer_type_prefix:
+            raise NotImplementedError(
+                "set_visible requires _layer_type_prefix to be set"
+            )
+        self._w._send(
+            {
+                "type": f"{self._layer_type_prefix}.set_visible",
+                "layer_id": self.id,
+                "visible": bool(visible),
+            }
+        )
+
+    def set_selectable(self, selectable: bool) -> None:
+        """Set whether features in this layer can be selected.
+
+        Args:
+            selectable: True to allow feature selection, False to disable.
+        """
+        if not self._layer_type_prefix:
+            raise NotImplementedError(
+                "set_selectable requires _layer_type_prefix to be set"
+            )
+        self._w._send(
+            {
+                "type": f"{self._layer_type_prefix}.set_selectable",
+                "layer_id": self.id,
+                "selectable": bool(selectable),
+            }
+        )
+
+    def clear(self) -> None:
+        """Clear all features from this layer."""
+        if not self._layer_type_prefix:
+            raise NotImplementedError(
+                "clear requires _layer_type_prefix to be set"
+            )
+        self._w._send({"type": f"{self._layer_type_prefix}.clear", "layer_id": self.id})
 
 
 class VectorLayer(BaseLayer):
-    """
-    A layer that can hold points/polygons/circles/ellipses/lines as vector features.
+    """A layer that can hold points/polygons/circles/ellipses/lines as vector features.
+
+    Supports rich styling with per-feature properties and various geometry types.
     """
 
-    def clear(self) -> None:
-        self._w._send({"type": "vector.clear", "layer_id": self.id})
+    _layer_type_prefix = "vector"
 
     def remove_features(self, feature_ids: Sequence[str]) -> None:
         """Remove vector features by id."""
@@ -300,7 +388,7 @@ class RasterLayer(BaseLayer):
         self.set_opacity(style.opacity)
 
 
-class FastPointsLayer:
+class FastPointsLayer(BaseLayer):
     """High-volume point layer (IDs-only selection).
 
     Backed by a JS-side spatial grid index + canvas renderer.
@@ -309,12 +397,12 @@ class FastPointsLayer:
     Coordinates are specified as (lat, lon) tuples in the public API.
     """
 
+    _layer_type_prefix = "fast_points"
+
     def __init__(
         self, map_widget: "OLMapWidget", layer_id: str, name: str = ""
     ) -> None:
-        self._mapw = map_widget
-        self.id = layer_id
-        self.name = name or layer_id
+        super().__init__(map_widget, layer_id, name)
 
     def add_points(
         self,
@@ -340,49 +428,14 @@ class FastPointsLayer:
         if ids is not None:
             msg["ids"] = ids
         if colors_rgba is not None:
-            packed: list[int] = []
-            for r, g, b, a in colors_rgba:
-                packed.append(
-                    ((r & 255) << 24) | ((g & 255) << 16) | ((b & 255) << 8) | (a & 255)
-                )
-            msg["colors"] = packed
-        self._mapw._send(msg)
-
-    def clear(self) -> None:
-        self._mapw._send({"type": "fast_points.clear", "layer_id": self.id})
-
-    def set_opacity(self, opacity: float) -> None:
-        self._mapw._send(
-            {
-                "type": "fast_points.set_opacity",
-                "layer_id": self.id,
-                "opacity": float(opacity),
-            }
-        )
-
-    def set_visible(self, visible: bool) -> None:
-        self._mapw._send(
-            {
-                "type": "fast_points.set_visible",
-                "layer_id": self.id,
-                "visible": bool(visible),
-            }
-        )
-
-    def set_selectable(self, selectable: bool) -> None:
-        self._mapw._send(
-            {
-                "type": "fast_points.set_selectable",
-                "layer_id": self.id,
-                "selectable": bool(selectable),
-            }
-        )
+            msg["colors"] = _pack_rgba_colors(colors_rgba)
+        self._w._send(msg)
 
     def remove_points(self, feature_ids: Sequence[str]) -> None:
         """Remove fast points by id (marks deleted in JS)."""
         # Send both 'feature_ids' and 'ids' for compatibility with any older/newer JS.
         fids = [str(x) for x in feature_ids]
-        self._mapw._send(
+        self._w._send(
             {
                 "type": "fast_points.remove_ids",
                 "layer_id": self.id,
@@ -394,7 +447,7 @@ class FastPointsLayer:
     def hide_features(self, feature_ids: Sequence[str]) -> None:
         """Hide features by id (temporarily hide from view; can be unhidden)."""
         fids = [str(x) for x in feature_ids]
-        self._mapw._send(
+        self._w._send(
             {
                 "type": "fast_points.hide_ids",
                 "layer_id": self.id,
@@ -406,7 +459,7 @@ class FastPointsLayer:
     def show_features(self, feature_ids: Sequence[str]) -> None:
         """Show previously hidden features by id."""
         fids = [str(x) for x in feature_ids]
-        self._mapw._send(
+        self._w._send(
             {
                 "type": "fast_points.show_ids",
                 "layer_id": self.id,
@@ -417,7 +470,7 @@ class FastPointsLayer:
 
     def show_all_features(self) -> None:
         """Show all hidden features (reset filter)."""
-        self._mapw._send(
+        self._w._send(
             {
                 "type": "fast_points.show_all",
                 "layer_id": self.id,
@@ -441,13 +494,9 @@ class FastPointsLayer:
             raise ValueError("feature_ids and colors_rgba must have the same length")
 
         fids = [str(x) for x in feature_ids]
-        packed: list[int] = []
-        for r, g, b, a in colors_rgba:
-            packed.append(
-                ((r & 255) << 24) | ((g & 255) << 16) | ((b & 255) << 8) | (a & 255)
-            )
+        packed = _pack_rgba_colors(colors_rgba)
 
-        self._mapw._send(
+        self._w._send(
             {
                 "type": "fast_points.set_colors",
                 "layer_id": self.id,
@@ -458,7 +507,7 @@ class FastPointsLayer:
 
 
 
-class FastGeoPointsLayer:
+class FastGeoPointsLayer(BaseLayer):
     """High-volume geolocation layer: points with attached uncertainty ellipses.
 
     Each point has:
@@ -470,10 +519,10 @@ class FastGeoPointsLayer:
     Ellipses can be toggled on/off independently of points.
     """
 
+    _layer_type_prefix = "fast_geopoints"
+
     def __init__(self, map_widget: "OLMapWidget", layer_id: str, name: str = "") -> None:
-        self._mapw = map_widget
-        self.id = layer_id
-        self.name = name or layer_id
+        super().__init__(map_widget, layer_id, name)
 
     def add_points_with_ellipses(
         self,
@@ -523,22 +572,12 @@ class FastGeoPointsLayer:
             if ids is not None:
                 msg["ids"] = ids[start:end]
             if colors_rgba is not None:
-                packed: list[int] = []
-                for r, g, b, a in colors_rgba[start:end]:
-                    packed.append(
-                        ((r & 255) << 24)
-                        | ((g & 255) << 16)
-                        | ((b & 255) << 8)
-                        | (a & 255)
-                    )
-                msg["colors"] = packed
-            self._mapw._send(msg)
-
-    def clear(self) -> None:
-        self._mapw._send({"type": "fast_geopoints.clear", "layer_id": self.id})
+                msg["colors"] = _pack_rgba_colors(colors_rgba[start:end])
+            self._w._send(msg)
 
     def remove_ids(self, feature_ids: Sequence[str]) -> None:
-        self._mapw._send(
+        """Remove fast geopoints by id (marks deleted in JS)."""
+        self._w._send(
             {
                 "type": "fast_geopoints.remove_ids",
                 "layer_id": self.id,
@@ -546,36 +585,9 @@ class FastGeoPointsLayer:
             }
         )
 
-    def set_opacity(self, opacity: float) -> None:
-        self._mapw._send(
-            {
-                "type": "fast_geopoints.set_opacity",
-                "layer_id": self.id,
-                "opacity": float(opacity),
-            }
-        )
-
-    def set_visible(self, visible: bool) -> None:
-        self._mapw._send(
-            {
-                "type": "fast_geopoints.set_visible",
-                "layer_id": self.id,
-                "visible": bool(visible),
-            }
-        )
-
-    def set_selectable(self, selectable: bool) -> None:
-        self._mapw._send(
-            {
-                "type": "fast_geopoints.set_selectable",
-                "layer_id": self.id,
-                "selectable": bool(selectable),
-            }
-        )
-
     def set_ellipses_visible(self, visible: bool) -> None:
         """Toggle ellipse drawing while leaving points visible."""
-        self._mapw._send(
+        self._w._send(
             {
                 "type": "fast_geopoints.set_ellipses_visible",
                 "layer_id": self.id,
@@ -586,7 +598,7 @@ class FastGeoPointsLayer:
     def hide_features(self, feature_ids: Sequence[str]) -> None:
         """Hide features by id (temporarily hide from view; can be unhidden)."""
         fids = [str(x) for x in feature_ids]
-        self._mapw._send(
+        self._w._send(
             {
                 "type": "fast_geopoints.hide_ids",
                 "layer_id": self.id,
@@ -598,7 +610,7 @@ class FastGeoPointsLayer:
     def show_features(self, feature_ids: Sequence[str]) -> None:
         """Show previously hidden features by id."""
         fids = [str(x) for x in feature_ids]
-        self._mapw._send(
+        self._w._send(
             {
                 "type": "fast_geopoints.show_ids",
                 "layer_id": self.id,
@@ -609,7 +621,7 @@ class FastGeoPointsLayer:
 
     def show_all_features(self) -> None:
         """Show all hidden features (reset filter)."""
-        self._mapw._send(
+        self._w._send(
             {
                 "type": "fast_geopoints.show_all",
                 "layer_id": self.id,
@@ -633,13 +645,9 @@ class FastGeoPointsLayer:
             raise ValueError("feature_ids and colors_rgba must have the same length")
 
         fids = [str(x) for x in feature_ids]
-        packed: list[int] = []
-        for r, g, b, a in colors_rgba:
-            packed.append(
-                ((r & 255) << 24) | ((g & 255) << 16) | ((b & 255) << 8) | (a & 255)
-            )
+        packed = _pack_rgba_colors(colors_rgba)
 
-        self._mapw._send(
+        self._w._send(
             {
                 "type": "fast_geopoints.set_colors",
                 "layer_id": self.id,
