@@ -24,6 +24,8 @@ from pyopenlayersqt import (
 
 
 class SelectionRecoloringWindow(QtWidgets.QMainWindow):
+    """Main window demonstrating selection and recoloring features."""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("pyopenlayersqt - Selection and Recoloring Example")
@@ -350,6 +352,7 @@ class SelectionRecoloringWindow(QtWidgets.QMainWindow):
 
 
 def main():
+    """Run the selection and recoloring example."""
     app = QtWidgets.QApplication(sys.argv)
     window = SelectionRecoloringWindow()
     window.resize(1200, 700)

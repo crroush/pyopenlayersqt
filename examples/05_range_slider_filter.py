@@ -24,6 +24,8 @@ from pyopenlayersqt.range_slider import RangeSliderWidget
 
 
 class RangeFilterWindow(QtWidgets.QMainWindow):
+    """Main window demonstrating range slider filtering."""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Range Slider Filter Example - pyopenlayersqt")
@@ -310,6 +312,7 @@ class RangeFilterWindow(QtWidgets.QMainWindow):
 
 
 def main():
+    """Run the range slider filter example."""
     app = QtWidgets.QApplication(sys.argv)
     window = RangeFilterWindow()
     window.resize(1400, 900)

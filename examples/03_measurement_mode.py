@@ -20,6 +20,8 @@ from pyopenlayersqt import OLMapWidget
 
 
 class MeasurementWindow(QtWidgets.QMainWindow):
+    """Main window demonstrating measurement mode."""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("pyopenlayersqt - Measurement Mode Example")
@@ -98,7 +100,7 @@ class MeasurementWindow(QtWidgets.QMainWindow):
                     )
 
                 self.log(msg)
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-exception-caught
                 self.log(f"Error processing measurement event: {e}")
 
     def format_distance(self, meters):
@@ -115,6 +117,7 @@ class MeasurementWindow(QtWidgets.QMainWindow):
 
 
 def main():
+    """Run the measurement mode example."""
     app = QtWidgets.QApplication(sys.argv)
     window = MeasurementWindow()
     window.resize(1000, 700)

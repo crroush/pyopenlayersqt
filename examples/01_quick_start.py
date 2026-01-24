@@ -15,6 +15,7 @@ from PySide6 import QtWidgets
 from pyopenlayersqt import OLMapWidget, PointStyle
 
 def main():
+    """Run the quick start example."""
     app = QtWidgets.QApplication(sys.argv)
 
     # Create the map widget centered on the US West Coast

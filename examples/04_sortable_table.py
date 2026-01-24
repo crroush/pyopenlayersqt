@@ -20,6 +20,7 @@ from pyopenlayersqt.features_table import FeatureTableWidget, ColumnSpec
 
 
 def main():
+    """Run the sortable table example."""
     app = QtWidgets.QApplication(sys.argv)
 
     # Example 1: Basic sortable table (default behavior)

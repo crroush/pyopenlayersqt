@@ -23,6 +23,8 @@ from pyopenlayersqt.features_table import FeatureTableWidget, ColumnSpec
 
 
 class MapWindow(QtWidgets.QMainWindow):
+    """Main window demonstrating map and table integration."""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("pyopenlayersqt Complete Example")
@@ -69,6 +71,7 @@ class MapWindow(QtWidgets.QMainWindow):
         self.map_widget.ready.connect(self.add_sample_data)
 
     def add_sample_data(self):
+        """Add sample data to map and table."""
         # Add a vector point (latitude, longitude)
         self.vector.add_points(
             [(37.7749, -122.4194)],
@@ -128,6 +131,7 @@ class MapWindow(QtWidgets.QMainWindow):
 
 
 def main():
+    """Run the complete example."""
     app = QtWidgets.QApplication(sys.argv)
     window = MapWindow()
     window.resize(1200, 800)
