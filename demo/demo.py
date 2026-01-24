@@ -15,11 +15,10 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
-from matplotlib import cm
 from matplotlib import colors as mcolors
 from matplotlib import colormaps
 from matplotlib.path import Path as MplPath
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -139,6 +138,13 @@ def build_heatmap_png_bytes(
 
 
 class ShowcaseWindow(QMainWindow):
+    """
+    Demo window showcasing all pyopenlayersqt features.
+
+    This comprehensive demo demonstrates vector layers, fast points,
+    fast geo points, heatmaps, WMS layers, and feature tables.
+    """
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("pyopenlayersqt Demo")
@@ -425,7 +431,7 @@ class ShowcaseWindow(QMainWindow):
         if self.wms_layer is not None:
             try:
                 self.wms_layer.remove()
-            except Exception:
+            except Exception:  # pylint: disable=broad-exception-caught
                 pass
             self.wms_layer = None
 
@@ -953,7 +959,7 @@ class ShowcaseWindow(QMainWindow):
         # Clear map-side selection too (keeps map/table in sync).
         try:
             self.mapw.set_fast_geopoints_selection(self.fast_geo.id, [])
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             pass
 
     def _clear_all_map_selections(self) -> None:
@@ -989,6 +995,7 @@ class ShowcaseWindow(QMainWindow):
 
 
 def main() -> None:
+    """Run the pyopenlayersqt demo application."""
     app = QtWidgets.QApplication(sys.argv)
     w = ShowcaseWindow()
     w.show()

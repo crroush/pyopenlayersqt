@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence
 
 from .models import (
     CircleStyle,
@@ -53,9 +52,9 @@ class VectorLayer(BaseLayer):
         styles: Sequence[PointStyle | PolygonStyle | CircleStyle | EllipseStyle],
     ) -> None:
         """Update styles for specific features by ID.
-        
+
         This allows changing colors and other style properties of selected or any features.
-        
+
         Args:
             feature_ids: List of feature IDs to update.
             styles: List of style objects, one per feature ID. Use the appropriate
@@ -63,10 +62,10 @@ class VectorLayer(BaseLayer):
         """
         if len(feature_ids) != len(styles):
             raise ValueError("feature_ids and styles must have the same length")
-        
+
         fids = [str(x) for x in feature_ids]
         styles_js = [s.to_js() for s in styles]
-        
+
         self._w._send(
             {
                 "type": "vector.update_styles",
@@ -84,7 +83,7 @@ class VectorLayer(BaseLayer):
         properties: Optional[Sequence[Dict[str, Any]]] = None,
     ) -> None:
         """Add point features to the layer.
-        
+
         Args:
             coords: Sequence of (lat, lon) tuples for each point.
             ids: Optional sequence of feature IDs. Auto-generated if not provided.
@@ -118,7 +117,7 @@ class VectorLayer(BaseLayer):
         properties: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Add a polygon feature to the layer.
-        
+
         Args:
             ring: Sequence of (lat, lon) tuples defining the polygon boundary.
             feature_id: ID for this polygon feature.
@@ -148,7 +147,7 @@ class VectorLayer(BaseLayer):
         segments: int = 72,
     ) -> None:
         """Add a circle feature to the layer.
-        
+
         Args:
             center: Center point as (lat, lon) tuple.
             radius_m: Radius in meters.
@@ -213,7 +212,7 @@ class VectorLayer(BaseLayer):
         segments: int = 96,
     ) -> None:
         """Add an ellipse feature to the layer.
-        
+
         Args:
             center: Center point as (lat, lon) tuple.
             sma_m: Semi-major axis in meters.
@@ -259,7 +258,7 @@ class WMSLayer(BaseLayer):
 
 class RasterLayer(BaseLayer):
     """Image overlay layer (PNG served by the widget HTTP server).
-    
+
     Bounds are specified as (lat, lon) tuples in the public API.
     """
 
@@ -279,7 +278,7 @@ class RasterLayer(BaseLayer):
 
     def set_image(self, url: str, bounds: List[LatLon]) -> None:
         """Update the raster image.
-        
+
         Args:
             url: URL or path to the image.
             bounds: Two (lat, lon) tuples defining SW and NE corners.
@@ -306,7 +305,7 @@ class FastPointsLayer:
 
     Backed by a JS-side spatial grid index + canvas renderer.
     No per-point ol.Feature objects.
-    
+
     Coordinates are specified as (lat, lon) tuples in the public API.
     """
 
@@ -324,7 +323,7 @@ class FastPointsLayer:
         colors_rgba: list[tuple[int, int, int, int]] | None = None,
     ) -> None:
         """Add points to the layer.
-        
+
         Args:
             coords: List of (lat, lon) tuples for each point.
             ids: Optional list of feature IDs. Auto-generated if not provided.
@@ -332,7 +331,7 @@ class FastPointsLayer:
         """
         # Swap lat,lon (public API) to lon,lat (internal format)
         coords_internal = [[lon, lat] for lat, lon in coords]
-        
+
         msg: dict = {
             "type": "fast_points.add_points",
             "layer_id": self.id,
@@ -431,23 +430,23 @@ class FastPointsLayer:
         colors_rgba: list[tuple[int, int, int, int]],
     ) -> None:
         """Update colors for specific features by ID.
-        
+
         This allows changing colors of selected or any other features.
-        
+
         Args:
             feature_ids: List of feature IDs to update.
             colors_rgba: List of (r, g, b, a) tuples (0-255), one per feature ID.
         """
         if len(feature_ids) != len(colors_rgba):
             raise ValueError("feature_ids and colors_rgba must have the same length")
-        
+
         fids = [str(x) for x in feature_ids]
         packed: list[int] = []
         for r, g, b, a in colors_rgba:
             packed.append(
                 ((r & 255) << 24) | ((g & 255) << 16) | ((b & 255) << 8) | (a & 255)
             )
-        
+
         self._mapw._send(
             {
                 "type": "fast_points.set_colors",
@@ -487,7 +486,7 @@ class FastGeoPointsLayer:
         chunk_size: int = 50000,
     ) -> None:
         """Add points with uncertainty ellipses to the layer.
-        
+
         Args:
             coords: List of (lat, lon) tuples for each point.
             sma_m: List of semi-major axis values in meters.
@@ -497,7 +496,7 @@ class FastGeoPointsLayer:
             colors_rgba: Optional list of (r, g, b, a) tuples (0-255) for each point.
             chunk_size: Number of points per chunk to avoid large JSON payloads.
         """
-        if not (len(coords) == len(sma_m) == len(smi_m) == len(tilt_deg)):
+        if not len(coords) == len(sma_m) == len(smi_m) == len(tilt_deg):
             raise ValueError("coords/sma_m/smi_m/tilt_deg must have the same length")
 
         n = len(coords)
@@ -512,7 +511,7 @@ class FastGeoPointsLayer:
             end = min(n, start + chunk_size)
             # Swap lat,lon (public API) to lon,lat (internal format)
             coords_chunk = [[lon, lat] for lat, lon in coords[start:end]]
-            
+
             msg: dict = {
                 "type": "fast_geopoints.add_points",
                 "layer_id": self.id,
@@ -623,23 +622,23 @@ class FastGeoPointsLayer:
         colors_rgba: list[tuple[int, int, int, int]],
     ) -> None:
         """Update colors for specific features by ID.
-        
+
         This allows changing colors of selected or any other features.
-        
+
         Args:
             feature_ids: List of feature IDs to update.
             colors_rgba: List of (r, g, b, a) tuples (0-255), one per feature ID.
         """
         if len(feature_ids) != len(colors_rgba):
             raise ValueError("feature_ids and colors_rgba must have the same length")
-        
+
         fids = [str(x) for x in feature_ids]
         packed: list[int] = []
         for r, g, b, a in colors_rgba:
             packed.append(
                 ((r & 255) << 24) | ((g & 255) << 16) | ((b & 255) << 8) | (a & 255)
             )
-        
+
         self._mapw._send(
             {
                 "type": "fast_geopoints.set_colors",
