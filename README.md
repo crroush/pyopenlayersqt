@@ -5,6 +5,39 @@ OpenLayers + Qt (QWebEngine) mapping widget for Python.
 A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt application using QWebEngine. Designed for displaying and interacting with large volumes of geospatial data.
 <img width="821" height="503" alt="image" src="https://github.com/user-attachments/assets/ef34e565-12f5-48b3-92e5-bbe752a96992" />
 
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+  - [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Core Components](#core-components)
+  - [OLMapWidget](#olmapwidget)
+  - [Layer Types](#layer-types)
+    - [VectorLayer](#vectorlayer)
+    - [FastPointsLayer](#fastpointslayer)
+    - [FastGeoPointsLayer](#fastgeopointslayer)
+    - [WMSLayer](#wmslayer)
+    - [RasterLayer](#rasterlayer)
+  - [Style Classes](#style-classes)
+  - [Feature Selection](#feature-selection)
+  - [Selection and Recoloring](#selection-and-recoloring)
+  - [Distance Measurement Mode](#distance-measurement-mode)
+  - [FeatureTableWidget](#featuretablewidget)
+  - [RangeSliderWidget](#rangesliderwidget)
+- [Complete Example](#complete-example)
+- [Running the Demo](#running-the-demo)
+- [View Extent Tracking](#view-extent-tracking)
+- [Advanced: Direct JavaScript Communication](#advanced-direct-javascript-communication)
+- [Performance Tips](#performance-tips)
+- [Architecture](#architecture)
+- [License](#license)
+- [Contributing](#contributing)
+- [Versioning and Releases](#versioning-and-releases)
+  - [For Maintainers: Creating a Release](#for-maintainers-creating-a-release)
+  - [PyPI Setup Requirements](#pypi-setup-requirements)
+- [Credits](#credits)
+
 ## Features
 
 - **🗺️ Interactive Map Widget**: Fully-featured OpenLayers map embedded in PySide6/Qt
