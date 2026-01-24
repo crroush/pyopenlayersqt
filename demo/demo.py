@@ -844,9 +844,9 @@ class ShowcaseWindow(QMainWindow):
     def _point_style(self) -> PointStyle:
         return PointStyle(
             radius=6.0,
-            fill_color=self.vec_fill.text().strip(),
+            fill_color=self.vec_fill_color.name(),
             fill_opacity=min(1.0, float(self.vec_fill_op.value()) + 0.2),
-            stroke_color=self.vec_stroke.text().strip(),
+            stroke_color=self.vec_stroke_color.name(),
             stroke_width=max(1.0, float(self.vec_stroke_w.value())),
             stroke_opacity=0.9,
         )
