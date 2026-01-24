@@ -303,18 +303,10 @@ class ShowcaseWindow(QMainWindow):
         opacity_row.addWidget(self.vec_opacity_label)
         controls_layout.addLayout(opacity_row)
 
-        vis_row = QHBoxLayout()
-        self.vec_visible = QCheckBox("Visible")
-        self.vec_visible.setChecked(True)
-        self.vec_visible.toggled.connect(lambda on: self.vector.set_visible(bool(on)))
-        vis_row.addWidget(self.vec_visible)
-
-        self.vec_selectable = QCheckBox("Selectable")
-        self.vec_selectable.setChecked(True)
-        self.vec_selectable.toggled.connect(lambda on: self.vector.set_selectable(bool(on)))
-        vis_row.addWidget(self.vec_selectable)
-        vis_row.addStretch(1)
-        controls_layout.addLayout(vis_row)
+        # Note: VectorLayer doesn't support set_visible/set_selectable in the JS API
+        info_label = QLabel("Note: Vector layers are always visible and selectable")
+        info_label.setStyleSheet("color: gray; font-style: italic;")
+        controls_layout.addWidget(info_label)
 
         layout.addWidget(controls_box)
 

@@ -124,6 +124,45 @@ class VectorLayer(BaseLayer):
 
     _layer_type_prefix = "vector"
 
+    def set_opacity(self, opacity: float) -> None:
+        """Set the opacity of this layer.
+
+        Args:
+            opacity: Opacity value between 0.0 (transparent) and 1.0 (opaque).
+        """
+        # VectorLayer uses the generic layer.opacity command, not vector.set_opacity
+        self._map_widget._send(
+            {"type": "layer.opacity", "layer_id": self.id, "opacity": float(opacity)}
+        )
+
+    def set_visible(self, visible: bool) -> None:
+        """Set the visibility of this layer.
+
+        Note: VectorLayer visibility is not supported in the JavaScript API.
+        Vector layers are always visible in OpenLayers.
+
+        Args:
+            visible: True to show the layer, False to hide it.
+        """
+        raise NotImplementedError(
+            "set_visible is not supported for VectorLayer. "
+            "Vector layers are always visible in the current implementation."
+        )
+
+    def set_selectable(self, selectable: bool) -> None:
+        """Set whether features in this layer can be selected.
+
+        Note: VectorLayer selectability is not supported in the JavaScript API.
+        Vector layers are always selectable by default.
+
+        Args:
+            selectable: True to allow feature selection, False to disable.
+        """
+        raise NotImplementedError(
+            "set_selectable is not supported for VectorLayer. "
+            "Vector layers are always selectable in the current implementation."
+        )
+
     def remove_features(self, feature_ids: Sequence[str]) -> None:
         """Remove vector features by id."""
         self._map_widget._send(
