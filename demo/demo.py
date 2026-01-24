@@ -288,6 +288,36 @@ class ShowcaseWindow(QMainWindow):
         w = QWidget()
         layout = QVBoxLayout(w)
 
+        # Layer controls
+        controls_box = QGroupBox("Vector layer controls")
+        controls_layout = QVBoxLayout(controls_box)
+
+        opacity_row = QHBoxLayout()
+        opacity_row.addWidget(QLabel("Opacity:"))
+        self.vec_opacity_slider = QSlider(Qt.Horizontal)
+        self.vec_opacity_slider.setRange(0, 100)
+        self.vec_opacity_slider.setValue(100)
+        self.vec_opacity_label = QLabel("1.00")
+        self.vec_opacity_slider.valueChanged.connect(self._on_vector_opacity)
+        opacity_row.addWidget(self.vec_opacity_slider, 1)
+        opacity_row.addWidget(self.vec_opacity_label)
+        controls_layout.addLayout(opacity_row)
+
+        vis_row = QHBoxLayout()
+        self.vec_visible = QCheckBox("Visible")
+        self.vec_visible.setChecked(True)
+        self.vec_visible.toggled.connect(lambda on: self.vector.set_visible(bool(on)))
+        vis_row.addWidget(self.vec_visible)
+
+        self.vec_selectable = QCheckBox("Selectable")
+        self.vec_selectable.setChecked(True)
+        self.vec_selectable.toggled.connect(lambda on: self.vector.set_selectable(bool(on)))
+        vis_row.addWidget(self.vec_selectable)
+        vis_row.addStretch(1)
+        controls_layout.addLayout(vis_row)
+
+        layout.addWidget(controls_box)
+
         style_box = QGroupBox("Vector style")
         form = QFormLayout(style_box)
         self.vec_stroke = QLineEdit("#00aaff")
@@ -448,6 +478,37 @@ class ShowcaseWindow(QMainWindow):
     def _tab_fast_points(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
+
+        # Layer controls
+        controls_box = QGroupBox("FastPoints layer controls")
+        controls_layout = QVBoxLayout(controls_box)
+
+        opacity_row = QHBoxLayout()
+        opacity_row.addWidget(QLabel("Opacity:"))
+        self.fast_opacity_slider = QSlider(Qt.Horizontal)
+        self.fast_opacity_slider.setRange(0, 100)
+        self.fast_opacity_slider.setValue(100)
+        self.fast_opacity_label = QLabel("1.00")
+        self.fast_opacity_slider.valueChanged.connect(self._on_fast_opacity)
+        opacity_row.addWidget(self.fast_opacity_slider, 1)
+        opacity_row.addWidget(self.fast_opacity_label)
+        controls_layout.addLayout(opacity_row)
+
+        vis_row = QHBoxLayout()
+        self.fast_visible = QCheckBox("Visible")
+        self.fast_visible.setChecked(True)
+        self.fast_visible.toggled.connect(lambda on: self.fast.set_visible(bool(on)))
+        vis_row.addWidget(self.fast_visible)
+
+        self.fast_selectable = QCheckBox("Selectable")
+        self.fast_selectable.setChecked(True)
+        self.fast_selectable.toggled.connect(lambda on: self.fast.set_selectable(bool(on)))
+        vis_row.addWidget(self.fast_selectable)
+        vis_row.addStretch(1)
+        controls_layout.addLayout(vis_row)
+
+        layout.addWidget(controls_box)
+
         row = QHBoxLayout()
         row.addWidget(QLabel("N"))
         self.fast_n = QSpinBox()
@@ -468,6 +529,37 @@ class ShowcaseWindow(QMainWindow):
     def _tab_fast_geo(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
+
+        # Layer controls
+        controls_box = QGroupBox("FastGeo layer controls")
+        controls_layout = QVBoxLayout(controls_box)
+
+        opacity_row = QHBoxLayout()
+        opacity_row.addWidget(QLabel("Opacity:"))
+        self.fgp_opacity_slider = QSlider(Qt.Horizontal)
+        self.fgp_opacity_slider.setRange(0, 100)
+        self.fgp_opacity_slider.setValue(100)
+        self.fgp_opacity_label = QLabel("1.00")
+        self.fgp_opacity_slider.valueChanged.connect(self._on_fgp_opacity)
+        opacity_row.addWidget(self.fgp_opacity_slider, 1)
+        opacity_row.addWidget(self.fgp_opacity_label)
+        controls_layout.addLayout(opacity_row)
+
+        vis_row = QHBoxLayout()
+        self.fgp_visible = QCheckBox("Visible")
+        self.fgp_visible.setChecked(True)
+        self.fgp_visible.toggled.connect(lambda on: self.fast_geo.set_visible(bool(on)))
+        vis_row.addWidget(self.fgp_visible)
+
+        self.fgp_selectable = QCheckBox("Selectable")
+        self.fgp_selectable.setChecked(True)
+        self.fgp_selectable.toggled.connect(lambda on: self.fast_geo.set_selectable(bool(on)))
+        vis_row.addWidget(self.fgp_selectable)
+        vis_row.addStretch(1)
+        controls_layout.addLayout(vis_row)
+
+        layout.addWidget(controls_box)
+
         row = QHBoxLayout()
         row.addWidget(QLabel("N"))
         self.fgp_n = QSpinBox()
@@ -672,6 +764,21 @@ class ShowcaseWindow(QMainWindow):
         self.base_opacity_label.setText(f"{op:.2f}")
         self.mapw.set_base_opacity(op)
 
+    def _on_vector_opacity(self, v: int) -> None:
+        op = float(v) / 100.0
+        self.vec_opacity_label.setText(f"{op:.2f}")
+        self.vector.set_opacity(op)
+
+    def _on_fast_opacity(self, v: int) -> None:
+        op = float(v) / 100.0
+        self.fast_opacity_label.setText(f"{op:.2f}")
+        self.fast.set_opacity(op)
+
+    def _on_fgp_opacity(self, v: int) -> None:
+        op = float(v) / 100.0
+        self.fgp_opacity_label.setText(f"{op:.2f}")
+        self.fast_geo.set_opacity(op)
+
     # ---- styles ----
     def _poly_style(self) -> PolygonStyle:
         return PolygonStyle(
@@ -824,7 +931,7 @@ class ShowcaseWindow(QMainWindow):
         angles = np.sort(self._rng.random(n) * (2.0 * np.pi))
         radii = 0.001 + 0.01 * self._rng.random(n)
         coords = [
-            (lon0 + float(np.cos(a) * r), lat0 + float(np.sin(a) * r))
+            (lat0 + float(np.sin(a) * r), lon0 + float(np.cos(a) * r))
             for a, r in zip(angles, radii)
         ]
         self.vector.add_line(coords, feature_id=fid, style=self._poly_style())
