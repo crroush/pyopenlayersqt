@@ -142,6 +142,9 @@ class PlotWidget(QWidget):
         # Plot items
         self._scatter_item: Optional[pg.ScatterPlotItem] = None
         self._selected_scatter: Optional[pg.ScatterPlotItem] = None
+        self._point_brushes: Optional[List] = None  # Track per-point colors
+        self._box_zoom_rect: Optional[Any] = None  # QGraphicsRectItem for box zoom
+        self._box_zooming: bool = False  # Track if we're currently box zooming
 
         # UI setup
         self._build_ui()
@@ -362,12 +365,16 @@ class PlotWidget(QWidget):
         symbol_size = trace_style.symbol_size
         symbol_brush = trace_style.to_symbol_brush()
 
+        # Initialize brush array for per-point color tracking
+        num_points = len(x_data)
+        self._point_brushes = [symbol_brush for _ in range(num_points)]
+
         # Create main scatter plot item
         self._scatter_item = pg.ScatterPlotItem(
             x=x_data,
             y=y_data,
             pen=pen,
-            brush=symbol_brush,
+            brush=self._point_brushes,  # Use brush array instead of single brush
             symbol=symbol,
             size=symbol_size,
         )
@@ -664,6 +671,7 @@ class PlotWidget(QWidget):
         self._selected_scatter = None
         self._cached_x_data = None
         self._cached_y_data = None
+        self._point_brushes = None
 
     def delete_selected(self) -> List[FeatureKey]:
         """Delete selected points from the plot.
@@ -727,23 +735,18 @@ class PlotWidget(QWidget):
         if len(selected_plot_indices) == 0:
             return
 
-        # Update the actual scatter plot points' colors
-        if self._scatter_item is not None:
-            # Get current brushes (create array if doesn't exist)
-            num_points = len(self._cached_x_data) if self._cached_x_data is not None else 0
-            if num_points > 0:
-                # Create a brush array - one for each point
-                new_brush = pg.mkBrush(color)
-                brushes = [pg.mkBrush(self._scatter_item.opts.get('brush', 'b'))
-                           for _ in range(num_points)]
-                
-                # Update brushes for selected points
-                for idx in selected_plot_indices:
-                    if 0 <= idx < len(brushes):
-                        brushes[idx] = new_brush
-                
-                # Apply new brushes to scatter plot
-                self._scatter_item.setBrush(brushes)
+        # Update the actual scatter plot points' colors using persistent brush array
+        if self._scatter_item is not None and self._point_brushes is not None:
+            # Create new brush for selected points
+            new_brush = pg.mkBrush(color)
+
+            # Update the persistent brush array
+            for idx in selected_plot_indices:
+                if 0 <= idx < len(self._point_brushes):
+                    self._point_brushes[idx] = new_brush
+
+            # Apply updated brushes to scatter plot
+            self._scatter_item.setBrush(self._point_brushes)
 
         # Also update the selection overlay
         if self._selected_scatter is not None:
