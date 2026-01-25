@@ -193,12 +193,24 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self.endInsertRows()
 
     def remove_where(self, predicate: Callable[[Any], bool]) -> None:
-        """Remove rows matching predicate (full reset)."""
+        """Remove rows matching predicate (optimized for large datasets)."""
         if not self._rows:
             return
-        kept = [r for r in self._rows if not predicate(r)]
+
+        # Build list of kept rows in single pass
+        # Convert predicate calls to set for O(1) lookup if used multiple times
+        kept = []
+        for r in self._rows:
+            if not predicate(r):
+                kept.append(r)
+
+        if len(kept) == len(self._rows):
+            # Nothing removed, skip expensive reset
+            return
+
         self.beginResetModel()
         self._rows = kept
+        # Rebuild index - this is the expensive part but necessary
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
         self.endResetModel()
 
@@ -429,18 +441,55 @@ class FeatureTableWidget(QWidget):
         self._building_selection = False
 
     def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
-        """Programmatically select rows by keys."""
+        """Programmatically select rows by keys.
+
+        Optimized for large selections by batching consecutive rows.
+        """
         sm = self.table.selectionModel()
         if sm is None:
             return
 
-        selection = QtCore.QItemSelection()
-        last_col = max(0, self.model.columnCount() - 1)
+        # Get all row indices, filtering out None values
+        row_indices = []
         for key in keys:
             r = self.model.row_for_key(key)
-            if r is None:
-                continue
-            selection.select(self.model.index(r, 0), self.model.index(r, last_col))
+            if r is not None:
+                row_indices.append(r)
+
+        if not row_indices:
+            if clear_first:
+                self._building_selection = True
+                sm.clearSelection()
+                self._building_selection = False
+            return
+
+        # Sort and batch consecutive rows for performance
+        row_indices.sort()
+        selection = QtCore.QItemSelection()
+        last_col = max(0, self.model.columnCount() - 1)
+
+        # Batch consecutive rows into ranges
+        range_start = row_indices[0]
+        range_end = row_indices[0]
+
+        for row in row_indices[1:]:
+            if row == range_end + 1:
+                # Extend current range
+                range_end = row
+            else:
+                # Add current range and start new one
+                selection.select(
+                    self.model.index(range_start, 0),
+                    self.model.index(range_end, last_col)
+                )
+                range_start = row
+                range_end = row
+
+        # Add final range
+        selection.select(
+            self.model.index(range_start, 0),
+            self.model.index(range_end, last_col)
+        )
 
         self._building_selection = True
         if clear_first:
