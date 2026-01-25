@@ -48,6 +48,11 @@ from pyopenlayersqt import (
     FastPointsStyle,
     OLMapWidget,
     PointStyle,
+    PlotAxisConfig,
+    PlotConfig,
+    PlotTrace,
+    PlotTraceStyle,
+    PlotWidget,
     PolygonStyle,
     RasterStyle,
     WMSOptions,
@@ -224,11 +229,32 @@ class ShowcaseWindow(QMainWindow):
         tabs.addTab(self._tab_fast_points(), "FastPoints")
         tabs.addTab(self._tab_fast_geo(), "FastGeo")
         tabs.addTab(self._tab_heatmap(), "Heatmap")
+        tabs.addTab(self._tab_plot(), "Plot")
         left.addWidget(tabs, 0)
 
         left.addWidget(self._build_table_box(), 1)
         main.addLayout(left, 0)
-        main.addWidget(self.mapw, 1)
+        
+        # Right side: Map and Plot in vertical splitter
+        from PySide6.QtWidgets import QSplitter
+        right_splitter = QSplitter(Qt.Vertical)
+        right_splitter.addWidget(self.mapw)
+        
+        # Create plot widget
+        plot_config = PlotConfig(
+            title="Feature Plot",
+            x_axis=PlotAxisConfig(label="X", grid=True),
+            y_axis=PlotAxisConfig(label="Y", grid=True),
+            legend=True,
+        )
+        self.plot_widget = PlotWidget(config=plot_config)
+        self.plot_widget.selectionChanged.connect(self._on_plot_selection)
+        right_splitter.addWidget(self.plot_widget)
+        
+        # Set initial sizes (map larger than plot)
+        right_splitter.setSizes([600, 300])
+        
+        main.addWidget(right_splitter, 1)
         self.setCentralWidget(root)
 
     def _build_table_box(self) -> QWidget:
@@ -760,6 +786,132 @@ class ShowcaseWindow(QMainWindow):
         self.raster_layer = None
         self._status("HEATMAP: removed overlay")
 
+    def _tab_plot(self) -> QWidget:
+        """Plot controls for scatter/time-series visualization."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+
+        info_label = QLabel(
+            "The plot widget shows lat vs lon for fast points. "
+            "Click on points in the plot to select them (syncs with map & table)."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        # Plot data controls
+        data_box = QGroupBox("Plot Data")
+        data_layout = QVBoxLayout(data_box)
+
+        btn_row = QHBoxLayout()
+        btn_plot_fast = QPushButton("Plot Fast Points (Lat vs Lon)")
+        btn_plot_fast.clicked.connect(self._plot_fast_points)
+        btn_row.addWidget(btn_plot_fast)
+
+        btn_clear_plot = QPushButton("Clear Plot")
+        btn_clear_plot.clicked.connect(self._clear_plot)
+        btn_row.addWidget(btn_clear_plot)
+        
+        btn_row.addStretch()
+        data_layout.addLayout(btn_row)
+
+        layout.addWidget(data_box)
+
+        # Plot styling
+        style_box = QGroupBox("Plot Style")
+        style_layout = QFormLayout(style_box)
+
+        self.plot_point_size = QDoubleSpinBox()
+        self.plot_point_size.setRange(1.0, 20.0)
+        self.plot_point_size.setValue(4.0)
+        style_layout.addRow("Point Size", self.plot_point_size)
+
+        self.plot_alpha = QDoubleSpinBox()
+        self.plot_alpha.setRange(0.0, 1.0)
+        self.plot_alpha.setSingleStep(0.1)
+        self.plot_alpha.setValue(0.6)
+        style_layout.addRow("Alpha (Opacity)", self.plot_alpha)
+
+        self.plot_color = QComboBox()
+        self.plot_color.addItems(["Blue", "Red", "Green", "Orange", "Purple"])
+        style_layout.addRow("Color", self.plot_color)
+
+        layout.addWidget(style_box)
+
+        # Action buttons
+        action_box = QGroupBox("Plot Actions")
+        action_layout = QVBoxLayout(action_box)
+
+        btn_auto_range = QPushButton("Auto Range")
+        btn_auto_range.clicked.connect(lambda: self.plot_widget.auto_range())
+        action_layout.addWidget(btn_auto_range)
+
+        layout.addWidget(action_box)
+
+        layout.addStretch(1)
+        return w
+
+    def _plot_fast_points(self) -> None:
+        """Create a scatter plot of fast points (lat vs lon)."""
+        # Get all fast points from the table
+        rows = []
+        for i in range(self.model.rowCount()):
+            row_data = self.model._rows[i]
+            if row_data.get("layer_kind") == "fast_points":
+                rows.append(row_data)
+
+        if not rows:
+            QMessageBox.information(
+                self, "No Data", "Add some fast points first (FastPoints tab)."
+            )
+            return
+
+        # Extract data
+        lats = [r["center_lat"] for r in rows]
+        lons = [r["center_lon"] for r in rows]
+        fids = [r["feature_id"] for r in rows]
+        layer_id = rows[0]["layer_id"]
+
+        # Map color name to hex
+        color_map = {
+            "Blue": "#4285F4",
+            "Red": "#EA4335",
+            "Green": "#34A853",
+            "Orange": "#FBBC04",
+            "Purple": "#9C27B0",
+        }
+        color = color_map.get(str(self.plot_color.currentText()), "#4285F4")
+
+        # Create trace style
+        style = PlotTraceStyle(
+            color=color,
+            point_size=float(self.plot_point_size.value()),
+            symbol="o",
+            show_points=True,
+            show_line=False,
+            alpha=float(self.plot_alpha.value()),
+        )
+
+        # Create trace
+        trace = PlotTrace(
+            name="Fast Points",
+            x_data=tuple(lons),
+            y_data=tuple(lats),
+            feature_ids=tuple(fids),
+            layer_id=layer_id,
+            style=style,
+        )
+
+        # Add to plot
+        self.plot_widget.add_trace(trace)
+        self.plot_widget.auto_range()
+
+        self._status(f"PLOT: Added {len(rows)} points to plot")
+
+    def _clear_plot(self) -> None:
+        """Clear all traces from the plot."""
+        self.plot_widget.clear_traces()
+        self._status("PLOT: Cleared all traces")
+
     def _on_ready(self) -> None:
         self._status("MAP: ready")
 
@@ -1068,6 +1220,9 @@ class ShowcaseWindow(QMainWindow):
             lambda row: (str(row.get("layer_id", "")), str(row.get("feature_id", "")))
             in keyset
         )
+        # Also delete from plot
+        self.plot_widget.delete_selected()
+        
         self.tablew.clear_selection()
         self._clear_all_map_selections()
 
@@ -1114,9 +1269,44 @@ class ShowcaseWindow(QMainWindow):
             return
         keys = [(layer_id, str(fid)) for fid in fids]
         self.tablew.select_keys(keys, clear_first=True)
+        self.plot_widget.select_keys(keys, clear_first=True)
 
     def _on_table_selection_changed(self, keys) -> None:
         by_layer: Dict[str, List[str]] = {}
+        for layer_id, fid in keys or []:
+            by_layer.setdefault(str(layer_id), []).append(str(fid))
+        if not by_layer:
+            self._clear_all_map_selections()
+            self.plot_widget.clear_selection()
+            return
+        for layer_id, fids in by_layer.items():
+            if layer_id == str(self.vector.id):
+                self.mapw.set_vector_selection(self.vector.id, fids)
+            elif layer_id == str(self.fast.id):
+                self.mapw.set_fast_points_selection(self.fast.id, fids)
+            elif layer_id == str(self.fast_geo.id):
+                self.mapw.set_fast_geopoints_selection(self.fast_geo.id, fids)
+        self.plot_widget.select_keys(keys, clear_first=True)
+
+    def _on_plot_selection(self, keys) -> None:
+        """Handle selection from plot widget."""
+        if not keys:
+            return
+        by_layer: Dict[str, List[str]] = {}
+        for layer_id, fid in keys:
+            by_layer.setdefault(str(layer_id), []).append(str(fid))
+        
+        # Update map selection
+        for layer_id, fids in by_layer.items():
+            if layer_id == str(self.vector.id):
+                self.mapw.set_vector_selection(self.vector.id, fids)
+            elif layer_id == str(self.fast.id):
+                self.mapw.set_fast_points_selection(self.fast.id, fids)
+            elif layer_id == str(self.fast_geo.id):
+                self.mapw.set_fast_geopoints_selection(self.fast_geo.id, fids)
+        
+        # Update table selection
+        self.tablew.select_keys(keys, clear_first=True)
         for layer_id, fid in keys or []:
             by_layer.setdefault(str(layer_id), []).append(str(fid))
         if not by_layer:
