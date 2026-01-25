@@ -51,6 +51,9 @@ from pyopenlayersqt import (
     PolygonStyle,
     RasterStyle,
     WMSOptions,
+    PlotWidget,
+    PlotControlWidget,
+    TraceStyle,
 )
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
 
@@ -197,6 +200,10 @@ class ShowcaseWindow(QMainWindow):
         self.wms_layer = None
         self.raster_layer = None
         self._heatmap_mask_ring = None  # type: Optional[List[LonLat]]
+        
+        # Initialize plot widget
+        self.plotw = None  # Will be initialized in _build_ui
+        self.plot_ctrl = None
 
         self._build_ui()
 
@@ -224,6 +231,7 @@ class ShowcaseWindow(QMainWindow):
         tabs.addTab(self._tab_fast_points(), "FastPoints")
         tabs.addTab(self._tab_fast_geo(), "FastGeo")
         tabs.addTab(self._tab_heatmap(), "Heatmap")
+        tabs.addTab(self._tab_plot(), "Plot")
         left.addWidget(tabs, 0)
 
         left.addWidget(self._build_table_box(), 1)
@@ -697,6 +705,49 @@ class ShowcaseWindow(QMainWindow):
         layout.addStretch(1)
         return w
 
+    def _tab_plot(self) -> QWidget:
+        """Plot widget tab for interactive plotting with selection sync."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        
+        # Create plot widget
+        self.plotw = PlotWidget()
+        self.plotw.selectionKeysChanged.connect(self._on_plot_selection_changed)
+        
+        # Create control widget
+        self.plot_ctrl = PlotControlWidget()
+        
+        # Connect control signals
+        self.plot_ctrl.dataRequested.connect(self._on_plot_data_requested)
+        self.plot_ctrl.clearRequested.connect(self._on_plot_clear)
+        self.plot_ctrl.deleteSelectedRequested.connect(self._on_plot_delete_selected)
+        self.plot_ctrl.colorSelectedRequested.connect(self._on_plot_color_selected)
+        
+        # Get available fields from table model
+        if self.model and len(self.model.rows) > 0:
+            sample_row = self.model.rows[0]
+            if isinstance(sample_row, dict):
+                fields = list(sample_row.keys())
+            else:
+                fields = [attr for attr in dir(sample_row) if not attr.startswith('_')]
+            self.plot_ctrl.set_available_fields(fields)
+        
+        # Layout
+        h_layout = QHBoxLayout()
+        h_layout.addWidget(self.plot_ctrl, 0)
+        h_layout.addWidget(self.plotw, 1)
+        layout.addLayout(h_layout)
+        
+        layout.addWidget(
+            QLabel(
+                "Interactive plotting with bidirectional selection sync. "
+                "Click points to select, Ctrl+click to toggle. "
+                "Selection syncs with map and table."
+            )
+        )
+        
+        return w
+
     def _heatmap_opacity_value(self) -> float:
         return float(self.heat_opacity_slider.value()) / 100.0
 
@@ -1114,6 +1165,9 @@ class ShowcaseWindow(QMainWindow):
             return
         keys = [(layer_id, str(fid)) for fid in fids]
         self.tablew.select_keys(keys, clear_first=True)
+        # Sync with plot
+        if self.plotw:
+            self.plotw.select_keys(keys, clear_first=True)
 
     def _on_table_selection_changed(self, keys) -> None:
         by_layer: Dict[str, List[str]] = {}
@@ -1121,6 +1175,9 @@ class ShowcaseWindow(QMainWindow):
             by_layer.setdefault(str(layer_id), []).append(str(fid))
         if not by_layer:
             self._clear_all_map_selections()
+            # Clear plot selection
+            if self.plotw:
+                self.plotw.clear_selection()
             return
         for layer_id, fids in by_layer.items():
             if layer_id == str(self.vector.id):
@@ -1129,6 +1186,70 @@ class ShowcaseWindow(QMainWindow):
                 self.mapw.set_fast_points_selection(self.fast.id, fids)
             elif layer_id == str(self.fast_geo.id):
                 self.mapw.set_fast_geopoints_selection(self.fast_geo.id, fids)
+        # Sync with plot
+        if self.plotw:
+            self.plotw.select_keys(keys, clear_first=True)
+    
+    def _on_plot_selection_changed(self, keys) -> None:
+        """Handle selection change from plot widget."""
+        # Sync to table
+        self.tablew.select_keys(keys, clear_first=True)
+        # Table sync will handle map update via _on_table_selection_changed
+    
+    def _on_plot_data_requested(self, x_field: str, y_field: str) -> None:
+        """Handle request to update plot data."""
+        if not self.plotw or not self.model:
+            return
+        
+        rows = list(self.model.rows)
+        if not rows:
+            return
+        
+        # Use the same key function as table
+        key_fn = lambda r: (str(r.get("layer_id", "")), str(r.get("feature_id", "")))
+        
+        # Set data on plot
+        self.plotw.set_data(
+            data_rows=rows,
+            key_fn=key_fn,
+            x_field=x_field,
+            y_field=y_field,
+            trace_style=TraceStyle(
+                color='#1f77b4',
+                width=1.0,
+                symbol='o',
+                symbol_size=5.0,
+            )
+        )
+    
+    def _on_plot_clear(self) -> None:
+        """Handle plot clear request."""
+        if self.plotw:
+            self.plotw.clear_plot()
+    
+    def _on_plot_delete_selected(self) -> None:
+        """Handle delete selected from plot."""
+        if not self.plotw:
+            return
+        
+        deleted_keys = self.plotw.delete_selected()
+        if not deleted_keys:
+            return
+        
+        # Remove from table and map
+        def predicate(row):
+            key = (str(row.get("layer_id", "")), str(row.get("feature_id", "")))
+            return key in deleted_keys
+        
+        self.tablew.remove_where(predicate)
+        
+        # TODO: Also remove from map layers
+        # This would require grouping by layer and calling remove methods
+    
+    def _on_plot_color_selected(self, color: str) -> None:
+        """Handle color change for selected points in plot."""
+        if self.plotw:
+            self.plotw.recolor_selected(color)
 
 
 def main() -> None:
