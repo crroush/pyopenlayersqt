@@ -119,6 +119,11 @@ class PlotWidget(QWidget):
         self._key_to_index: Dict[FeatureKey, int] = {}
         self._index_to_key: Dict[int, FeatureKey] = {}
 
+        # Plot index mappings (for valid data points only)
+        self._valid_indices: List[int] = []
+        self._valid_key_to_plot_index: Dict[FeatureKey, int] = {}
+        self._plot_index_to_key: Dict[int, FeatureKey] = {}
+
         # Selection state
         self._selected_keys: Set[FeatureKey] = set()
         self._building_selection = False
@@ -228,12 +233,22 @@ class PlotWidget(QWidget):
             self._key_to_index[key] = i
             self._index_to_key[i] = key
 
-        # Extract data
-        x_data, y_data = self._extract_plot_data()
+        # Extract data and build valid indices mapping
+        x_data, y_data, valid_indices = self._extract_plot_data()
 
         if len(x_data) == 0:
             self.clear_plot()
             return
+
+        # Update index mappings to only include valid data points
+        self._valid_indices = valid_indices
+        self._valid_key_to_plot_index = {}
+        self._plot_index_to_key = {}
+        for plot_idx, data_idx in enumerate(valid_indices):
+            key = self._index_to_key.get(data_idx)
+            if key:
+                self._valid_key_to_plot_index[key] = plot_idx
+                self._plot_index_to_key[plot_idx] = key
 
         # Clear existing plot items
         self.plot_item.clear()
@@ -277,16 +292,18 @@ class PlotWidget(QWidget):
         # Create overlay for selected points
         self._update_selection_overlay()
 
-    def _extract_plot_data(self) -> Tuple[np.ndarray, np.ndarray]:
+    def _extract_plot_data(self) -> Tuple[np.ndarray, np.ndarray, List[int]]:
         """Extract X and Y data from rows.
 
         Returns:
-            Tuple of (x_data, y_data) as numpy arrays.
+            Tuple of (x_data, y_data, valid_indices) as numpy arrays and list.
+            valid_indices contains the original row indices that have valid data.
         """
         x_data = []
         y_data = []
+        valid_indices = []
 
-        for row in self._data_rows:
+        for i, row in enumerate(self._data_rows):
             try:
                 # Extract X value
                 if isinstance(row, dict):
@@ -307,7 +324,7 @@ class PlotWidget(QWidget):
                     try:
                         dt = datetime.fromisoformat(x_val.replace('Z', '+00:00'))
                         x_val = dt.timestamp()
-                    except Exception:
+                    except (ValueError, TypeError):
                         x_val = float(x_val)
                 else:
                     x_val = float(x_val)
@@ -316,11 +333,12 @@ class PlotWidget(QWidget):
 
                 x_data.append(x_val)
                 y_data.append(y_val)
+                valid_indices.append(i)
             except (ValueError, TypeError, AttributeError):
                 # Skip invalid data points
                 continue
 
-        return np.array(x_data), np.array(y_data)
+        return np.array(x_data), np.array(y_data), valid_indices
 
     def _is_time_series(self, x_data: np.ndarray) -> bool:
         """Detect if X data represents a time series.
@@ -363,18 +381,15 @@ class PlotWidget(QWidget):
         modifiers = QtGui.QGuiApplication.keyboardModifiers()
         ctrl_pressed = bool(modifiers & Qt.ControlModifier)
 
-        # Get clicked point indices
-        clicked_indices = []
+        # Get clicked point indices (plot indices, not data indices)
+        clicked_keys = []
         for point in points:
-            idx = point.index()
-            if idx in self._index_to_key:
-                clicked_indices.append(idx)
+            plot_idx = point.index()
+            if plot_idx in self._plot_index_to_key:
+                clicked_keys.append(self._plot_index_to_key[plot_idx])
 
-        if len(clicked_indices) == 0:
+        if len(clicked_keys) == 0:
             return
-
-        # Convert to keys
-        clicked_keys = [self._index_to_key[idx] for idx in clicked_indices]
 
         # Update selection
         if ctrl_pressed:
@@ -402,19 +417,6 @@ class PlotWidget(QWidget):
         # PyQtGraph's built-in right-click box zoom remains available
         # Box selection is handled by viewbox's built-in rect selection
 
-    def enable_box_selection(self) -> None:
-        """Enable box selection mode on the plot.
-
-        This allows users to drag a box to select multiple points.
-        Call this after setting data to enable the feature.
-        """
-        # PyQtGraph doesn't have built-in scatter plot box selection
-        # We can add this by monitoring the viewbox for selection rectangles
-        # For now, we rely on click selection with Ctrl+Click for multi-select
-        # Future enhancement: Add ROI-based box selection
-        if not self._scatter_item:
-            pass  # Placeholder for future implementation
-
     def _update_selection_overlay(self) -> None:
         """Update the visual overlay for selected points."""
         # Remove old selected scatter if exists
@@ -425,24 +427,25 @@ class PlotWidget(QWidget):
         if len(self._selected_keys) == 0:
             return
 
-        # Get selected indices
-        selected_indices = [
-            self._key_to_index[key]
+        # Get selected plot indices (indices in the x_data/y_data arrays)
+        selected_plot_indices = [
+            self._valid_key_to_plot_index[key]
             for key in self._selected_keys
-            if key in self._key_to_index
+            if key in self._valid_key_to_plot_index
         ]
 
-        if len(selected_indices) == 0:
+        if len(selected_plot_indices) == 0:
             return
 
         # Extract X and Y for selected points
-        x_data, y_data = self._extract_plot_data()
+        x_data, y_data, _ = self._extract_plot_data()
 
         if len(x_data) == 0:
             return
 
-        selected_x = x_data[selected_indices]
-        selected_y = y_data[selected_indices]
+        # Get selected points using plot indices
+        selected_x = x_data[selected_plot_indices]
+        selected_y = y_data[selected_plot_indices]
 
         # Create highlight scatter
         self._selected_scatter = pg.ScatterPlotItem(
@@ -525,23 +528,23 @@ class PlotWidget(QWidget):
             return
 
         # Extract all data
-        x_data, y_data = self._extract_plot_data()
+        x_data, y_data, _ = self._extract_plot_data()
 
         if len(x_data) == 0:
             return
 
-        # Find points in box
+        # Find points in box (using plot indices)
         in_box = (
             (x_data >= x_min) & (x_data <= x_max) &
             (y_data >= y_min) & (y_data <= y_max)
         )
-        selected_indices = np.where(in_box)[0]
+        selected_plot_indices = np.where(in_box)[0]
 
-        # Convert to keys
+        # Convert plot indices to keys
         selected_keys = [
-            self._index_to_key[int(idx)]
-            for idx in selected_indices
-            if int(idx) in self._index_to_key
+            self._plot_index_to_key[int(plot_idx)]
+            for plot_idx in selected_plot_indices
+            if int(plot_idx) in self._plot_index_to_key
         ]
 
         # Update selection
@@ -623,18 +626,18 @@ class PlotWidget(QWidget):
         if len(self._selected_keys) == 0:
             return
 
-        selected_indices = [
-            self._key_to_index[key]
+        selected_plot_indices = [
+            self._valid_key_to_plot_index[key]
             for key in self._selected_keys
-            if key in self._key_to_index
+            if key in self._valid_key_to_plot_index
         ]
 
-        if len(selected_indices) == 0:
+        if len(selected_plot_indices) == 0:
             return
 
-        x_data, y_data = self._extract_plot_data()
-        selected_x = x_data[selected_indices]
-        selected_y = y_data[selected_indices]
+        x_data, y_data, _ = self._extract_plot_data()
+        selected_x = x_data[selected_plot_indices]
+        selected_y = y_data[selected_plot_indices]
 
         self._selected_scatter = pg.ScatterPlotItem(
             x=selected_x,
