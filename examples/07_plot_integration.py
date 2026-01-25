@@ -411,19 +411,24 @@ class PlotIntegrationWindow(QMainWindow):
             print("No points selected to recolor")
             return
 
-        # Convert hex color to RGB tuple
-        color_hex = color.lstrip('#')
-        r = int(color_hex[0:2], 16)
-        g = int(color_hex[2:4], 16)
-        b = int(color_hex[4:6], 16)
+        try:
+            # Convert hex color to RGB tuple
+            color_hex = color.lstrip('#')
+            if len(color_hex) != 6:
+                raise ValueError(f"Invalid hex color: {color}")
+            r = int(color_hex[0:2], 16)
+            g = int(color_hex[2:4], 16)
+            b = int(color_hex[4:6], 16)
 
-        # Extract feature IDs for the layer
-        fids = [int(fid) for _, fid in selected_keys]
+            # Extract feature IDs for the layer
+            fids = [int(fid) for _, fid in selected_keys]
 
-        # Update colors on the fast points layer
-        colors_rgba = [(r, g, b, 200) for _ in fids]
-        self.fast_layer.set_colors(fids, colors_rgba)
-        print(f"Recolored {len(fids)} points to {color}")
+            # Update colors on the fast points layer
+            colors_rgba = [(r, g, b, 200) for _ in fids]
+            self.fast_layer.set_colors(fids, colors_rgba)
+            print(f"Recolored {len(fids)} points to {color}")
+        except (ValueError, TypeError) as e:
+            print(f"Error recoloring points: {e}")
 
 
 def main() -> None:
