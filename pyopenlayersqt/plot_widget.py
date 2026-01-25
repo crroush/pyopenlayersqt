@@ -391,28 +391,38 @@ class PlotWidget(QWidget):
             else:
                 self._point_brushes.append(symbol_brush)
 
-        # Create main scatter plot item  
-        scatter_kwargs = {
-            'x': x_data,
-            'y': y_data,
-            'brush': self._point_brushes,  # Use brush array instead of single brush
-            'symbol': symbol,
-            'size': symbol_size,
-        }
-        
-        # Add pen/line based on line mode
+        # Add line plot if needed (must be added BEFORE scatter for proper layering)
         if self._line_mode in ['line', 'both']:
-            scatter_kwargs['pen'] = pen
-            scatter_kwargs['connect'] = 'all'
+            # Create line connecting all points
+            line_item = pg.PlotDataItem(
+                x=x_data, 
+                y=y_data, 
+                pen=pen,
+                symbol=None  # No symbols on the line itself
+            )
+            self.plot_item.addItem(line_item)
+        
+        # Create scatter plot item (points)
+        # Only show symbols if mode is 'none' or 'both' (not for pure 'line' mode)
+        if self._line_mode == 'line':
+            # Line only mode - no scatter points needed
+            self._scatter_item = None
         else:
-            scatter_kwargs['pen'] = None
+            scatter_kwargs = {
+                'x': x_data,
+                'y': y_data,
+                'brush': self._point_brushes,
+                'symbol': symbol,
+                'size': symbol_size,
+                'pen': None,  # No outline on scatter points
+            }
             
-        self._scatter_item = pg.ScatterPlotItem(**scatter_kwargs)
+            self._scatter_item = pg.ScatterPlotItem(**scatter_kwargs)
 
-        # Connect click handler
-        self._scatter_item.sigClicked.connect(self._on_points_clicked)
+            # Connect click handler
+            self._scatter_item.sigClicked.connect(self._on_points_clicked)
 
-        self.plot_item.addItem(self._scatter_item)
+            self.plot_item.addItem(self._scatter_item)
 
         # Setup axis labels
         self.plot_item.setLabel('bottom', self._x_field)
@@ -779,8 +789,9 @@ class PlotWidget(QWidget):
                     if key:
                         self._custom_colors[key] = new_brush
 
-            # Apply updated brushes to scatter plot
-            self._scatter_item.setBrush(self._point_brushes)
+            # Apply updated brushes to scatter plot (if it exists)
+            if self._scatter_item is not None:
+                self._scatter_item.setBrush(self._point_brushes)
 
         # Also update the selection overlay
         if self._selected_scatter is not None:
