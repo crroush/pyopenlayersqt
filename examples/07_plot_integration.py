@@ -234,19 +234,13 @@ class PlotIntegrationWindow(QMainWindow):
         )
 
         # Add points
-        points = [
-            {
-                "id": str(d["feature_id"]),
-                "lat": d["center_lat"],
-                "lon": d["center_lon"],
-            }
-            for d in self.data
-        ]
+        coords = [(d["center_lat"], d["center_lon"]) for d in self.data]
+        ids = [str(d["feature_id"]) for d in self.data]
 
-        self.fast_layer.add_points(points)
+        self.fast_layer.add_points(coords, ids=ids)
 
         elapsed = time.time() - start
-        print(f"Added {len(points)} points to map in {elapsed:.2f}s")
+        print(f"Added {len(coords)} points to map in {elapsed:.2f}s")
 
     def _populate_table(self) -> None:
         """Add data to table."""

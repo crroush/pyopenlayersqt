@@ -139,8 +139,9 @@ class MinimalExample(QMainWindow):
             ),
         )
 
-        points = [{"id": d["feature_id"], "lat": d["lat"], "lon": d["lon"]} for d in self.data]
-        layer.add_points(points)
+        coords = [(d["lat"], d["lon"]) for d in self.data]
+        ids = [d["feature_id"] for d in self.data]
+        layer.add_points(coords, ids=ids)
 
         self.layer = layer
 
