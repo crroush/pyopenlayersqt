@@ -715,12 +715,6 @@ class PlotWidget(QWidget):
         Args:
             color: New color as hex string (e.g., '#ff0000')
         """
-        # This is a simplified implementation
-        # For full multi-color support, we'd need to track per-point colors
-        # For now, update the selection overlay color
-        if self._selected_scatter is not None:
-            self.plot_item.removeItem(self._selected_scatter)
-
         if len(self._selected_keys) == 0:
             return
 
@@ -732,6 +726,28 @@ class PlotWidget(QWidget):
 
         if len(selected_plot_indices) == 0:
             return
+
+        # Update the actual scatter plot points' colors
+        if self._scatter_item is not None:
+            # Get current brushes (create array if doesn't exist)
+            num_points = len(self._cached_x_data) if self._cached_x_data is not None else 0
+            if num_points > 0:
+                # Create a brush array - one for each point
+                new_brush = pg.mkBrush(color)
+                brushes = [pg.mkBrush(self._scatter_item.opts.get('brush', 'b'))
+                           for _ in range(num_points)]
+                
+                # Update brushes for selected points
+                for idx in selected_plot_indices:
+                    if 0 <= idx < len(brushes):
+                        brushes[idx] = new_brush
+                
+                # Apply new brushes to scatter plot
+                self._scatter_item.setBrush(brushes)
+
+        # Also update the selection overlay
+        if self._selected_scatter is not None:
+            self.plot_item.removeItem(self._selected_scatter)
 
         # Use cached data for performance
         if self._cached_x_data is None or self._cached_y_data is None:
