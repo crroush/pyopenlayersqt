@@ -209,12 +209,13 @@ class PlotWidget(QWidget):
         self.plot_item.vb.mouseReleaseEvent = self._custom_mouseReleaseEvent
 
     def _custom_mousePressEvent(self, ev):
-        """Custom mouse press handler for box selection."""
+        """Custom mouse press handler for box selection and zoom."""
         modifiers = QtGui.QGuiApplication.keyboardModifiers()
         ctrl_pressed = bool(modifiers & Qt.ControlModifier)
+        shift_pressed = bool(modifiers & Qt.ShiftModifier)
 
-        if ev.button() == QtCore.Qt.LeftButton and not ctrl_pressed:
-            # Start box selection with left-click (Ctrl+Left for pan)
+        if ev.button() == QtCore.Qt.LeftButton and ctrl_pressed:
+            # Ctrl+Left-Drag for box selection (like map)
             self._box_selecting = True
             self._box_start = self.plot_item.vb.mapSceneToView(ev.scenePos())
 
@@ -231,8 +232,12 @@ class PlotWidget(QWidget):
             )
             self.plot_item.addItem(self._selection_roi)
             ev.accept()
+        elif ev.button() == QtCore.Qt.LeftButton and shift_pressed:
+            # Shift+Left-Drag for box zoom (like map)
+            # Let PyQtGraph handle this by passing through
+            self._original_mousePressEvent(ev)
         else:
-            # Use default behavior for pan (Ctrl+Left) and zoom (Right)
+            # Use default behavior for pan and other interactions
             self._original_mousePressEvent(ev)
 
     def _custom_mouseMoveEvent(self, ev):
@@ -251,6 +256,7 @@ class PlotWidget(QWidget):
         """Custom mouse release handler for box selection."""
         modifiers = QtGui.QGuiApplication.keyboardModifiers()
         shift_pressed = bool(modifiers & Qt.ShiftModifier)
+        ctrl_pressed = bool(modifiers & Qt.ControlModifier)
 
         if self._box_selecting:
             self._box_selecting = False
@@ -263,9 +269,10 @@ class PlotWidget(QWidget):
                 y_min = min(self._box_start.y(), current_pos.y())
                 y_max = max(self._box_start.y(), current_pos.y())
 
-                # Select points in box (Shift to add to selection)
+                # Select points in box (Ctrl+Shift to add to selection)
+                add_to_selection = shift_pressed and ctrl_pressed
                 self.select_points_in_box(
-                    x_min, x_max, y_min, y_max, add_to_selection=shift_pressed
+                    x_min, x_max, y_min, y_max, add_to_selection=add_to_selection
                 )
 
                 # Remove the ROI
@@ -514,6 +521,14 @@ class PlotWidget(QWidget):
         # Use cached data for performance instead of re-extracting
         if self._cached_x_data is None or self._cached_y_data is None:
             return
+
+        # Performance optimization: limit overlay rendering for very large selections
+        # Still track all selected keys, but only show overlay for subset
+        MAX_OVERLAY_POINTS = 10000
+        if len(selected_plot_indices) > MAX_OVERLAY_POINTS:
+            # Sample evenly from selected points for visual feedback
+            import random
+            selected_plot_indices = random.sample(selected_plot_indices, MAX_OVERLAY_POINTS)
 
         # Get selected points using plot indices
         selected_x = self._cached_x_data[selected_plot_indices]
@@ -798,13 +813,13 @@ class PlotControlWidget(QWidget):
 
         # Interaction help
         help_label = QLabel(
-            "<b>Plot Interaction:</b><br/>"
+            "<b>Plot Interaction (like map):</b><br/>"
             "• Click: Select point<br/>"
-            "• Ctrl+Click: Toggle multi-select<br/>"
-            "• <b>Left-Drag: Box select</b><br/>"
-            "• <b>Shift+Drag: Add to selection</b><br/>"
-            "• Ctrl+Drag: Pan<br/>"
-            "• Right-Drag: Box zoom<br/>"
+            "• <b>Ctrl+Drag: Box select</b><br/>"
+            "• <b>Shift+Drag: Box zoom</b><br/>"
+            "• Ctrl+Shift+Drag: Add to selection<br/>"
+            "• Left-Drag: Pan<br/>"
+            "• Right-Drag: Box zoom (alt)<br/>"
             "• Mouse wheel: Zoom<br/>"
             "• 'A' button: Auto-range"
         )

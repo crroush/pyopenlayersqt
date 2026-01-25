@@ -140,8 +140,8 @@ class PlotIntegrationWindow(QMainWindow):
         info = QLabel(
             "Plot Integration Demo: 200k points with bidirectional selection sync.\n"
             "• Select points in map/table/plot - selection syncs across all views\n"
-            "• Click plot points to select, Ctrl+Click to toggle, Left-Drag for box select\n"
-            "• Ctrl+Drag to pan, Right-Drag for box zoom, Mouse wheel to zoom\n"
+            "• Ctrl+Drag for box select, Shift+Drag for box zoom (matches map behavior)\n"
+            "• Left-Drag to pan, Right-Drag for alt box zoom, Mouse wheel to zoom\n"
             "• Use plot controls to change X/Y axes and delete/color selected points"
         )
         info.setWordWrap(True)
@@ -321,8 +321,23 @@ class PlotIntegrationWindow(QMainWindow):
         """Handle selection from plot."""
         # PySide6 Signal(list) converts tuples to lists, so convert back
         keys = [tuple(k) if isinstance(k, list) else k for k in keys]
-        # Update table (which will update map via table's signal)
+
+        # Update table
         self.table_widget.select_keys(keys, clear_first=True)
+
+        # Also update map directly (table won't emit signal during programmatic selection)
+        if not keys:
+            self.map_widget.set_fast_points_selection(self.fast_layer.id, [])
+            return
+
+        # Group by layer and update map
+        by_layer: Dict[str, List[str]] = {}
+        for layer_id, fid in keys:
+            by_layer.setdefault(str(layer_id), []).append(str(fid))
+
+        for layer_id, fids in by_layer.items():
+            if layer_id == self.fast_layer.id:
+                self.map_widget.set_fast_points_selection(self.fast_layer.id, fids)
 
     def _on_plot_data_requested(self, x_field: str, y_field: str) -> None:
         """Handle request to update plot axes."""
