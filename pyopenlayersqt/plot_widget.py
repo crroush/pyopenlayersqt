@@ -214,7 +214,7 @@ class PlotWidget(QWidget):
         ctrl_pressed = bool(modifiers & Qt.ControlModifier)
         shift_pressed = bool(modifiers & Qt.ShiftModifier)
 
-        if ev.button() == QtCore.Qt.LeftButton and ctrl_pressed:
+        if ev.button() == QtCore.Qt.LeftButton and ctrl_pressed and not shift_pressed:
             # Ctrl+Left-Drag for box selection (like map)
             self._box_selecting = True
             self._box_start = self.plot_item.vb.mapSceneToView(ev.scenePos())
@@ -232,9 +232,10 @@ class PlotWidget(QWidget):
             )
             self.plot_item.addItem(self._selection_roi)
             ev.accept()
-        elif ev.button() == QtCore.Qt.LeftButton and shift_pressed:
+        elif ev.button() == QtCore.Qt.LeftButton and shift_pressed and not ctrl_pressed:
             # Shift+Left-Drag for box zoom (like map)
-            # Let PyQtGraph handle this by passing through
+            # Temporarily switch to RectMode for box zoom
+            self.plot_item.vb.setMouseMode(pg.ViewBox.RectMode)
             self._original_mousePressEvent(ev)
         else:
             # Use default behavior for pan and other interactions
@@ -282,6 +283,8 @@ class PlotWidget(QWidget):
             self._box_start = None
             ev.accept()
         else:
+            # Restore PanMode after box zoom completes
+            self.plot_item.vb.setMouseMode(pg.ViewBox.PanMode)
             self._original_mouseReleaseEvent(ev)
 
     def set_data(
