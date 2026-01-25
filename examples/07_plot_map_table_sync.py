@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Example: Interactive Plot with Map and Table Synchronization
 
 Demonstrates the PlotWidget with synchronized selection across:
