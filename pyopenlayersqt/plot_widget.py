@@ -143,6 +143,7 @@ class PlotWidget(QWidget):
         self._scatter_item: Optional[pg.ScatterPlotItem] = None
         self._selected_scatter: Optional[pg.ScatterPlotItem] = None
         self._point_brushes: Optional[List] = None  # Track per-point colors
+        self._custom_colors: Dict[FeatureKey, Any] = {}  # Store colors by feature key
         self._box_zoom_rect: Optional[Any] = None  # QGraphicsRectItem for box zoom
         self._box_zooming: bool = False  # Track if we're currently box zooming
 
@@ -366,8 +367,17 @@ class PlotWidget(QWidget):
         symbol_brush = trace_style.to_symbol_brush()
 
         # Initialize brush array for per-point color tracking
+        # Restore previously set custom colors by feature key
         num_points = len(x_data)
-        self._point_brushes = [symbol_brush for _ in range(num_points)]
+        self._point_brushes = []
+        for plot_idx in range(num_points):
+            # Get the feature key for this plot index
+            key = self._plot_index_to_key.get(plot_idx)
+            # Use custom color if it exists, otherwise use default
+            if key and key in self._custom_colors:
+                self._point_brushes.append(self._custom_colors[key])
+            else:
+                self._point_brushes.append(symbol_brush)
 
         # Create main scatter plot item
         self._scatter_item = pg.ScatterPlotItem(
@@ -740,10 +750,14 @@ class PlotWidget(QWidget):
             # Create new brush for selected points
             new_brush = pg.mkBrush(color)
 
-            # Update the persistent brush array
+            # Update the persistent brush array AND store in custom colors dict
             for idx in selected_plot_indices:
                 if 0 <= idx < len(self._point_brushes):
                     self._point_brushes[idx] = new_brush
+                    # Also store by feature key so it persists across field changes
+                    key = self._plot_index_to_key.get(idx)
+                    if key:
+                        self._custom_colors[key] = new_brush
 
             # Apply updated brushes to scatter plot
             self._scatter_item.setBrush(self._point_brushes)
