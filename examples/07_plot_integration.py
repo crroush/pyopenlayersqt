@@ -140,8 +140,8 @@ class PlotIntegrationWindow(QMainWindow):
         info = QLabel(
             "Plot Integration Demo: 200k points with bidirectional selection sync.\n"
             "• Select points in map/table/plot - selection syncs across all views\n"
-            "• Click plot points to select, Ctrl+Click to toggle, Shift+Drag for box select\n"
-            "• Mouse wheel to zoom, left-drag to pan, right-drag for box zoom\n"
+            "• Click plot points to select, Ctrl+Click to toggle, Left-Drag for box select\n"
+            "• Ctrl+Drag to pan, Right-Drag for box zoom, Mouse wheel to zoom\n"
             "• Use plot controls to change X/Y axes and delete/color selected points"
         )
         info.setWordWrap(True)

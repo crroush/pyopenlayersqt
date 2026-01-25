@@ -124,6 +124,10 @@ class PlotWidget(QWidget):
         self._valid_key_to_plot_index: Dict[FeatureKey, int] = {}
         self._plot_index_to_key: Dict[int, FeatureKey] = {}
 
+        # Cached plot data (to avoid re-extraction on every selection change)
+        self._cached_x_data: Optional[np.ndarray] = None
+        self._cached_y_data: Optional[np.ndarray] = None
+
         # Selection state
         self._selected_keys: Set[FeatureKey] = set()
         self._building_selection = False
@@ -208,10 +212,10 @@ class PlotWidget(QWidget):
     def _custom_mousePressEvent(self, ev):
         """Custom mouse press handler for box selection."""
         modifiers = QtGui.QGuiApplication.keyboardModifiers()
-        shift_pressed = bool(modifiers & Qt.ShiftModifier)
+        ctrl_pressed = bool(modifiers & Qt.ControlModifier)
 
-        if ev.button() == QtCore.Qt.LeftButton and shift_pressed:
-            # Start box selection
+        if ev.button() == QtCore.Qt.LeftButton and not ctrl_pressed:
+            # Start box selection with left-click (Ctrl+Left for pan)
             self._box_selecting = True
             self._box_start = self.plot_item.vb.mapSceneToView(ev.scenePos())
 
@@ -229,7 +233,7 @@ class PlotWidget(QWidget):
             self.plot_item.addItem(self._selection_roi)
             ev.accept()
         else:
-            # Use default behavior for pan/zoom
+            # Use default behavior for pan (Ctrl+Left) and zoom (Right)
             self._original_mousePressEvent(ev)
 
     def _custom_mouseMoveEvent(self, ev):
@@ -247,7 +251,7 @@ class PlotWidget(QWidget):
     def _custom_mouseReleaseEvent(self, ev):
         """Custom mouse release handler for box selection."""
         modifiers = QtGui.QGuiApplication.keyboardModifiers()
-        ctrl_pressed = bool(modifiers & Qt.ControlModifier)
+        shift_pressed = bool(modifiers & Qt.ShiftModifier)
 
         if self._box_selecting:
             self._box_selecting = False
@@ -260,8 +264,10 @@ class PlotWidget(QWidget):
                 y_min = min(self._box_start.y(), current_pos.y())
                 y_max = max(self._box_start.y(), current_pos.y())
 
-                # Select points in box
-                self.select_points_in_box(x_min, x_max, y_min, y_max, add_to_selection=ctrl_pressed)
+                # Select points in box (Shift to add to selection)
+                self.select_points_in_box(
+                    x_min, x_max, y_min, y_max, add_to_selection=shift_pressed
+                )
 
                 # Remove the ROI
                 self.plot_item.removeItem(self._selection_roi)
@@ -314,6 +320,10 @@ class PlotWidget(QWidget):
         if len(x_data) == 0:
             self.clear_plot()
             return
+
+        # Cache the extracted data for performance
+        self._cached_x_data = x_data
+        self._cached_y_data = y_data
 
         # Update index mappings to only include valid data points
         self._valid_indices = valid_indices
@@ -502,15 +512,13 @@ class PlotWidget(QWidget):
         if len(selected_plot_indices) == 0:
             return
 
-        # Extract X and Y for selected points
-        x_data, y_data, _ = self._extract_plot_data()
-
-        if len(x_data) == 0:
+        # Use cached data for performance instead of re-extracting
+        if self._cached_x_data is None or self._cached_y_data is None:
             return
 
         # Get selected points using plot indices
-        selected_x = x_data[selected_plot_indices]
-        selected_y = y_data[selected_plot_indices]
+        selected_x = self._cached_x_data[selected_plot_indices]
+        selected_y = self._cached_y_data[selected_plot_indices]
 
         # Create highlight scatter
         self._selected_scatter = pg.ScatterPlotItem(
@@ -631,6 +639,8 @@ class PlotWidget(QWidget):
         self._selected_keys.clear()
         self._scatter_item = None
         self._selected_scatter = None
+        self._cached_x_data = None
+        self._cached_y_data = None
 
     def delete_selected(self) -> List[FeatureKey]:
         """Delete selected points from the plot.
@@ -700,9 +710,12 @@ class PlotWidget(QWidget):
         if len(selected_plot_indices) == 0:
             return
 
-        x_data, y_data, _ = self._extract_plot_data()
-        selected_x = x_data[selected_plot_indices]
-        selected_y = y_data[selected_plot_indices]
+        # Use cached data for performance
+        if self._cached_x_data is None or self._cached_y_data is None:
+            return
+
+        selected_x = self._cached_x_data[selected_plot_indices]
+        selected_y = self._cached_y_data[selected_plot_indices]
 
         self._selected_scatter = pg.ScatterPlotItem(
             x=selected_x,
@@ -789,10 +802,11 @@ class PlotControlWidget(QWidget):
             "<b>Plot Interaction:</b><br/>"
             "• Click: Select point<br/>"
             "• Ctrl+Click: Toggle multi-select<br/>"
-            "• <b>Shift+Drag: Box select</b><br/>"
+            "• <b>Left-Drag: Box select</b><br/>"
+            "• <b>Shift+Drag: Add to selection</b><br/>"
+            "• Ctrl+Drag: Pan<br/>"
+            "• Right-Drag: Box zoom<br/>"
             "• Mouse wheel: Zoom<br/>"
-            "• Left-drag: Pan<br/>"
-            "• Right-drag: Box zoom<br/>"
             "• 'A' button: Auto-range"
         )
         help_label.setWordWrap(True)
