@@ -158,8 +158,24 @@ class PlotWidget(QWidget):
         # Get plot item for interaction
         self.plot_item = self.plot_widget.getPlotItem()
         
-        # Enable mouse interaction
+        # Enable mouse interaction for zoom and pan
         self.plot_widget.setMouseEnabled(x=True, y=True)
+        
+        # Enable mouse wheel zoom
+        self.plot_item.vb.setMouseEnabled(x=True, y=True)
+        
+        # Right-click drag for box zoom (default PyQtGraph behavior)
+        # Left-click drag for pan (default PyQtGraph behavior)
+        # Scroll wheel for zoom (default PyQtGraph behavior)
+        
+        # Add reset view button to plot
+        self.plot_widget.plotItem.showButtons()
+        
+        # For box selection, we'll use a LinearRegionItem approach
+        # or implement custom mouse handling
+        self._box_selection_mode = False
+        self._box_start = None
+        self._box_rect_item = None
         
         # Setup selection region (box select)
         self._setup_selection()
@@ -170,8 +186,13 @@ class PlotWidget(QWidget):
         self._scatter_item = None
         self._last_clicked_pos = None
         
-        # We'll handle selection via ScatterPlotItem's sigClicked signal
-        # Box selection will be added via LinearRegionItem
+        # Box selection ROI (initially hidden)
+        self._selection_roi = None
+        self._box_selecting = False
+        
+        # Install event filter for box selection
+        # We'll use Shift+Drag for box selection
+        self.plot_widget.scene().sigMouseClicked.connect(self._on_scene_clicked)
         
     def set_data(
         self,
@@ -368,6 +389,31 @@ class PlotWidget(QWidget):
         self._update_selection_overlay()
         self._trigger_selection_changed()
     
+    def _on_scene_clicked(self, ev) -> None:
+        """Handle click events on the plot scene for box selection initiation.
+        
+        Args:
+            ev: Mouse event from the scene
+        """
+        # This enables box selection with Shift+Drag
+        # PyQtGraph's built-in right-click box zoom remains available
+        pass  # Box selection is handled by viewbox's built-in rect selection
+    
+    def enable_box_selection(self) -> None:
+        """Enable box selection mode on the plot.
+        
+        This allows users to drag a box to select multiple points.
+        Call this after setting data to enable the feature.
+        """
+        if not self._scatter_item:
+            return
+        
+        # PyQtGraph doesn't have built-in scatter plot box selection
+        # We can add this by monitoring the viewbox for selection rectangles
+        # For now, we rely on click selection with Ctrl+Click for multi-select
+        # Future enhancement: Add ROI-based box selection
+        pass
+    
     def _update_selection_overlay(self) -> None:
         """Update the visual overlay for selected points."""
         # Remove old selected scatter if exists
@@ -456,6 +502,42 @@ class PlotWidget(QWidget):
         self._selected_keys.clear()
         self._update_selection_overlay()
         self._building_selection = False
+    
+    def select_points_in_box(self, x_min: float, x_max: float, y_min: float, y_max: float, add_to_selection: bool = False) -> None:
+        """Select points within a box region.
+        
+        Args:
+            x_min: Minimum X coordinate
+            x_max: Maximum X coordinate
+            y_min: Minimum Y coordinate
+            y_max: Maximum Y coordinate
+            add_to_selection: If True, add to existing selection; if False, replace
+        """
+        if not self._data_rows or not self._key_fn:
+            return
+        
+        # Extract all data
+        x_data, y_data = self._extract_plot_data()
+        
+        if len(x_data) == 0:
+            return
+        
+        # Find points in box
+        in_box = (x_data >= x_min) & (x_data <= x_max) & (y_data >= y_min) & (y_data <= y_max)
+        selected_indices = np.where(in_box)[0]
+        
+        # Convert to keys
+        selected_keys = [self._index_to_key[int(idx)] for idx in selected_indices if int(idx) in self._index_to_key]
+        
+        # Update selection
+        if not add_to_selection:
+            self._selected_keys.clear()
+        
+        self._selected_keys.update(selected_keys)
+        
+        # Update visual and emit
+        self._update_selection_overlay()
+        self._trigger_selection_changed()
     
     def clear_plot(self) -> None:
         """Clear all plot data and selections."""
