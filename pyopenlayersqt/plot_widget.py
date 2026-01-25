@@ -718,6 +718,24 @@ class PlotControlWidget(QWidget):
         actions_layout.addLayout(color_row)
 
         layout.addWidget(actions_group)
+
+        # Interaction help
+        help_label = QLabel(
+            "<b>Plot Interaction:</b><br/>"
+            "• Click: Select point<br/>"
+            "• Ctrl+Click: Toggle multi-select<br/>"
+            "• Mouse wheel: Zoom<br/>"
+            "• Left-drag: Pan<br/>"
+            "• Right-drag: Box zoom<br/>"
+            "• 'A' button: Auto-range"
+        )
+        help_label.setWordWrap(True)
+        help_label.setStyleSheet(
+            "padding: 10px; background-color: #f0f0f0; "
+            "border-radius: 3px; font-size: 9pt;"
+        )
+        layout.addWidget(help_label)
+
         layout.addStretch()
 
     def set_available_fields(self, fields: Sequence[str]) -> None:
