@@ -140,8 +140,8 @@ class PlotIntegrationWindow(QMainWindow):
         info = QLabel(
             "Plot Integration Demo: 200k points with bidirectional selection sync.\n"
             "• Select points in map/table/plot - selection syncs across all views\n"
-            "• Click plot points to select, Ctrl+Click to toggle multi-select\n"
-            "• Mouse wheel to zoom, left-drag to pan, right-click+drag for box zoom\n"
+            "• Click plot points to select, Ctrl+Click to toggle, Shift+Drag for box select\n"
+            "• Mouse wheel to zoom, left-drag to pan, right-drag for box zoom\n"
             "• Use plot controls to change X/Y axes and delete/color selected points"
         )
         info.setWordWrap(True)
@@ -319,6 +319,8 @@ class PlotIntegrationWindow(QMainWindow):
 
     def _on_plot_selection(self, keys: List) -> None:
         """Handle selection from plot."""
+        # PySide6 Signal(list) converts tuples to lists, so convert back
+        keys = [tuple(k) if isinstance(k, list) else k for k in keys]
         # Update table (which will update map via table's signal)
         self.table_widget.select_keys(keys, clear_first=True)
 
@@ -353,10 +355,13 @@ class PlotIntegrationWindow(QMainWindow):
         if not deleted_keys:
             return
 
+        # Convert to set for O(1) lookup performance
+        deleted_keys_set = set(deleted_keys)
+
         # Remove from table
         def predicate(row):
             key = (str(row.get("layer_id", "")), str(row.get("feature_id", "")))
-            return key in deleted_keys
+            return key in deleted_keys_set
 
         self.table_widget.remove_where(predicate)
 

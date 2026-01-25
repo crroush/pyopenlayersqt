@@ -189,13 +189,88 @@ class PlotWidget(QWidget):
         self._scatter_item = None
         self._last_clicked_pos = None
 
-        # Box selection ROI (initially hidden)
+        # Box selection using ROI
         self._selection_roi = None
         self._box_selecting = False
+        self._box_start = None
 
-        # Install event filter for box selection
-        # We'll use Shift+Drag for box selection
-        self.plot_widget.scene().sigMouseClicked.connect(self._on_scene_clicked)
+        # Override mouse handling for box selection with Shift key
+        # Store original mouse press event
+        self._original_mousePressEvent = self.plot_item.vb.mousePressEvent
+        self._original_mouseMoveEvent = self.plot_item.vb.mouseMoveEvent
+        self._original_mouseReleaseEvent = self.plot_item.vb.mouseReleaseEvent
+
+        # Install custom mouse event handlers
+        self.plot_item.vb.mousePressEvent = self._custom_mousePressEvent
+        self.plot_item.vb.mouseMoveEvent = self._custom_mouseMoveEvent
+        self.plot_item.vb.mouseReleaseEvent = self._custom_mouseReleaseEvent
+
+    def _custom_mousePressEvent(self, ev):
+        """Custom mouse press handler for box selection."""
+        modifiers = QtGui.QGuiApplication.keyboardModifiers()
+        shift_pressed = bool(modifiers & Qt.ShiftModifier)
+
+        if ev.button() == QtCore.Qt.LeftButton and shift_pressed:
+            # Start box selection
+            self._box_selecting = True
+            self._box_start = self.plot_item.vb.mapSceneToView(ev.scenePos())
+
+            # Create selection ROI
+            if self._selection_roi is not None:
+                self.plot_item.removeItem(self._selection_roi)
+
+            self._selection_roi = pg.ROI(
+                [self._box_start.x(), self._box_start.y()],
+                [0, 0],
+                pen=pg.mkPen(color='r', width=2, style=QtCore.Qt.DashLine),
+                movable=False,
+                resizable=False
+            )
+            self.plot_item.addItem(self._selection_roi)
+            ev.accept()
+        else:
+            # Use default behavior for pan/zoom
+            self._original_mousePressEvent(ev)
+
+    def _custom_mouseMoveEvent(self, ev):
+        """Custom mouse move handler for box selection."""
+        if self._box_selecting and self._box_start is not None:
+            current_pos = self.plot_item.vb.mapSceneToView(ev.scenePos())
+            width = current_pos.x() - self._box_start.x()
+            height = current_pos.y() - self._box_start.y()
+
+            self._selection_roi.setSize([width, height])
+            ev.accept()
+        else:
+            self._original_mouseMoveEvent(ev)
+
+    def _custom_mouseReleaseEvent(self, ev):
+        """Custom mouse release handler for box selection."""
+        modifiers = QtGui.QGuiApplication.keyboardModifiers()
+        ctrl_pressed = bool(modifiers & Qt.ControlModifier)
+
+        if self._box_selecting:
+            self._box_selecting = False
+
+            if self._box_start is not None and self._selection_roi is not None:
+                current_pos = self.plot_item.vb.mapSceneToView(ev.scenePos())
+
+                x_min = min(self._box_start.x(), current_pos.x())
+                x_max = max(self._box_start.x(), current_pos.x())
+                y_min = min(self._box_start.y(), current_pos.y())
+                y_max = max(self._box_start.y(), current_pos.y())
+
+                # Select points in box
+                self.select_points_in_box(x_min, x_max, y_min, y_max, add_to_selection=ctrl_pressed)
+
+                # Remove the ROI
+                self.plot_item.removeItem(self._selection_roi)
+                self._selection_roi = None
+
+            self._box_start = None
+            ev.accept()
+        else:
+            self._original_mouseReleaseEvent(ev)
 
     def set_data(
         self,
@@ -406,16 +481,6 @@ class PlotWidget(QWidget):
         # Update visual and emit signal
         self._update_selection_overlay()
         self._trigger_selection_changed()
-
-    def _on_scene_clicked(self, ev) -> None:
-        """Handle click events on the plot scene for box selection initiation.
-
-        Args:
-            ev: Mouse event from the scene
-        """
-        # This enables box selection with Shift+Drag
-        # PyQtGraph's built-in right-click box zoom remains available
-        # Box selection is handled by viewbox's built-in rect selection
 
     def _update_selection_overlay(self) -> None:
         """Update the visual overlay for selected points."""
@@ -724,6 +789,7 @@ class PlotControlWidget(QWidget):
             "<b>Plot Interaction:</b><br/>"
             "• Click: Select point<br/>"
             "• Ctrl+Click: Toggle multi-select<br/>"
+            "• <b>Shift+Drag: Box select</b><br/>"
             "• Mouse wheel: Zoom<br/>"
             "• Left-drag: Pan<br/>"
             "• Right-drag: Box zoom<br/>"

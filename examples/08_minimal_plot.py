@@ -183,6 +183,8 @@ class MinimalExample(QMainWindow):
 
     def _on_plot_sel(self, keys):
         """Sync plot selection to table (which syncs to map)."""
+        # PySide6 Signal(list) converts tuples to lists, so convert back
+        keys = [tuple(k) if isinstance(k, list) else k for k in keys]
         self.table.select_keys(keys, clear_first=True)
 
 
