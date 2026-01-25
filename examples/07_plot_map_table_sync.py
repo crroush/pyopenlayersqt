@@ -168,9 +168,9 @@ class PlotMapTableExample(QMainWindow):
         ids = [f"pt_{i}" for i in range(n_points)]
         
         style = FastPointsStyle(
-            point_radius=3,
-            point_color=(66, 133, 244, 200),  # Blue with alpha
-            selected_point_color=(255, 215, 0, 255),  # Gold when selected
+            radius=3,
+            default_rgba=(66, 133, 244, 200),  # Blue with alpha
+            selected_rgba=(255, 215, 0, 255),  # Gold when selected
         )
         
         self.fast_layer = self.map_widget.add_fast_points(
