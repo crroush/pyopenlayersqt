@@ -173,9 +173,12 @@ class PlotMapTableExample(QMainWindow):
             selected_rgba=(255, 215, 0, 255),  # Gold when selected
         )
         
-        self.fast_layer = self.map_widget.add_fast_points(
-            coords, ids=ids, style=style, name="sample_points"
+        self.fast_layer = self.map_widget.add_fast_points_layer(
+            "sample_points",
+            selectable=True,
+            style=style,
         )
+        self.fast_layer.add_points(coords, ids=ids)
 
         # Add to table
         rows = []
