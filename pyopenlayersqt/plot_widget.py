@@ -280,13 +280,15 @@ class PlotWidget(QWidget):
             plot_item.setLogMode(x=config.log_mode)
             if not config.auto_range and config.range_min is not None and config.range_max is not None:
                 plot_item.setXRange(config.range_min, config.range_max)
+            # Update grid for X axis only
+            self.plot_widget.showGrid(x=config.grid)
         elif axis == "y":
             plot_item.setLabel("left", config.label)
             plot_item.setLogMode(y=config.log_mode)
             if not config.auto_range and config.range_min is not None and config.range_max is not None:
                 plot_item.setYRange(config.range_min, config.range_max)
-        
-        self.plot_widget.showGrid(x=config.grid, y=config.grid)
+            # Update grid for Y axis only
+            self.plot_widget.showGrid(y=config.grid)
         
     def auto_range(self) -> None:
         """Auto-range both axes to fit all data."""

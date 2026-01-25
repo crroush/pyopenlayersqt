@@ -1271,14 +1271,20 @@ class ShowcaseWindow(QMainWindow):
         self.tablew.select_keys(keys, clear_first=True)
         self.plot_widget.select_keys(keys, clear_first=True)
 
-    def _on_table_selection_changed(self, keys) -> None:
+    def _update_map_selection_from_keys(self, keys: List[tuple]) -> None:
+        """Helper to update map selection from a list of (layer_id, fid) keys.
+        
+        Args:
+            keys: List of (layer_id, feature_id) tuples
+        """
         by_layer: Dict[str, List[str]] = {}
         for layer_id, fid in keys or []:
             by_layer.setdefault(str(layer_id), []).append(str(fid))
+        
         if not by_layer:
             self._clear_all_map_selections()
-            self.plot_widget.clear_selection()
             return
+        
         for layer_id, fids in by_layer.items():
             if layer_id == str(self.vector.id):
                 self.mapw.set_vector_selection(self.vector.id, fids)
@@ -1286,39 +1292,22 @@ class ShowcaseWindow(QMainWindow):
                 self.mapw.set_fast_points_selection(self.fast.id, fids)
             elif layer_id == str(self.fast_geo.id):
                 self.mapw.set_fast_geopoints_selection(self.fast_geo.id, fids)
-        self.plot_widget.select_keys(keys, clear_first=True)
+
+    def _on_table_selection_changed(self, keys) -> None:
+        self._update_map_selection_from_keys(keys)
+        if keys:
+            self.plot_widget.select_keys(keys, clear_first=True)
+        else:
+            self.plot_widget.clear_selection()
 
     def _on_plot_selection(self, keys) -> None:
         """Handle selection from plot widget."""
         if not keys:
             return
-        by_layer: Dict[str, List[str]] = {}
-        for layer_id, fid in keys:
-            by_layer.setdefault(str(layer_id), []).append(str(fid))
         
-        # Update map selection
-        for layer_id, fids in by_layer.items():
-            if layer_id == str(self.vector.id):
-                self.mapw.set_vector_selection(self.vector.id, fids)
-            elif layer_id == str(self.fast.id):
-                self.mapw.set_fast_points_selection(self.fast.id, fids)
-            elif layer_id == str(self.fast_geo.id):
-                self.mapw.set_fast_geopoints_selection(self.fast_geo.id, fids)
-        
-        # Update table selection
+        # Update map and table
+        self._update_map_selection_from_keys(keys)
         self.tablew.select_keys(keys, clear_first=True)
-        for layer_id, fid in keys or []:
-            by_layer.setdefault(str(layer_id), []).append(str(fid))
-        if not by_layer:
-            self._clear_all_map_selections()
-            return
-        for layer_id, fids in by_layer.items():
-            if layer_id == str(self.vector.id):
-                self.mapw.set_vector_selection(self.vector.id, fids)
-            elif layer_id == str(self.fast.id):
-                self.mapw.set_fast_points_selection(self.fast.id, fids)
-            elif layer_id == str(self.fast_geo.id):
-                self.mapw.set_fast_geopoints_selection(self.fast_geo.id, fids)
 
 
 def main() -> None:
