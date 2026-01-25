@@ -299,6 +299,9 @@ class PlotIntegrationWindow(QMainWindow):
 
     def _on_table_selection(self, keys: List) -> None:
         """Handle selection from table."""
+        # PySide6 Signal(list) converts tuples to lists, so convert back
+        keys = [tuple(k) if isinstance(k, list) else k for k in keys]
+
         if not keys:
             # Clear selections
             self.map_widget.set_fast_points_selection(self.fast_layer.id, [])

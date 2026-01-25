@@ -174,6 +174,9 @@ class MinimalExample(QMainWindow):
 
     def _on_table_sel(self, keys):
         """Sync table selection to map and plot."""
+        # PySide6 Signal(list) converts tuples to lists, so convert back
+        keys = [tuple(k) if isinstance(k, list) else k for k in keys]
+
         if keys:
             fids = [fid for _, fid in keys]
             self.map.set_fast_points_selection(self.layer.id, fids)

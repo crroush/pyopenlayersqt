@@ -1170,8 +1170,11 @@ class ShowcaseWindow(QMainWindow):
             self.plotw.select_keys(keys, clear_first=True)
 
     def _on_table_selection_changed(self, keys) -> None:
+        # PySide6 Signal(list) converts tuples to lists, so convert back
+        keys = [tuple(k) if isinstance(k, list) else k for k in (keys or [])]
+
         by_layer: Dict[str, List[str]] = {}
-        for layer_id, fid in keys or []:
+        for layer_id, fid in keys:
             by_layer.setdefault(str(layer_id), []).append(str(fid))
         if not by_layer:
             self._clear_all_map_selections()
