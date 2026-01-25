@@ -108,14 +108,20 @@ class PlotIntegrationWindow(QMainWindow):
         self.setWindowTitle("pyopenlayersqt - Plot Integration Demo (200k+ points)")
         self.resize(1800, 1000)
 
-        # Generate data
-        self.data = generate_synthetic_data(200000)
-
         # Create widgets
         self._build_ui()
 
+        # Create map layer first (so we have the layer ID)
+        self._create_map_layer()
+
+        # Generate data with correct layer_id
+        self.data = generate_synthetic_data(200000)
+        # Update layer_id to match the actual layer
+        for d in self.data:
+            d["layer_id"] = self.fast_layer.id
+
         # Add data to map
-        self._populate_map()
+        self._add_points_to_map()
 
         # Add data to table
         self._populate_table()
@@ -195,10 +201,9 @@ class PlotIntegrationWindow(QMainWindow):
         self.plot_ctrl.deleteSelectedRequested.connect(self._on_plot_delete)
         self.plot_ctrl.colorSelectedRequested.connect(self._on_plot_color)
 
-        # Set available fields
-        if self.data:
-            fields = ["timestamp_unix", "value", "altitude", "center_lat", "center_lon"]
-            self.plot_ctrl.set_available_fields(fields)
+        # Set available fields (hardcoded for synthetic data)
+        fields = ["timestamp_unix", "value", "altitude", "center_lat", "center_lon"]
+        self.plot_ctrl.set_available_fields(fields)
 
         # Plot widget
         self.plot_widget = PlotWidget()
@@ -215,12 +220,8 @@ class PlotIntegrationWindow(QMainWindow):
 
         main_layout.addWidget(splitter)
 
-    def _populate_map(self) -> None:
-        """Add data to map as fast points layer."""
-        print("Adding points to map...")
-        start = time.time()
-
-        # Create fast points layer
+    def _create_map_layer(self) -> None:
+        """Create the fast points layer (data will be added later)."""
         self.fast_layer = self.map_widget.add_fast_points_layer(
             name="synthetic_data",
             selectable=True,
@@ -232,6 +233,11 @@ class PlotIntegrationWindow(QMainWindow):
             ),
             cell_size_m=1000.0,
         )
+
+    def _add_points_to_map(self) -> None:
+        """Add data to map as fast points layer."""
+        print("Adding points to map...")
+        start = time.time()
 
         # Add points
         coords = [(d["center_lat"], d["center_lon"]) for d in self.data]
@@ -355,6 +361,15 @@ class PlotIntegrationWindow(QMainWindow):
 
         # Remove from data list
         self.data = [d for d in self.data if predicate(d) is False]
+
+        # Remove from map by layer
+        by_layer = {}
+        for layer_id, fid in deleted_keys:
+            by_layer.setdefault(layer_id, []).append(fid)
+
+        for layer_id, fids in by_layer.items():
+            if layer_id == self.fast_layer.id:
+                self.fast_layer.remove_points(fids)
 
         print(f"Deleted {len(deleted_keys)} points")
 

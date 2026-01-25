@@ -72,14 +72,20 @@ class MinimalExample(QMainWindow):
         self.setWindowTitle("Minimal: Map + Table + Plot")
         self.resize(1400, 700)
 
-        # Generate data
-        self.data = create_sample_data(1000)
-
         # Build UI
         self._setup_ui()
 
-        # Populate widgets
+        # Create map layer first (so we have the layer ID)
         self._populate_map()
+
+        # Generate data with correct layer_id
+        self.data = create_sample_data(1000)
+        # Update layer_id to match the actual layer
+        for d in self.data:
+            d["layer_id"] = self.layer.id
+
+        # Now add data to all widgets
+        self._add_points_to_map()
         self._populate_table()
         self._populate_plot()
 
@@ -127,7 +133,7 @@ class MinimalExample(QMainWindow):
         layout.addWidget(splitter)
 
     def _populate_map(self):
-        """Add data to map."""
+        """Create the map layer (data will be added later)."""
         layer = self.map.add_fast_points_layer(
             "sample",
             selectable=True,
@@ -138,12 +144,13 @@ class MinimalExample(QMainWindow):
                 selected_rgba=(255, 200, 0, 255),
             ),
         )
+        self.layer = layer
 
+    def _add_points_to_map(self):
+        """Add points to the map layer (called after data is generated)."""
         coords = [(d["lat"], d["lon"]) for d in self.data]
         ids = [d["feature_id"] for d in self.data]
-        layer.add_points(coords, ids=ids)
-
-        self.layer = layer
+        self.layer.add_points(coords, ids=ids)
 
     def _populate_table(self):
         """Add data to table."""
