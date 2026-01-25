@@ -147,6 +147,10 @@ class PlotWidget(QWidget):
         self._box_zoom_rect: Optional[Any] = None  # QGraphicsRectItem for box zoom
         self._box_zooming: bool = False  # Track if we're currently box zooming
 
+        # Plot style settings
+        self._symbol: str = "o"  # Default to circle
+        self._line_mode: str = "none"  # Default to points only
+
         # UI setup
         self._build_ui()
 
@@ -159,6 +163,10 @@ class PlotWidget(QWidget):
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground('w')
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
+        
+        # Enable keyboard focus for key shortcuts (like 'A' for autorange)
+        self.plot_widget.setFocusPolicy(Qt.StrongFocus)
+        self.setFocusPolicy(Qt.StrongFocus)
 
         # Enable auto-range on initial setup
         self.plot_widget.enableAutoRange()
@@ -362,9 +370,13 @@ class PlotWidget(QWidget):
 
         # Create scatter plot
         pen = trace_style.to_pen()
-        symbol = trace_style.symbol if trace_style.symbol else 'o'
+        symbol = self._symbol  # Use widget's style setting
         symbol_size = trace_style.symbol_size
         symbol_brush = trace_style.to_symbol_brush()
+
+        # Determine if we should connect points with lines
+        connect_mode = 'all' if self._line_mode == 'line' else 'pairs' if self._line_mode == 'both' else 'none'
+        # Note: PyQtGraph doesn't support "both" mode directly, we'll handle it differently
 
         # Initialize brush array for per-point color tracking
         # Restore previously set custom colors by feature key
@@ -379,15 +391,23 @@ class PlotWidget(QWidget):
             else:
                 self._point_brushes.append(symbol_brush)
 
-        # Create main scatter plot item
-        self._scatter_item = pg.ScatterPlotItem(
-            x=x_data,
-            y=y_data,
-            pen=pen,
-            brush=self._point_brushes,  # Use brush array instead of single brush
-            symbol=symbol,
-            size=symbol_size,
-        )
+        # Create main scatter plot item  
+        scatter_kwargs = {
+            'x': x_data,
+            'y': y_data,
+            'brush': self._point_brushes,  # Use brush array instead of single brush
+            'symbol': symbol,
+            'size': symbol_size,
+        }
+        
+        # Add pen/line based on line mode
+        if self._line_mode in ['line', 'both']:
+            scatter_kwargs['pen'] = pen
+            scatter_kwargs['connect'] = 'all'
+        else:
+            scatter_kwargs['pen'] = None
+            
+        self._scatter_item = pg.ScatterPlotItem(**scatter_kwargs)
 
         # Connect click handler
         self._scatter_item.sigClicked.connect(self._on_points_clicked)
@@ -784,6 +804,39 @@ class PlotWidget(QWidget):
 
         self.plot_item.addItem(self._selected_scatter)
 
+    def set_style(self, symbol: str, line_mode: str) -> None:
+        """Update plot style and refresh the plot.
+
+        Args:
+            symbol: Symbol type ('o', 's', 't', 'd', '+', 'x', 'star')
+            line_mode: Line connection mode ('none', 'line', 'both')
+        """
+        self._symbol = symbol
+        self._line_mode = line_mode
+        
+        # Refresh the plot with new style if we have data
+        if self._data_rows and self._x_field and self._y_field:
+            self.set_data(
+                data_rows=self._data_rows,
+                key_fn=self._key_fn,
+                x_field=self._x_field,
+                y_field=self._y_field,
+                color_field=self._color_field,
+            )
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        """Handle key press events for shortcuts.
+        
+        Args:
+            event: The key event
+        """
+        if event.key() == Qt.Key_A:
+            # Auto-range on 'A' key
+            self.plot_widget.autoRange()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
 
 class PlotControlWidget(QWidget):
     """Control panel for plot configuration.
@@ -798,6 +851,7 @@ class PlotControlWidget(QWidget):
     clearRequested = Signal()
     deleteSelectedRequested = Signal()
     colorSelectedRequested = Signal(str)  # color
+    styleChanged = Signal(str, str)  # (symbol, line_mode)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         """Initialize the control widget.
@@ -852,6 +906,30 @@ class PlotControlWidget(QWidget):
         actions_layout.addLayout(color_row)
 
         layout.addWidget(actions_group)
+
+        # Style group
+        style_group = QGroupBox("Plot Style")
+        style_layout = QFormLayout(style_group)
+
+        self.symbol_combo = QComboBox()
+        self.symbol_combo.addItem("Circle", "o")
+        self.symbol_combo.addItem("Square", "s")
+        self.symbol_combo.addItem("Triangle", "t")
+        self.symbol_combo.addItem("Diamond", "d")
+        self.symbol_combo.addItem("Plus", "+")
+        self.symbol_combo.addItem("Cross", "x")
+        self.symbol_combo.addItem("Star", "star")
+        self.symbol_combo.currentIndexChanged.connect(self._on_style_changed)
+        style_layout.addRow("Point Style:", self.symbol_combo)
+
+        self.line_combo = QComboBox()
+        self.line_combo.addItem("Points Only", "none")
+        self.line_combo.addItem("Connected Line", "line")
+        self.line_combo.addItem("Points + Line", "both")
+        self.line_combo.currentIndexChanged.connect(self._on_style_changed)
+        style_layout.addRow("Line Mode:", self.line_combo)
+
+        layout.addWidget(style_group)
 
         # Interaction help
         help_label = QLabel(
@@ -914,3 +992,9 @@ class PlotControlWidget(QWidget):
         if color.isValid():
             self.color_btn.setStyleSheet(f"background-color: {color.name()}")
             self.colorSelectedRequested.emit(color.name())
+
+    def _on_style_changed(self) -> None:
+        """Handle style change (symbol or line mode)."""
+        symbol = self.symbol_combo.currentData()
+        line_mode = self.line_combo.currentData()
+        self.styleChanged.emit(symbol, line_mode)

@@ -201,6 +201,7 @@ class PlotIntegrationWindow(QMainWindow):
         self.plot_ctrl.clearRequested.connect(self._on_plot_clear)
         self.plot_ctrl.deleteSelectedRequested.connect(self._on_plot_delete)
         self.plot_ctrl.colorSelectedRequested.connect(self._on_plot_color)
+        self.plot_ctrl.styleChanged.connect(self._on_plot_style_changed)
 
         # Set available fields (hardcoded for synthetic data)
         fields = ["timestamp_unix", "value", "altitude", "center_lat", "center_lon"]
@@ -429,6 +430,11 @@ class PlotIntegrationWindow(QMainWindow):
             print(f"Recolored {len(fids)} points to {color}")
         except (ValueError, TypeError) as e:
             print(f"Error recoloring points: {e}")
+
+    def _on_plot_style_changed(self, symbol: str, line_mode: str) -> None:
+        """Handle plot style change (point symbol and line connection)."""
+        self.plot_widget.set_style(symbol, line_mode)
+        print(f"Plot style updated: symbol={symbol}, line_mode={line_mode}")
 
 
 def main() -> None:
