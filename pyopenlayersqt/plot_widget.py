@@ -196,6 +196,7 @@ class PlotWidget(QWidget):
         self._selection_roi = None
         self._box_selecting = False
         self._box_start = None
+        self._box_zooming = False  # Track if we switched to RectMode for box zoom
 
         # Override mouse handling for box selection with Shift key
         # Store original mouse press event
@@ -217,6 +218,7 @@ class PlotWidget(QWidget):
         if ev.button() == QtCore.Qt.LeftButton and ctrl_pressed and not shift_pressed:
             # Ctrl+Left-Drag for box selection (like map)
             self._box_selecting = True
+            self._box_zooming = False
             self._box_start = self.plot_item.vb.mapSceneToView(ev.scenePos())
 
             # Create selection ROI
@@ -235,10 +237,12 @@ class PlotWidget(QWidget):
         elif ev.button() == QtCore.Qt.LeftButton and shift_pressed and not ctrl_pressed:
             # Shift+Left-Drag for box zoom (like map)
             # Temporarily switch to RectMode for box zoom
+            self._box_zooming = True
             self.plot_item.vb.setMouseMode(pg.ViewBox.RectMode)
             self._original_mousePressEvent(ev)
         else:
             # Use default behavior for pan and other interactions
+            self._box_zooming = False
             self._original_mousePressEvent(ev)
 
     def _custom_mouseMoveEvent(self, ev):
@@ -283,8 +287,10 @@ class PlotWidget(QWidget):
             self._box_start = None
             ev.accept()
         else:
-            # Restore PanMode after box zoom completes
-            self.plot_item.vb.setMouseMode(pg.ViewBox.PanMode)
+            # Restore PanMode after box zoom completes (only if we switched to RectMode)
+            if self._box_zooming:
+                self.plot_item.vb.setMouseMode(pg.ViewBox.PanMode)
+                self._box_zooming = False
             self._original_mouseReleaseEvent(ev)
 
     def set_data(
