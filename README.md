@@ -25,6 +25,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
   - [Distance Measurement Mode](#distance-measurement-mode)
   - [FeatureTableWidget](#featuretablewidget)
   - [RangeSliderWidget](#rangesliderwidget)
+  - [PlotWidget](#plotwidget)
 - [Complete Example](#complete-example)
 - [Running the Demo](#running-the-demo)
 - [View Extent Tracking](#view-extent-tracking)
@@ -48,7 +49,8 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
 - **🖼️ Raster Overlays**: PNG/image overlay support with custom bounds
 - **✅ Feature Selection**: Interactive feature selection with Python ↔ JavaScript sync
 - **📊 Feature Table Widget**: High-performance table widget for displaying and managing features
-- **🔄 Bidirectional Sync**: Seamless selection synchronization between map and table
+- **📈 Plot Widget**: High-performance plotting widget using pyqtgraph for 200k+ points with synchronized selection
+- **🔄 Bidirectional Sync**: Seamless selection synchronization between map, table, and plot
 - **📏 Distance Measurement**: Interactive measurement mode with geodesic distance calculations and great-circle path visualization
 - **🎚️ Range Slider Widget**: Dual-handle range slider for filtering features by numeric or timestamp ranges
 
@@ -65,6 +67,7 @@ pip install pyopenlayersqt
 - numpy >= 1.23
 - pillow >= 10.0
 - matplotlib >= 3.7
+- pyqtgraph >= 0.13
 
 ## Quick Start
 
@@ -716,6 +719,94 @@ table.show_all_rows()  # Show all in table
 ```
 
 See [examples/05_range_slider_filter.py](examples/05_range_slider_filter.py) for a complete working example with map and table filtering.
+
+### PlotWidget
+
+High-performance plotting widget using pyqtgraph for scatter plots and time-series visualization with synchronized selection:
+
+```python
+from pyopenlayersqt import (
+    PlotWidget,
+    PlotConfig,
+    PlotAxisConfig,
+    PlotTrace,
+    PlotTraceStyle,
+)
+
+# Create plot widget with configuration
+plot_config = PlotConfig(
+    title="Feature Plot",
+    x_axis=PlotAxisConfig(label="Longitude", grid=True),
+    y_axis=PlotAxisConfig(label="Latitude", grid=True),
+    legend=True,
+)
+plot_widget = PlotWidget(config=plot_config)
+
+# Add a trace (scatter plot)
+trace_style = PlotTraceStyle(
+    color="#4285F4",  # Blue
+    point_size=5.0,
+    symbol="o",  # Circle
+    show_points=True,
+    show_line=False,
+    alpha=0.6,
+)
+
+trace = PlotTrace(
+    name="My Data",
+    x_data=tuple(x_values),  # Tuple of X values
+    y_data=tuple(y_values),  # Tuple of Y values
+    feature_ids=tuple(feature_ids),  # Feature IDs for selection sync
+    layer_id="layer_1",
+    style=trace_style,
+)
+
+plot_widget.add_trace(trace)
+plot_widget.auto_range()
+
+# Connect to selection changes
+def on_plot_selection(keys):
+    # keys is a list of (layer_id, feature_id) tuples
+    print(f"Selected {len(keys)} points from plot")
+    # Sync with map and table...
+
+plot_widget.selectionChanged.connect(on_plot_selection)
+
+# Select points programmatically (from map or table)
+keys_to_select = [("layer_1", "feature_1"), ("layer_1", "feature_2")]
+plot_widget.select_keys(keys_to_select, clear_first=True)
+
+# Delete selected points
+deleted_keys = plot_widget.delete_selected()
+
+# Update trace style
+new_style = PlotTraceStyle(color="#EA4335", point_size=8.0)
+plot_widget.update_trace_style("My Data", new_style)
+
+# Multiple traces
+for i, color in enumerate(["#4285F4", "#EA4335", "#34A853"]):
+    trace = PlotTrace(
+        name=f"Trace {i+1}",
+        x_data=tuple(x_data[i]),
+        y_data=tuple(y_data[i]),
+        feature_ids=tuple(ids[i]),
+        layer_id=f"layer_{i+1}",
+        style=PlotTraceStyle(color=color),
+    )
+    plot_widget.add_trace(trace)
+```
+
+**Features:**
+- Handles 200k+ points efficiently with pyqtgraph backend
+- Interactive selection (click on points to select)
+- Native zoom/pan controls
+- Multiple traces with independent styling
+- Synchronized selection with map and table
+- Configurable point symbols: 'o' (circle), 's' (square), 't' (triangle), 'd' (diamond), '+', 'x'
+- Line styles: 'solid', 'dashed', 'dotted', 'dash_dot', 'none'
+- Support for both scatter and time-series plots (time on X axis)
+
+See [examples/07_plot_map_table_sync.py](examples/07_plot_map_table_sync.py) for a complete working example with 50k points and full map/table/plot synchronization.
 
 ## Complete Example
 
