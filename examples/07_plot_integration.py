@@ -358,15 +358,18 @@ class PlotIntegrationWindow(QMainWindow):
         # Convert to set for O(1) lookup performance
         deleted_keys_set = set(deleted_keys)
 
-        # Remove from table
+        # Remove from table using predicate
         def predicate(row):
             key = (str(row.get("layer_id", "")), str(row.get("feature_id", "")))
             return key in deleted_keys_set
 
         self.table_widget.remove_where(predicate)
 
-        # Remove from data list
-        self.data = [d for d in self.data if predicate(d) is False]
+        # Remove from data list - optimized with set membership
+        self.data = [
+            d for d in self.data
+            if (str(d.get("layer_id", "")), str(d.get("feature_id", ""))) not in deleted_keys_set
+        ]
 
         # Remove from map by layer
         by_layer = {}

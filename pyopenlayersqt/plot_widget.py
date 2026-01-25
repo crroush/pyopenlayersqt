@@ -171,9 +171,8 @@ class PlotWidget(QWidget):
         # Enable mouse wheel zoom
         self.plot_item.vb.setMouseEnabled(x=True, y=True)
 
-        # Right-click drag for box zoom (default PyQtGraph behavior)
-        # Left-click drag for pan (default PyQtGraph behavior)
-        # Scroll wheel for zoom (default PyQtGraph behavior)
+        # Note: Right-drag box zoom works through PyQtGraph's default ViewBox behavior
+        # Our custom mouse handlers preserve this by passing through right-button events
 
         # Add reset view button to plot
         self.plot_widget.plotItem.showButtons()
