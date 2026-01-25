@@ -402,7 +402,28 @@ class PlotIntegrationWindow(QMainWindow):
 
     def _on_plot_color(self, color: str) -> None:
         """Handle color selected points."""
+        # Update plot overlay color
         self.plot_widget.recolor_selected(color)
+
+        # Also update actual point colors on the map layer
+        selected_keys = self.plot_widget.selected_keys()
+        if not selected_keys:
+            print("No points selected to recolor")
+            return
+
+        # Convert hex color to RGB tuple
+        color_hex = color.lstrip('#')
+        r = int(color_hex[0:2], 16)
+        g = int(color_hex[2:4], 16)
+        b = int(color_hex[4:6], 16)
+
+        # Extract feature IDs for the layer
+        fids = [int(fid) for _, fid in selected_keys]
+
+        # Update colors on the fast points layer
+        colors_rgba = [(r, g, b, 200) for _ in fids]
+        self.fast_layer.set_colors(fids, colors_rgba)
+        print(f"Recolored {len(fids)} points to {color}")
 
 
 def main() -> None:
