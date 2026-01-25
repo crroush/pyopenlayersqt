@@ -132,10 +132,6 @@ class PlotMapTableExample(QMainWindow):
         btn_delete.clicked.connect(self._delete_selected)
         layout.addWidget(btn_delete)
 
-        btn_zoom = QPushButton("Zoom to Data")
-        btn_zoom.clicked.connect(self._zoom_to_data)
-        layout.addWidget(btn_zoom)
-
         layout.addStretch()
         return toolbar
 
@@ -217,32 +213,7 @@ class PlotMapTableExample(QMainWindow):
         self.plot_widget.add_trace(trace)
         self.plot_widget.auto_range()
 
-        # Zoom map to data
-        self._zoom_to_data()
-
         self.status_label.setText(f"Generated {n_points} points successfully")
-
-    def _zoom_to_data(self):
-        """Zoom map to show all data."""
-        if not self.point_data:
-            return
-        
-        lats = [p["lat"] for p in self.point_data]
-        lons = [p["lon"] for p in self.point_data]
-        
-        lat_min, lat_max = min(lats), max(lats)
-        lon_min, lon_max = min(lons), max(lons)
-        
-        # Add 10% padding
-        lat_pad = (lat_max - lat_min) * 0.1
-        lon_pad = (lon_max - lon_min) * 0.1
-        
-        self.map_widget.fit_bounds(
-            lat_min - lat_pad,
-            lon_min - lon_pad,
-            lat_max + lat_pad,
-            lon_max + lon_pad,
-        )
 
     def _on_map_selection(self, selection):
         """Handle selection change from map."""
