@@ -1,0 +1,4 @@
+Defaulting to user installation because normal site-packages is not writeable
+Requirement already satisfied: pyqtgraph in /home/runner/.local/lib/python3.12/site-packages (0.14.0)
+Requirement already satisfied: numpy>=1.25.0 in /home/runner/.local/lib/python3.12/site-packages (from pyqtgraph) (2.4.1)
+Requirement already satisfied: colorama in /usr/lib/python3/dist-packages (from pyqtgraph) (0.4.6)

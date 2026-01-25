@@ -21,6 +21,13 @@ from .layers import (
 
 from .features_table import FeatureTableWidget
 from .range_slider import RangeSliderWidget
+from .plot_widget import PlotWidget
+from .plot_models import (
+    PlotTraceStyle,
+    PlotAxisConfig,
+    PlotConfig,
+    PlotTrace,
+)
 
 __all__ = [
     "OLMapWidget",
@@ -41,4 +48,10 @@ __all__ = [
     # Reusable Qt widgets
     "FeatureTableWidget",
     "RangeSliderWidget",
+    # Plotting widgets and models
+    "PlotWidget",
+    "PlotTraceStyle",
+    "PlotAxisConfig",
+    "PlotConfig",
+    "PlotTrace",
 ]
