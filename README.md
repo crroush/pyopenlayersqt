@@ -51,6 +51,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
 - **🔄 Bidirectional Sync**: Seamless selection synchronization between map and table
 - **📏 Distance Measurement**: Interactive measurement mode with geodesic distance calculations and great-circle path visualization
 - **🎚️ Range Slider Widget**: Dual-handle range slider for filtering features by numeric or timestamp ranges
+- **📈 Plot Widget**: High-performance plotting (200k+ points) with bidirectional selection sync between map, table, and plot
 
 ## Installation
 
@@ -658,6 +659,92 @@ def on_map_selection(selection):
 
 map_widget.selectionChanged.connect(on_map_selection)
 ```
+
+### PlotWidget
+
+High-performance plotting widget with bidirectional selection synchronization for map and table integration. Built on PyQtGraph for efficient rendering of 200k+ points.
+
+**Features:**
+- Scatter plots and time-series visualization
+- Interactive point selection (click, Ctrl+click for multi-select)
+- Built-in zoom and pan (mouse wheel, drag)
+- Bidirectional selection sync with map and table
+- Selection actions (delete, recolor)
+- Support for large datasets (200k+ points)
+
+```python
+from pyopenlayersqt import PlotWidget, PlotControlWidget, TraceStyle
+
+# Create plot widget
+plot = PlotWidget()
+
+# Set data with field mapping
+plot.set_data(
+    data_rows=data,  # List of dicts/objects
+    key_fn=lambda r: (r["layer_id"], r["feature_id"]),
+    x_field="timestamp",  # Field for X-axis
+    y_field="value",      # Field for Y-axis
+    trace_style=TraceStyle(
+        color='#1f77b4',
+        width=1.0,
+        symbol='o',        # 'o', 's', 't', 'd', '+', 'x', or None
+        symbol_size=5.0,
+    )
+)
+
+# Selection synchronization
+# Plot -> Table/Map
+plot.selectionKeysChanged.connect(on_plot_selection)
+
+# Table/Map -> Plot
+def on_other_selection(keys):
+    plot.select_keys(keys, clear_first=True)
+
+# Actions
+plot.delete_selected()           # Delete selected points
+plot.recolor_selected("#ff0000") # Change color of selected points
+plot.clear_selection()           # Clear selection
+plot.clear_plot()               # Clear all data
+
+# Control widget for UI
+ctrl = PlotControlWidget()
+ctrl.set_available_fields(["timestamp", "value", "altitude"])
+ctrl.dataRequested.connect(lambda x, y: plot.set_data(..., x_field=x, y_field=y))
+ctrl.deleteSelectedRequested.connect(lambda: plot.delete_selected())
+```
+
+**Three-way selection sync example:**
+```python
+# Map -> Table + Plot
+def on_map_sel(sel):
+    keys = [(sel.layer_id, fid) for fid in sel.feature_ids]
+    table.select_keys(keys, clear_first=True)
+    plot.select_keys(keys, clear_first=True)
+
+# Table -> Map + Plot  
+def on_table_sel(keys):
+    # Update map by layer
+    for layer_id, fids in group_by_layer(keys):
+        map_widget.set_fast_points_selection(layer_id, fids)
+    plot.select_keys(keys, clear_first=True)
+
+# Plot -> Table (which updates map via table handler)
+def on_plot_sel(keys):
+    table.select_keys(keys, clear_first=True)
+
+map_widget.selectionChanged.connect(on_map_sel)
+table.selectionKeysChanged.connect(on_table_sel)
+plot.selectionKeysChanged.connect(on_plot_sel)
+```
+
+**Time-series auto-detection:**
+The plot widget automatically detects time-series data when:
+- Field name contains 'time', 'date', 'timestamp', 'ts', or 'datetime'
+- Values are Unix timestamps (> 1e9)
+
+When detected, the X-axis displays as formatted dates.
+
+See [examples/08_minimal_plot.py](examples/08_minimal_plot.py) for a minimal working example and [examples/07_plot_integration.py](examples/07_plot_integration.py) for a comprehensive 200k+ point demo.
 
 ### RangeSliderWidget
 
