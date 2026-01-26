@@ -100,7 +100,7 @@ Selection and color updating across all layer types:
 ## Requirements
 
 All examples require:
-- Python >= 3.10
+- Python >= 3.8
 - PySide6 >= 6.5
 - numpy >= 1.23 (for examples using random data)
 - pyopenlayersqt (installed from this repository)
