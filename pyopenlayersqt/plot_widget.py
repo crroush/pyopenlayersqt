@@ -409,13 +409,15 @@ class PlotWidget(QWidget):
             # Line only mode - no scatter points needed
             self._scatter_item = None
         else:
+            # Use transparent pen to avoid white/gray coloring while keeping symbols visible
+            scatter_pen = pg.mkPen(color=(0, 0, 0, 0))  # Fully transparent pen
             scatter_kwargs = {
                 'x': x_data,
                 'y': y_data,
                 'brush': self._point_brushes,
                 'symbol': symbol,
                 'size': symbol_size,
-                'pen': None,  # No outline on scatter points
+                'pen': scatter_pen,  # Transparent outline to preserve brush colors
             }
             
             self._scatter_item = pg.ScatterPlotItem(**scatter_kwargs)
