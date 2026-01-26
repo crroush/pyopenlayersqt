@@ -60,7 +60,7 @@ pip install pyopenlayersqt
 
 ### Requirements
 
-- Python >= 3.10
+- Python >= 3.8
 - PySide6 >= 6.5
 - numpy >= 1.23
 - pillow >= 10.0
