@@ -400,6 +400,7 @@ class PlotWidget(QWidget):
                 pen=pen,
                 symbol=None  # No symbols on the line itself
             )
+            line_item.setZValue(0)  # Line in background
             self.plot_item.addItem(line_item)
         
         # Create scatter plot item (points)
@@ -418,6 +419,7 @@ class PlotWidget(QWidget):
             }
             
             self._scatter_item = pg.ScatterPlotItem(**scatter_kwargs)
+            self._scatter_item.setZValue(10)  # Scatter points on top
 
             # Connect click handler
             self._scatter_item.sigClicked.connect(self._on_points_clicked)
