@@ -415,7 +415,7 @@ class PlotWidget(QWidget):
                 'brush': self._point_brushes,
                 'symbol': symbol,
                 'size': symbol_size,
-                'pen': pg.mkPen(width=0),  # No outline on scatter points
+                'pen': None,  # No outline on scatter points
             }
             
             self._scatter_item = pg.ScatterPlotItem(**scatter_kwargs)
