@@ -8,7 +8,7 @@ version = "0.2.0"
 description = "OpenLayers + Qt (QWebEngine) mapping widget for Python"
 readme = "README.md"
 requires-python = ">=3.8"
-license = "MIT"
+license = { text = "MIT" }
 authors = [{ name = "Your Name" }]
 keywords = ["openlayers", "qt", "qwebengine", "mapping", "geospatial", "gis", "pyside6"]
 classifiers = [
