@@ -1759,6 +1759,24 @@ function cmd_measure_clear(msg) {
     }
   };
 
+
+  window.pyolqt_send_batch = function (jsonOrObjArray) {
+    try {
+      ensureMap();
+      const arr = (typeof jsonOrObjArray === "string") ? JSON.parse(jsonOrObjArray) : jsonOrObjArray;
+      if (!Array.isArray(arr)) {
+        dispatch(arr);
+        return;
+      }
+      for (let i = 0; i < arr.length; i++) {
+        dispatch(arr[i]);
+      }
+    } catch (e) {
+      jsError("pyolqt_send_batch failed:", e);
+    }
+  };
+
+
   function connectQWebChannel() {
     if (!window.qt || !qt.webChannelTransport) return false;
     if (typeof QWebChannel !== "function") return false;

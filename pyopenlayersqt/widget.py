@@ -191,6 +191,14 @@ class OLMapWidget(QWebEngineView):
         self._js_ready = False
         self._pending: list[Dict[str, Any]] = []
 
+        # batched Py->JS sending (reduces QWebEngine IPC overhead)
+        self._outbox: list[Dict[str, Any]] = []
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setSingleShot(True)
+        self._flush_timer.timeout.connect(self._flush_outbox)
+        self._flush_interval_ms = 0  # batch within same Qt event loop tick
+        self._flush_max_batch = 200  # max commands per JS call
+
         # load
         self.loadFinished.connect(self._on_load_finished)
         self.setUrl(QUrl(f"{self._base_url}/resources/map.html"))
@@ -215,11 +223,30 @@ class OLMapWidget(QWebEngineView):
         js = f"window.pyolqt_send({json.dumps(payload)});"
         self.page().runJavaScript(js)
 
+    def _enqueue(self, msg: Dict[str, Any]) -> None:
+        """Queue a message to be sent to JS on the next flush."""
+        self._outbox.append(msg)
+        if not self._flush_timer.isActive():
+            self._flush_timer.start(self._flush_interval_ms)
+
+    def _flush_outbox(self) -> None:
+        if not self._js_ready or not self._outbox:
+            return
+
+        # Drain in bounded batches to avoid oversized JS calls.
+        while self._outbox:
+            batch = self._outbox[: self._flush_max_batch]
+            del self._outbox[: self._flush_max_batch]
+
+            payload = json.dumps([_to_jsonable(m) for m in batch], separators=(",", ":"))
+            js = f"window.pyolqt_send_batch({json.dumps(payload)});"
+            self.page().runJavaScript(js)
+
     def _send(self, msg: Dict[str, Any]) -> None:
         if not self._js_ready:
             self._pending.append(msg)
             return
-        self._send_now(msg)
+        self._enqueue(msg)
 
     def send(self, msg: dict) -> None:
         """Public wrapper around the JS bridge send.
@@ -267,7 +294,7 @@ class OLMapWidget(QWebEngineView):
         pending = self._pending
         self._pending = []
         for m in pending:
-            self._send_now(m)
+            self._enqueue(m)
 
     def _on_load_finished(self, ok: bool) -> None:
         if not ok:
@@ -342,7 +369,7 @@ class OLMapWidget(QWebEngineView):
                 self._initial_zoom != self.DEFAULT_ZOOM):
                 # Swap lat,lon (public API) to lon,lat (internal format)
                 lat, lon = self._initial_center
-                self._send_now({
+                self._enqueue({
                     "type": "map.set_view",
                     "center": [float(lon), float(lat)],
                     "zoom": int(self._initial_zoom)
