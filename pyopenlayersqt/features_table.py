@@ -93,8 +93,10 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._sort_column: int = -1
         self._sort_order: Qt.SortOrder = Qt.AscendingOrder
         self._hidden_keys: set[FeatureKey] = set()  # Track hidden rows
-        # Highlight channels: channel -> merged row ranges (inclusive)
+        # Highlight channels (range-based): channel -> merged row ranges (inclusive)
         self._highlight_channels: Dict[str, List[Tuple[int, int]]] = {}
+        # Highlight channels (value-based): channel -> (column_index, allowed_values_set)
+        self._highlight_value_channels: Dict[str, Tuple[int, set]] = {}
         self._highlight_union: List[Tuple[int, int]] = []
         self._highlight_union_starts: List[int] = []
 
@@ -255,13 +257,57 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._highlight_union_starts = [a for a, _ in self._highlight_union]
 
     def _is_row_highlighted(self, row: int) -> bool:
-        if not self._highlight_union:
-            return False
-        i = bisect_right(self._highlight_union_starts, row) - 1
-        if i < 0:
-            return False
-        a, b = self._highlight_union[i]
-        return a <= row <= b
+        # Range-based highlight (fast for stable row ordering).
+        if self._highlight_union:
+            i = bisect_right(self._highlight_union_starts, row) - 1
+            if i >= 0:
+                a, b = self._highlight_union[i]
+                if a <= row <= b:
+                    return True
+
+        # Value-based highlight (stable under sorting/filtering).
+        if self._highlight_value_channels:
+            try:
+                rdata = self._rows[row]
+            except Exception:
+                return False
+            for _ch, (col_idx, values) in self._highlight_value_channels.items():
+                if not values:
+                    continue
+                if col_idx < 0 or col_idx >= len(self._columns):
+                    continue
+                try:
+                    v = self._columns[col_idx].getter(rdata)
+                except Exception:
+                    continue
+                if v in values:
+                    return True
+
+        return False
+
+    def set_highlighted_values(
+        self, channel: str, column: int, values: Iterable[Any]
+    ) -> None:
+        """Highlight rows where the value in `column` is in `values` (stable under sorting)."""
+        channel = str(channel)
+        self._highlight_value_channels[channel] = (int(column), set(values))
+        self._emit_highlight_full_refresh()
+
+    def clear_highlight_values_channel(self, channel: str) -> None:
+        """Clear a value-based highlight channel."""
+        channel = str(channel)
+        if channel not in self._highlight_value_channels:
+            return
+        self._highlight_value_channels.pop(channel, None)
+        self._emit_highlight_full_refresh()
+
+    def _emit_highlight_full_refresh(self) -> None:
+        if not self._rows:
+            return
+        last_col = max(0, self.columnCount() - 1)
+        top_left = self.index(0, 0)
+        bottom_right = self.index(self.rowCount() - 1, last_col)
+        self.dataChanged.emit(top_left, bottom_right, [Qt.BackgroundRole])
 
     def set_highlighted_row_ranges(
         self, channel: str, ranges: Iterable[Tuple[int, int]]
@@ -287,9 +333,10 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
             return
         old_union = list(self._highlight_union)
         self._highlight_channels.clear()
+        self._highlight_value_channels.clear()
         self._highlight_union = []
         self._highlight_union_starts = []
-        self._emit_highlight_changed(old_union, [])
+        self._emit_highlight_full_refresh()
 
     def _emit_highlight_changed(
         self, old_union: List[Tuple[int, int]], new_union: List[Tuple[int, int]]
@@ -559,6 +606,17 @@ class FeatureTableWidget(QWidget):
     ) -> None:
         """Set visual highlight ranges for a channel (rows inclusive)."""
         self.model.set_highlighted_row_ranges(channel, ranges)
+
+    def set_highlighted_values(
+        self, channel: str, column: int, values: Iterable[Any]
+    ) -> None:
+        """Highlight rows where the value in `column` is in `values` (stable under sorting)."""
+        self.model.set_highlighted_values(channel, column, values)
+
+    def clear_highlight_values_channel(self, channel: str) -> None:
+        """Clear a value-based highlight channel."""
+        self.model.clear_highlight_values_channel(channel)
+
 
     def clear_highlight(self, channel: Optional[str] = None) -> None:
         """Clear highlights. If channel is None, clears all channels."""

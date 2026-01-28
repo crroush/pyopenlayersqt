@@ -38,6 +38,7 @@ from PySide6 import QtCore, QtWidgets
 from pyopenlayersqt import (
     ColumnSpec,
     FeatureTableWidget,
+    FastGeoPointsLayer,
     FastGeoPointsStyle,
     OLMapWidget,
 )
@@ -124,7 +125,7 @@ class BenchWindow(QtWidgets.QMainWindow):
                 ColumnSpec("Kind", lambda r: r.get("kind", "")),
             ],
             key_fn=lambda r: ("meta", str(r.get("meta_id"))),
-            sorting_enabled=False,
+            sorting_enabled=True,
             selection_enabled=False,
         )
 
@@ -234,15 +235,16 @@ class BenchWindow(QtWidgets.QMainWindow):
         self.perf_label.setText("\n".join(lines))
 
     def _apply_meta_highlight_from_geo_ids(self, geo_ids: List[str]) -> None:
+        # For large/sortable meta tables we highlight by row value (geo_id column),
+        # which stays correct under sorting and avoids expensive QItemSelection work.
         t0 = time.perf_counter()
-        ranges: List[Tuple[int, int]] = []
-        for gid in geo_ids:
-            ranges.extend(self.geo_to_meta_ranges.get(str(gid), []))
-        self.stats.add_timing("link.meta_ranges", (time.perf_counter() - t0) * 1000.0)
+        geo_set = set(str(g) for g in geo_ids)
+        self.stats.add_timing("link.meta_value_set", (time.perf_counter() - t0) * 1000.0)
 
         t0 = time.perf_counter()
-        if ranges:
-            self.meta_table.set_highlighted_row_ranges("geo", ranges)
+        if geo_set:
+            # meta table column 1 is geo_id in this example
+            self.meta_table.set_highlighted_values("geo", column=1, values=geo_set)
         else:
             self.meta_table.clear_highlight("geo")
         self.stats.add_timing("link.meta_highlight_apply", (time.perf_counter() - t0) * 1000.0)
