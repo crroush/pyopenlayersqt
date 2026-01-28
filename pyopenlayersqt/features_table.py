@@ -41,11 +41,13 @@ Google-style docstrings + PEP8.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from PySide6 import QtCore
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -62,7 +64,7 @@ ValueFormatter = Callable[[Any], str]
 KeyFn = Callable[[Any], FeatureKey]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ColumnSpec:
     """Defines one column in the table."""
 
@@ -91,6 +93,10 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._sort_column: int = -1
         self._sort_order: Qt.SortOrder = Qt.AscendingOrder
         self._hidden_keys: set[FeatureKey] = set()  # Track hidden rows
+        # Highlight channels: channel -> merged row ranges (inclusive)
+        self._highlight_channels: Dict[str, List[Tuple[int, int]]] = {}
+        self._highlight_union: List[Tuple[int, int]] = []
+        self._highlight_union_starts: List[int] = []
 
     def rowCount(
         self, parent: QtCore.QModelIndex = QtCore.QModelIndex()
@@ -128,6 +134,10 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
 
         row = self._rows[r]
         col = self._columns[c]
+
+        if role == Qt.BackgroundRole and self._is_row_highlighted(r):
+            # Light translucent highlight.
+            return QBrush(QColor(255, 235, 59, 80))
 
         if role == Qt.DisplayRole:
             try:
@@ -210,6 +220,92 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         """Convenience lookup by (layer_id, feature_id)."""
         return self.row_for_key((str(layer_id), str(feature_id)))
 
+
+    # --------------------------
+    # Highlight (fast visual link)
+    # --------------------------
+
+    @staticmethod
+    def _merge_row_ranges(ranges: Iterable[Tuple[int, int]]) -> List[Tuple[int, int]]:
+        """Merge (start,end) inclusive ranges, returning sorted non-overlapping ranges."""
+        items = [(int(a), int(b)) for a, b in ranges]
+        if not items:
+            return []
+        items.sort()
+        merged: List[Tuple[int, int]] = []
+        s, e = items[0]
+        if e < s:
+            s, e = e, s
+        for a, b in items[1:]:
+            if b < a:
+                a, b = b, a
+            if a <= e + 1:
+                e = max(e, b)
+            else:
+                merged.append((s, e))
+                s, e = a, b
+        merged.append((s, e))
+        return merged
+
+    def _recompute_highlight_union(self) -> None:
+        union: List[Tuple[int, int]] = []
+        for rs in self._highlight_channels.values():
+            union.extend(rs)
+        self._highlight_union = self._merge_row_ranges(union)
+        self._highlight_union_starts = [a for a, _ in self._highlight_union]
+
+    def _is_row_highlighted(self, row: int) -> bool:
+        if not self._highlight_union:
+            return False
+        i = bisect_right(self._highlight_union_starts, row) - 1
+        if i < 0:
+            return False
+        a, b = self._highlight_union[i]
+        return a <= row <= b
+
+    def set_highlighted_row_ranges(
+        self, channel: str, ranges: Iterable[Tuple[int, int]]
+    ) -> None:
+        """Set highlight ranges for a channel (rows are inclusive)."""
+        channel = str(channel)
+        old_union = list(self._highlight_union)
+        self._highlight_channels[channel] = self._merge_row_ranges(ranges)
+        self._recompute_highlight_union()
+        self._emit_highlight_changed(old_union, self._highlight_union)
+
+    def clear_highlight_channel(self, channel: str) -> None:
+        channel = str(channel)
+        if channel not in self._highlight_channels:
+            return
+        old_union = list(self._highlight_union)
+        self._highlight_channels.pop(channel, None)
+        self._recompute_highlight_union()
+        self._emit_highlight_changed(old_union, self._highlight_union)
+
+    def clear_all_highlights(self) -> None:
+        if not self._highlight_channels:
+            return
+        old_union = list(self._highlight_union)
+        self._highlight_channels.clear()
+        self._highlight_union = []
+        self._highlight_union_starts = []
+        self._emit_highlight_changed(old_union, [])
+
+    def _emit_highlight_changed(
+        self, old_union: List[Tuple[int, int]], new_union: List[Tuple[int, int]]
+    ) -> None:
+        if not self._rows:
+            return
+        last_col = max(0, self.columnCount() - 1)
+        affected = self._merge_row_ranges(list(old_union) + list(new_union))
+        for a, b in affected:
+            a = max(0, min(a, self.rowCount() - 1))
+            b = max(0, min(b, self.rowCount() - 1))
+            if a > b:
+                continue
+            top_left = self.index(a, 0)
+            bottom_right = self.index(b, last_col)
+            self.dataChanged.emit(top_left, bottom_right, [Qt.BackgroundRole])
     def key_for_row(self, row_index: int) -> Optional[FeatureKey]:
         """Return the key for a given row index."""
         if row_index < 0 or row_index >= len(self._rows):
@@ -308,6 +404,7 @@ class FeatureTableWidget(QWidget):
         key_fn: Optional[KeyFn] = None,
         debounce_ms: int = 90,
         sorting_enabled: bool = True,
+        selection_enabled: bool = True,
     ) -> None:
         super().__init__(parent)
 
@@ -351,6 +448,7 @@ class FeatureTableWidget(QWidget):
             ]
 
         self.model = ConfigurableTableModel(columns=columns, key_fn=key_fn, parent=self)
+        self._selection_enabled = bool(selection_enabled)
 
         self._building_selection = False
         self._pending_emit = False
@@ -363,7 +461,10 @@ class FeatureTableWidget(QWidget):
         self.table = QTableView(self)
         self.table.setModel(self.model)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        if selection_enabled:
+            self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        else:
+            self.table.setSelectionMode(QAbstractItemView.NoSelection)
         self.table.setSortingEnabled(sorting_enabled)
         self.table.setWordWrap(False)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -371,7 +472,8 @@ class FeatureTableWidget(QWidget):
         self.table.verticalHeader().setVisible(True)
         self.table.verticalHeader().setDefaultSectionSize(18)
 
-        self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        if selection_enabled and self.table.selectionModel() is not None:
+            self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -405,19 +507,43 @@ class FeatureTableWidget(QWidget):
         return self.model.row_data(row_index)
 
     def selected_keys(self) -> List[FeatureKey]:
-        """Return currently selected keys."""
+        """Return currently selected keys.
+
+        Performance note:
+            Qt's selectionModel().selectedRows() materializes one QModelIndex
+            per selected row, which becomes extremely slow for large selections
+            (e.g., "Select All" on 40k+ rows). Iterating QItemSelection ranges
+            avoids this explosion.
+        """
         sm = self.table.selectionModel()
         if sm is None:
             return []
-        selected_rows = sm.selectedRows(0)
-        keys: List[FeatureKey] = []
-        for idx in selected_rows:
-            r = idx.row()
-            if r < 0 or r >= len(self.model.rows):
-                continue
-            key = self.model.key_for_row(r)
-            if key is not None:
-                keys.append(key)
+
+        selection = sm.selection()
+        if selection.isEmpty():
+            return []
+
+        rc = self.model.rowCount()
+
+        # Fast path: full-table selection is commonly represented as one range.
+        if len(selection) == 1:
+            rrange = selection[0]
+            if rrange.top() == 0 and rrange.bottom() == rc - 1:
+                keys: List[FeatureKey] = []
+                for r in range(rc):
+                    key = self.model.key_for_row(r)
+                    if key is not None:
+                        keys.append(key)
+                return keys
+
+        keys = []
+        for rrange in selection:
+            top = max(0, rrange.top())
+            bottom = min(rc - 1, rrange.bottom())
+            for r in range(top, bottom + 1):
+                key = self.model.key_for_row(r)
+                if key is not None:
+                    keys.append(key)
         return keys
 
     def clear_selection(self) -> None:
@@ -428,28 +554,82 @@ class FeatureTableWidget(QWidget):
         sm.clearSelection()
         self._building_selection = False
 
-    def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
-        """Programmatically select rows by keys."""
+    def set_highlighted_row_ranges(
+        self, channel: str, ranges: Sequence[Tuple[int, int]]
+    ) -> None:
+        """Set visual highlight ranges for a channel (rows inclusive)."""
+        self.model.set_highlighted_row_ranges(channel, ranges)
+
+    def clear_highlight(self, channel: Optional[str] = None) -> None:
+        """Clear highlights. If channel is None, clears all channels."""
+        if channel is None:
+            self.model.clear_all_highlights()
+        else:
+            self.model.clear_highlight_channel(channel)
+
+
+    def select_row_ranges(
+        self, ranges: Sequence[Tuple[int, int]], clear_first: bool = True
+    ) -> None:
+        """Select rows by (start,end) inclusive ranges (fast for large tables)."""
+        if not getattr(self, "_selection_enabled", True):
+            return
         sm = self.table.selectionModel()
         if sm is None:
             return
 
+        merged = self.model._merge_row_ranges(ranges)
+        last_row = self.model.rowCount() - 1
+        if last_row < 0:
+            return
+
         selection = QtCore.QItemSelection()
         last_col = max(0, self.model.columnCount() - 1)
-        for key in keys:
-            r = self.model.row_for_key(key)
-            if r is None:
+        for a, b in merged:
+            a = max(0, min(int(a), last_row))
+            b = max(0, min(int(b), last_row))
+            if a > b:
                 continue
-            selection.select(self.model.index(r, 0), self.model.index(r, last_col))
+            selection.select(self.model.index(a, 0), self.model.index(b, last_col))
 
         self._building_selection = True
-        if clear_first:
-            sm.clearSelection()
-        sm.select(
-            selection,
-            QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
-        )
-        self._building_selection = False
+        self.table.setUpdatesEnabled(False)
+        try:
+            if clear_first:
+                sm.clearSelection()
+            sm.select(
+                selection,
+                QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
+            )
+        finally:
+            self.table.setUpdatesEnabled(True)
+            self._building_selection = False
+
+    def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
+        """Programmatically select rows by keys (optimized)."""
+        if not getattr(self, "_selection_enabled", True):
+            return
+        rows: List[int] = []
+        for key in keys:
+            r = self.model.row_for_key(key)
+            if r is not None:
+                rows.append(r)
+        if not rows:
+            if clear_first:
+                self.clear_selection()
+            return
+        rows = sorted(set(rows))
+        # Merge contiguous rows into ranges and delegate
+        ranges: List[Tuple[int, int]] = []
+        s = p = rows[0]
+        for r in rows[1:]:
+            if r == p + 1:
+                p = r
+                continue
+            ranges.append((s, p))
+            s = p = r
+        ranges.append((s, p))
+        self.select_row_ranges(ranges, clear_first=clear_first)
 
     def _on_selection_changed(self, *_args) -> None:
         if self._building_selection:
