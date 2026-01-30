@@ -131,7 +131,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         row = self._rows[r]
         col = self._columns[c]
 
-        if role == Qt.DisplayRole or role == Qt.EditRole:
+        if role in (Qt.DisplayRole, Qt.EditRole):
             try:
                 value = col.getter(row)
             except Exception:
