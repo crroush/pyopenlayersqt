@@ -58,6 +58,7 @@ FeatureKey = Tuple[str, str]  # (layer_id, feature_id)
 
 
 ValueGetter = Callable[[Any], Any]
+ValueSetter = Callable[[Any, Any], Any]
 ValueFormatter = Callable[[Any], str]
 KeyFn = Callable[[Any], FeatureKey]
 
@@ -72,7 +73,8 @@ class ColumnSpec:
     tooltip: Optional[Callable[[Any], str]] = None
     sortable: bool = True
     sort_key: Optional[Callable[[Any], Any]] = None
-
+    editable: bool = False
+    setter: ValueSetter = None
 
 class ConfigurableTableModel(QtCore.QAbstractTableModel):
     """A configurable table model for arbitrary row objects."""
@@ -129,7 +131,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         row = self._rows[r]
         col = self._columns[c]
 
-        if role == Qt.DisplayRole:
+        if role in (Qt.DisplayRole, Qt.EditRole):
             try:
                 value = col.getter(row)
             except Exception:
@@ -152,7 +154,23 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
     def flags(self, index: QtCore.QModelIndex) -> Qt.ItemFlags:  # noqa: N802
         if not index.isValid():
             return Qt.ItemIsEnabled
+        if self._columns[index.column()].editable:
+            return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+
+    def setData(self, index, value, role=Qt.EditRole):
+        """Apply data from an edit to the underlying model"""
+        if role == Qt.EditRole:
+            row = self._rows[index.row()]
+            col = self._columns[index.column()]
+            if col.setter is None:
+                return False
+            # update the underlying data
+            col.setter(row, value)
+            # emit signal to notify the view that data changed
+            self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole])
+            return True
+        return False
 
     @property
     def rows(self) -> Sequence[Any]:
@@ -372,6 +390,7 @@ class FeatureTableWidget(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(18)
 
         self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        self.dataChanged = self.model.dataChanged
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

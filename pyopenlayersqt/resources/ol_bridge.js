@@ -242,6 +242,16 @@ function fp_emit_selection(entry) {
   });
 }
 
+function fp_emit_singleclick(entry, ctrl_key, meta_key, shift_key, alt_key) {
+  emitToPython("singleclick", {
+    coord: entry,
+    ctrl_key: ctrl_key,
+    meta_key: meta_key,
+    shift_key: shift_key,
+    alt_key: alt_key
+  });
+}
+
 function fp_redraw(entry) {
   if (entry.source) entry.source.changed();
 }
@@ -871,10 +881,18 @@ function fp_install_interactions() {
   state.map.on("singleclick", function(evt) {
     const orig = evt.originalEvent;
     const mod = orig && (orig.ctrlKey || orig.metaKey);
+    const coord = evt.coordinate;
+    const ll_coord = p3857_to_lonlat(coord);
+    fp_emit_singleclick(
+      ll_coord,
+      orig.ctrlKey,
+      orig.metaKey,
+      orig.shiftKey,
+      orig.altKey
+    );
     if (!mod) return;
     for (const [layer_id, entry] of state.layers.entries()) {
       if ((entry.type !== "fast_points" && entry.type !== "fast_geopoints") || !entry.selectable) continue;
-      const coord = evt.coordinate;
       const res = state.map.getView().getResolution() || 1.0;
       const radius_m = Math.max(5.0, res * 8.0);
       const idx = fp_pick_nearest(entry, coord, radius_m);
@@ -918,6 +936,7 @@ function fp_install_interactions() {
   });
 }
 function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
+function p3857_to_lonlat(coord) { return ol.proj.toLonLat(coord); }
 
 // ---- Measurement Mode Functions ----
 
