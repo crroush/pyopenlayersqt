@@ -448,27 +448,72 @@ class FeatureTableWidget(QWidget):
         self._building_selection = False
 
     def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
-        """Programmatically select rows by keys."""
+        """Programmatically select rows by keys.
+        
+        Optimized for large selections by batching contiguous rows into ranges.
+        """
         sm = self.table.selectionModel()
         if sm is None:
             return
 
-        selection = QtCore.QItemSelection()
-        last_col = max(0, self.model.columnCount() - 1)
+        # Convert keys to row indices
+        rows = []
         for key in keys:
             r = self.model.row_for_key(key)
-            if r is None:
-                continue
-            selection.select(self.model.index(r, 0), self.model.index(r, last_col))
-
-        self._building_selection = True
-        if clear_first:
-            sm.clearSelection()
-        sm.select(
-            selection,
-            QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
+            if r is not None:
+                rows.append(r)
+        
+        if not rows:
+            if clear_first:
+                self._building_selection = True
+                sm.clearSelection()
+                self._building_selection = False
+            return
+        
+        # Sort rows to enable range detection
+        rows.sort()
+        
+        # Build selection ranges for contiguous blocks
+        selection = QtCore.QItemSelection()
+        last_col = max(0, self.model.columnCount() - 1)
+        
+        # Find contiguous ranges
+        range_start = rows[0]
+        range_end = rows[0]
+        
+        for row in rows[1:]:
+            if row == range_end + 1:
+                # Extend current range
+                range_end = row
+            else:
+                # Add completed range
+                selection.select(
+                    self.model.index(range_start, 0),
+                    self.model.index(range_end, last_col)
+                )
+                # Start new range
+                range_start = row
+                range_end = row
+        
+        # Add final range
+        selection.select(
+            self.model.index(range_start, 0),
+            self.model.index(range_end, last_col)
         )
-        self._building_selection = False
+
+        # Apply selection with updates disabled for performance
+        self._building_selection = True
+        self.table.setUpdatesEnabled(False)
+        try:
+            if clear_first:
+                sm.clearSelection()
+            sm.select(
+                selection,
+                QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
+            )
+        finally:
+            self.table.setUpdatesEnabled(True)
+            self._building_selection = False
 
     def _on_selection_changed(self, *_args) -> None:
         if self._building_selection:
