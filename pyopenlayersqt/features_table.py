@@ -491,24 +491,27 @@ class FeatureTableWidget(QWidget):
                 # Extend current range
                 range_end = row
             else:
-                # Add completed range
-                selection.select(
-                    self.model.index(range_start, 0),
-                    self.model.index(range_end, last_col)
+                # Add completed range using QItemSelectionRange
+                selection.append(
+                    QtCore.QItemSelectionRange(
+                        self.model.index(range_start, 0),
+                        self.model.index(range_end, last_col)
+                    )
                 )
                 # Start new range
                 range_start = row
                 range_end = row
         
         # Add final range
-        selection.select(
-            self.model.index(range_start, 0),
-            self.model.index(range_end, last_col)
+        selection.append(
+            QtCore.QItemSelectionRange(
+                self.model.index(range_start, 0),
+                self.model.index(range_end, last_col)
+            )
         )
 
-        # Apply selection with updates disabled for performance
+        # Apply selection
         self._building_selection = True
-        self.table.setUpdatesEnabled(False)
         try:
             if clear_first:
                 sm.clearSelection()
@@ -517,7 +520,6 @@ class FeatureTableWidget(QWidget):
                 QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
             )
         finally:
-            self.table.setUpdatesEnabled(True)
             self._building_selection = False
 
     def _on_selection_changed(self, *_args) -> None:
