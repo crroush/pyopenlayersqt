@@ -448,7 +448,7 @@ class HighPerformanceSelectionWindow(QtWidgets.QMainWindow):
         """Handle bidirectional selection toggle."""
         enabled = state == QtCore.Qt.Checked
         # Update the link
-        if self.selection_manager:
+        if self.selection_manager and self.points_layer:
             self.selection_manager.set_link_enabled(
                 self.points_layer.id, "points_table", enabled
             )
@@ -474,7 +474,7 @@ class HighPerformanceSelectionWindow(QtWidgets.QMainWindow):
     
     def on_select_random(self):
         """Select 100 random points."""
-        if not self.point_data:
+        if not self.point_data or not self.points_table:
             return
         
         # Select random 100 points
@@ -487,6 +487,9 @@ class HighPerformanceSelectionWindow(QtWidgets.QMainWindow):
     
     def on_select_region(self, region: str):
         """Select a specific region (will select all its points)."""
+        if not self.region_data or not self.regions_table:
+            return
+        
         # Find the region in region data
         for r in self.region_data:
             if r.region == region:
@@ -503,8 +506,8 @@ class HighPerformanceSelectionWindow(QtWidgets.QMainWindow):
         stats = self.selection_manager.get_stats()
         
         # Count current selections
-        points_selected = len(self.points_table.selected_keys())
-        regions_selected = len(self.regions_table.selected_keys())
+        points_selected = len(self.points_table.selected_keys()) if self.points_table else 0
+        regions_selected = len(self.regions_table.selected_keys()) if self.regions_table else 0
         
         text = f"""Data:
   Points: {len(self.point_data):,}
