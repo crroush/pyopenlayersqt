@@ -426,6 +426,8 @@ class HighPerformanceSelectionWindow(QtWidgets.QMainWindow):
         builder.add_table_table_link(
             self.regions_table,
             self.points_table,
+            table1_id="regions_table",
+            table2_id="points_table",
             bidirectional=False,  # One-way: region -> points
             key_mapper=region_to_points_mapper,
         )
@@ -448,8 +450,9 @@ class HighPerformanceSelectionWindow(QtWidgets.QMainWindow):
         """Handle cross-table selection toggle."""
         enabled = state == QtCore.Qt.Checked
         if self.selection_manager:
+            # Use the stored table ID
             self.selection_manager.set_link_enabled(
-                "regions_table_" + str(id(self.regions_table)),
+                "regions_table",
                 "points_table",
                 enabled
             )

@@ -157,6 +157,10 @@ class SelectionManager(QtCore.QObject):
         if table_id is None:
             table_id = f"table_{id(table)}"
         
+        # Check if already registered
+        if table_id in self._tables:
+            return table_id
+        
         self._tables[table_id] = table
         self._selections[table_id] = set()
         
@@ -203,7 +207,7 @@ class SelectionManager(QtCore.QObject):
         table_id: Optional[str] = None,
         key_mapper: Optional[KeyMapper] = None,
         bidirectional: bool = True,
-    ) -> None:
+    ) -> str:
         """Link a table to a map layer for synchronized selection.
         
         Args:
@@ -212,6 +216,9 @@ class SelectionManager(QtCore.QObject):
             table_id: Unique table identifier (auto-generated if not provided)
             key_mapper: Optional function to transform keys (table keys -> layer keys)
             bidirectional: If True, selection syncs both ways; if False, only table->layer
+            
+        Returns:
+            The table_id used for registration
         """
         tid = self.register_table(table, table_id)
         
@@ -243,6 +250,8 @@ class SelectionManager(QtCore.QObject):
                 key_mapper=reverse_mapper,
                 bidirectional=False,  # Already handled by forward link
             ))
+        
+        return tid
     
     def link_tables(
         self,
@@ -252,7 +261,7 @@ class SelectionManager(QtCore.QObject):
         table2_id: Optional[str] = None,
         key_mapper: Optional[KeyMapper] = None,
         bidirectional: bool = True,
-    ) -> None:
+    ) -> Tuple[str, str]:
         """Link two tables for synchronized selection (e.g., parent-child relationships).
         
         Args:
@@ -262,6 +271,9 @@ class SelectionManager(QtCore.QObject):
             table2_id: Unique ID for table2
             key_mapper: Transform keys from table1 to table2 (e.g., expand to children)
             bidirectional: If True, selection syncs both ways
+            
+        Returns:
+            Tuple of (table1_id, table2_id) used for registration
         """
         t1_id = self.register_table(table1, table1_id)
         t2_id = self.register_table(table2, table2_id)
@@ -288,6 +300,8 @@ class SelectionManager(QtCore.QObject):
                 key_mapper=None,  # Could provide reverse mapper if needed
                 bidirectional=False,
             ))
+        
+        return (t1_id, t2_id)
     
     def set_link_enabled(self, source_id: str, target_id: str, enabled: bool) -> None:
         """Enable or disable a specific selection link.
@@ -467,12 +481,16 @@ class SelectionManagerBuilder:
         self,
         table1: Any,
         table2: Any,
+        table1_id: Optional[str] = None,
+        table2_id: Optional[str] = None,
         bidirectional: bool = True,
         key_mapper: Optional[KeyMapper] = None,
     ) -> SelectionManagerBuilder:
         """Add a table-to-table link."""
         self._manager.link_tables(
             table1, table2,
+            table1_id=table1_id,
+            table2_id=table2_id,
             bidirectional=bidirectional,
             key_mapper=key_mapper,
         )
