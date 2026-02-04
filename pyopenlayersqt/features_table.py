@@ -384,6 +384,11 @@ class FeatureTableWidget(QWidget):
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setSortingEnabled(sorting_enabled)
         self.table.setWordWrap(False)
+        
+        # Performance optimizations for large datasets
+        self.table.setUniformRowHeights(True)  # Assume all rows same height
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)  # Smoother scrolling
+        
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.verticalHeader().setVisible(True)
