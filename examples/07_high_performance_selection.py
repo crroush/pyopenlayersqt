@@ -17,6 +17,10 @@ Features demonstrated:
   5. Selection system (SelectionManager) for easy configuration
 
 Requirements: PySide6, numpy
+
+IMPORTANT: If you get ImportError, make sure you've installed the latest version:
+    cd /path/to/pyopenlayersqt
+    pip install -e . --force-reinstall
 """
 
 import sys
@@ -24,17 +28,38 @@ import time
 from dataclasses import dataclass
 from typing import List, Tuple
 
-import numpy as np
-from PySide6 import QtCore, QtWidgets
+# Check dependencies and provide helpful error messages
+try:
+    import numpy as np
+except ImportError as e:
+    print("ERROR: numpy is required but not installed.")
+    print("Install it with: pip install numpy")
+    sys.exit(1)
 
-from pyopenlayersqt import (
-    OLMapWidget,
-    FeatureTableWidget,
-    ColumnSpec,
-    SelectionManager,
-    SelectionManagerBuilder,
-    FastPointsStyle,
-)
+try:
+    from PySide6 import QtCore, QtWidgets
+except ImportError as e:
+    print("ERROR: PySide6 is required but not installed.")
+    print("Install it with: pip install PySide6")
+    sys.exit(1)
+
+try:
+    from pyopenlayersqt import (
+        OLMapWidget,
+        FeatureTableWidget,
+        ColumnSpec,
+        SelectionManager,
+        SelectionManagerBuilder,
+        FastPointsStyle,
+    )
+except ImportError as e:
+    print("ERROR: Failed to import from pyopenlayersqt:")
+    print(f"  {e}")
+    print("\nThis example requires the latest version of pyopenlayersqt.")
+    print("Please reinstall:")
+    print("  cd /path/to/pyopenlayersqt")
+    print("  pip install -e . --force-reinstall")
+    sys.exit(1)
 
 # Type alias
 FeatureKey = Tuple[str, str]
