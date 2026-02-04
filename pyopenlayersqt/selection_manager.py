@@ -359,6 +359,11 @@ class SelectionManager(QtCore.QObject):
         if self._updating:
             return
         
+        # Defensive check
+        if table_id not in self._selections:
+            print(f"WARNING: table_id '{table_id}' not found in _selections. Available: {list(self._selections.keys())}")
+            self._selections[table_id] = set()
+        
         # Update internal state
         self._selections[table_id] = set(keys)
         
