@@ -453,10 +453,7 @@ class FeatureTableWidget(QWidget):
         self._building_selection = False
 
     def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
-        """Programmatically select rows by keys.
-        
-        Optimized for large selections by batching contiguous rows into ranges.
-        """
+        """Programmatically select rows by keys."""
         sm = self.table.selectionModel()
         if sm is None:
             return
@@ -475,40 +472,18 @@ class FeatureTableWidget(QWidget):
                 self._building_selection = False
             return
         
-        # Sort rows to enable range detection
-        rows.sort()
-        
-        # Build selection ranges for contiguous blocks
+        # Build selection - one range per row for simplicity
+        # (Qt will merge adjacent ranges automatically)
         selection = QtCore.QItemSelection()
         last_col = max(0, self.model.columnCount() - 1)
         
-        # Find contiguous ranges
-        range_start = rows[0]
-        range_end = rows[0]
-        
-        for row in rows[1:]:
-            if row == range_end + 1:
-                # Extend current range
-                range_end = row
-            else:
-                # Add completed range using QItemSelectionRange
-                selection.append(
-                    QtCore.QItemSelectionRange(
-                        self.model.index(range_start, 0),
-                        self.model.index(range_end, last_col)
-                    )
+        for row in rows:
+            selection.append(
+                QtCore.QItemSelectionRange(
+                    self.model.index(row, 0),
+                    self.model.index(row, last_col)
                 )
-                # Start new range
-                range_start = row
-                range_end = row
-        
-        # Add final range
-        selection.append(
-            QtCore.QItemSelectionRange(
-                self.model.index(range_start, 0),
-                self.model.index(range_end, last_col)
             )
-        )
 
         # Apply selection
         self._building_selection = True
