@@ -227,6 +227,12 @@ class SelectionManager(QtCore.QObject):
         """
         tid = self.register_table(table, table_id)
         
+        # Register the layer in self._layers if not already registered
+        # This is necessary for selection propagation to work
+        if layer_id not in self._layers:
+            self._layers[layer_id] = None  # We don't have the layer object, just track the ID
+            self._selections[layer_id] = set()
+        
         # Create link from table to layer
         if tid not in self._links:
             self._links[tid] = []
