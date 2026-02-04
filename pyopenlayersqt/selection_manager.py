@@ -16,20 +16,25 @@ Key Features:
 
 Example usage:
 
-    # Simple 1-to-1 selection between map and table
-    manager = SelectionManager()
-    manager.link_table_to_layer(table, layer_id="points")
+    # Simple 1-to-1 selection between map and table using builder
+    builder = SelectionManagerBuilder()
+    builder.set_map_widget(map_widget)
+    builder.add_table_layer_link(table, layer_id="points")
+    manager = builder.build()
     
     # Cross-table selection with custom mapping
-    manager = SelectionManager()
-    manager.link_table_to_layer(table1, layer_id="points")
-    manager.link_tables(
+    builder = SelectionManagerBuilder()
+    builder.set_map_widget(map_widget)
+    builder.add_table_layer_link(table1, layer_id="points")
+    builder.add_table_table_link(
         table1, table2,
         key_mapper=lambda keys: expand_to_related_keys(keys)
     )
+    manager = builder.build()
     
     # Performance monitoring
-    manager.enable_performance_stats()
+    builder.enable_performance_stats()
+    manager = builder.build()
     stats = manager.get_stats()  # Track selection update times
 """
 

@@ -14,7 +14,7 @@ Features demonstrated:
   2. Cross-table and map selection with defined behaviors
   3. Bidirectional selection (optional toggle)
   4. High performance with large datasets
-  5. Helper scheme (SelectionManager) for easy configuration
+  5. Selection system (SelectionManager) for easy configuration
 
 Requirements: PySide6, numpy
 """
