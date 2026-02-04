@@ -19,8 +19,13 @@ from .layers import (
     FastGeoPointsLayer,
 )
 
-from .features_table import FeatureTableWidget
+from .features_table import FeatureTableWidget, ColumnSpec
 from .range_slider import RangeSliderWidget
+from .selection_manager import (
+    SelectionManager,
+    SelectionManagerBuilder,
+    SelectionStats,
+)
 
 __all__ = [
     "OLMapWidget",
@@ -40,5 +45,10 @@ __all__ = [
     "FastGeoPointsLayer",
     # Reusable Qt widgets
     "FeatureTableWidget",
+    "ColumnSpec",
     "RangeSliderWidget",
+    # Selection management
+    "SelectionManager",
+    "SelectionManagerBuilder",
+    "SelectionStats",
 ]
