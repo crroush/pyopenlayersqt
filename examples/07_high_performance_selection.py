@@ -324,7 +324,8 @@ class HighPerformanceSelectionWindow(QtWidgets.QMainWindow):
         base_ts = 1704067200  # 2024-01-01 00:00:00 UTC
         timestamps = base_ts + rng.integers(0, 365 * 86400, n)
         
-        layer_id = "points"
+        # Placeholder layer_id - will be updated after layer creation
+        layer_id = "PLACEHOLDER"
         
         # Create point data objects
         for i in range(n):
@@ -366,6 +367,12 @@ class HighPerformanceSelectionWindow(QtWidgets.QMainWindow):
             )
         )
         
+        # Update all point data with the actual layer_id
+        # (layer gets an auto-generated ID like "fp_1", not "points")
+        actual_layer_id = self.points_layer.id
+        for point in self.point_data:
+            point.layer_id = actual_layer_id
+        
         # Add all points at once (batched)
         coords = [(p.latitude, p.longitude) for p in self.point_data]
         ids = [p.feature_id for p in self.point_data]
@@ -381,7 +388,7 @@ class HighPerformanceSelectionWindow(QtWidgets.QMainWindow):
         
         self.points_layer.add_points(coords, ids=ids, colors_rgba=colors)
         
-        print(f"Added {len(coords):,} points to map")
+        print(f"Added {len(coords):,} points to map with layer_id={actual_layer_id}")
     
     def populate_tables(self):
         """Populate both tables with data."""
@@ -402,9 +409,10 @@ class HighPerformanceSelectionWindow(QtWidgets.QMainWindow):
         builder.set_debounce_ms(50)
         
         # Link points table to points layer
+        # IMPORTANT: Use the layer's actual ID, not its name
         builder.add_table_layer_link(
             self.points_table,
-            "points",
+            self.points_layer.id,  # Use actual layer_id (e.g., "fp_1"), not name
             table_id="points_table",
             bidirectional=True,
         )
@@ -442,7 +450,7 @@ class HighPerformanceSelectionWindow(QtWidgets.QMainWindow):
         # Update the link
         if self.selection_manager:
             self.selection_manager.set_link_enabled(
-                "points", "points_table", enabled
+                self.points_layer.id, "points_table", enabled
             )
             print(f"Map -> Table selection: {'enabled' if enabled else 'disabled'}")
     
