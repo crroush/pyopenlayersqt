@@ -228,9 +228,12 @@ class SelectionManager(QtCore.QObject):
         tid = self.register_table(table, table_id)
         
         # Register the layer in self._layers if not already registered
-        # This is necessary for selection propagation to work
+        # This allows selection propagation to work properly.
+        # We only track the layer_id, not the layer object itself, since
+        # the SelectionManager doesn't need the layer object - it just needs
+        # to know which layers exist for routing selection updates via the map widget.
         if layer_id not in self._layers:
-            self._layers[layer_id] = None  # We don't have the layer object, just track the ID
+            self._layers[layer_id] = None  # Just track the layer_id exists
             self._selections[layer_id] = set()
         
         # Create link from table to layer

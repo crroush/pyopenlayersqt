@@ -268,8 +268,8 @@ class OLMapWidget(QWebEngineView):
             feature_ids: List of feature IDs to select
         """
         # Determine layer type from ID prefix
-        if layer_id.startswith("fp_") or layer_id == "points":
-            # Fast points layer (fp_xxx or custom ID like "points")
+        if layer_id.startswith("fp_"):
+            # Fast points layer
             self.set_fast_points_selection(layer_id, feature_ids)
         elif layer_id.startswith("fgp_"):
             # Fast geo-points layer
@@ -278,8 +278,8 @@ class OLMapWidget(QWebEngineView):
             # Vector layer
             self.set_vector_selection(layer_id, feature_ids)
         else:
-            # Default to fast points for custom layer IDs
-            # This handles the case where user provides custom layer names like "points"
+            # Default to fast points for custom layer IDs without standard prefix
+            # This handles user-provided layer names (e.g., "points", "markers", etc.)
             self.set_fast_points_selection(layer_id, feature_ids)
     
     def clear_selection(self, layer_id: str) -> None:
