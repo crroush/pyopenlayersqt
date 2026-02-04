@@ -257,6 +257,39 @@ class OLMapWidget(QWebEngineView):
             }
         )
 
+    def set_selection(self, layer_id: str, feature_ids: list[str]) -> None:
+        """Set selection for any layer type (generic method).
+        
+        Determines the layer type from the layer_id prefix and calls
+        the appropriate type-specific selection method.
+        
+        Args:
+            layer_id: Layer identifier
+            feature_ids: List of feature IDs to select
+        """
+        # Determine layer type from ID prefix
+        if layer_id.startswith("fp_") or layer_id == "points":
+            # Fast points layer (fp_xxx or custom ID like "points")
+            self.set_fast_points_selection(layer_id, feature_ids)
+        elif layer_id.startswith("fgp_"):
+            # Fast geo-points layer
+            self.set_fast_geopoints_selection(layer_id, feature_ids)
+        elif layer_id.startswith("v_"):
+            # Vector layer
+            self.set_vector_selection(layer_id, feature_ids)
+        else:
+            # Default to fast points for custom layer IDs
+            # This handles the case where user provides custom layer names like "points"
+            self.set_fast_points_selection(layer_id, feature_ids)
+    
+    def clear_selection(self, layer_id: str) -> None:
+        """Clear selection for a layer.
+        
+        Args:
+            layer_id: Layer identifier
+        """
+        self.set_selection(layer_id, [])
+
     def set_base_opacity(self, opacity: float) -> None:
         """Set opacity of the base OSM layer (0..1)."""
         self.send({"type": "base.set_opacity", "opacity": float(opacity)})
