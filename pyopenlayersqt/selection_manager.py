@@ -170,8 +170,9 @@ class SelectionManager(QtCore.QObject):
         self._selections[table_id] = set()
         
         # Connect to table's selection signal
+        # Use default argument to capture table_id at definition time (not execution time)
         table.selectionKeysChanged.connect(
-            lambda keys: self._on_table_selection_changed(table_id, keys)
+            lambda keys, tid=table_id: self._on_table_selection_changed(tid, keys)
         )
         
         return table_id
