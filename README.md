@@ -25,6 +25,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
   - [Distance Measurement Mode](#distance-measurement-mode)
   - [FeatureTableWidget](#featuretablewidget)
   - [RangeSliderWidget](#rangesliderwidget)
+  - [SelectionManager](#selectionmanager)
 - [Complete Example](#complete-example)
 - [Running the Demo](#running-the-demo)
 - [View Extent Tracking](#view-extent-tracking)
@@ -716,6 +717,93 @@ table.show_all_rows()  # Show all in table
 ```
 
 See [examples/05_range_slider_filter.py](examples/05_range_slider_filter.py) for a complete working example with map and table filtering.
+
+### SelectionManager
+
+High-performance selection coordination between map layers and tables. Handles complex selection patterns with 100K+ features efficiently.
+
+**Features:**
+- Bidirectional selection sync (map ↔ table)
+- Cross-table selection (e.g., select region → select all points in region)
+- Batched updates for performance
+- Configurable selection behaviors
+- Performance metrics tracking
+
+**Basic Usage:**
+
+```python
+from pyopenlayersqt import SelectionManager, SelectionManagerBuilder
+
+# Simple 1-to-1 map-table selection sync
+builder = SelectionManagerBuilder()
+builder.set_map_widget(map_widget)
+builder.add_table_layer_link(
+    points_table,
+    layer_id="points_layer",
+    bidirectional=True  # Selection syncs both ways
+)
+manager = builder.build()
+```
+
+**Advanced: Cross-Table Selection:**
+
+```python
+# Define a key mapper for 1-to-many relationships
+def region_to_points_mapper(region_keys):
+    """Map region selection to all points in those regions."""
+    result = []
+    for layer_id, region_name in region_keys:
+        # Find all points in this region
+        points = [p for p in point_data if p.region == region_name]
+        result.extend([(p.layer_id, p.feature_id) for p in points])
+    return result
+
+# Link regions table to points table
+builder = SelectionManagerBuilder()
+builder.set_map_widget(map_widget)
+builder.enable_performance_stats()
+
+# Link points table to points layer
+builder.add_table_layer_link(
+    points_table,
+    layer_id="points",
+    table_id="points_table",
+    bidirectional=True
+)
+
+# Link regions table to points table with mapping
+builder.add_table_table_link(
+    regions_table,
+    points_table,
+    table1_id="regions_table",
+    table2_id="points_table",
+    bidirectional=False,  # One-way: region → points
+    key_mapper=region_to_points_mapper
+)
+
+manager = builder.build()
+
+# Toggle links on/off
+manager.set_link_enabled("points", "points_table", enabled=True)
+manager.set_link_enabled("regions_table", "points_table", enabled=False)
+
+# Clear all selections
+manager.clear_all_selections()
+
+# Get performance stats
+stats = manager.get_stats()
+print(f"Avg selection update time: {stats.avg_time_ms:.2f}ms")
+```
+
+**Example Application:**
+
+See [examples/07_high_performance_selection.py](examples/07_high_performance_selection.py) for a complete example with:
+- 100,000 points on map and in table
+- Sortable table with multiple columns
+- Bidirectional selection sync
+- Cross-table selection (regions → points)
+- Performance metrics display
+- Toggle controls for selection behaviors
 
 ## Complete Example
 
