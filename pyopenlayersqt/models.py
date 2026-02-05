@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-# "#RRGGBB", "rgba(...)", or tuples
-Color = Union[str, Tuple[int, int, int], Tuple[int, int, int, int]]
+# Color type: "#RRGGBB", "rgba(...)", tuples, QColor objects, or color names
+# Using Any for QColor to avoid hard dependency on PySide6 in type checking
+Color = Union[str, Tuple[int, int, int], Tuple[int, int, int, int], Any]
 LatLon = Tuple[float, float]  # (lat, lon) - Public API uses latitude first
 
 
@@ -177,6 +178,14 @@ class PointStyle:
     radius: pixels
     fill_color / fill_opacity: marker fill
     stroke_color / stroke_width / stroke_opacity: marker outline
+    
+    Colors can be specified as:
+    - Hex string: "#ff3333"
+    - CSS string: "rgba(255, 51, 51, 0.8)"
+    - RGB tuple: (255, 51, 51)
+    - RGBA tuple: (255, 51, 51, 204)
+    - QColor object: QColor("red") or QColor(255, 0, 0)
+    - Color name: "red", "Green", "steelblue"
     """
     radius: float = 5.0
     fill_color: Color = "#ff3333"
@@ -200,6 +209,14 @@ class CircleStyle:
     Circle feature style (geodesic-ish circle drawn on map; rendered as polygon in OL)
     - radius_m: meters
     - outline + optional fill
+    
+    Colors can be specified as:
+    - Hex string: "#00aaff"
+    - CSS string: "rgba(0, 170, 255, 0.95)"
+    - RGB tuple: (0, 170, 255)
+    - RGBA tuple: (0, 170, 255, 242)
+    - QColor object: QColor("blue") or QColor(0, 170, 255)
+    - Color name: "blue", "steelblue", "cyan"
     """
     stroke_color: Color = "#00aaff"
     stroke_width: float = 2.0
@@ -223,6 +240,14 @@ class CircleStyle:
 class PolygonStyle:
     """
     Polygon (and arbitrary geometry) style.
+    
+    Colors can be specified as:
+    - Hex string: "#00aaff"
+    - CSS string: "rgba(0, 170, 255, 0.95)"
+    - RGB tuple: (0, 170, 255)
+    - RGBA tuple: (0, 170, 255, 242)
+    - QColor object: QColor("blue") or QColor(0, 170, 255)
+    - Color name: "blue", "Green", "purple"
     """
     stroke_color: Color = "#00aaff"
     stroke_width: float = 2.0
@@ -248,6 +273,14 @@ class EllipseStyle:
     Ellipse style. Ellipse is represented in JS as a polygon approximating an ellipse.
 
     stroke + optional fill.
+    
+    Colors can be specified as:
+    - Hex string: "#ffcc00"
+    - CSS string: "rgba(255, 204, 0, 0.95)"
+    - RGB tuple: (255, 204, 0)
+    - RGBA tuple: (255, 204, 0, 242)
+    - QColor object: QColor("yellow") or QColor(255, 204, 0)
+    - Color name: "yellow", "gold", "orange"
     """
     stroke_color: Color = "#ffcc00"
     stroke_width: float = 2.0
