@@ -45,6 +45,10 @@ def _normalize_color(color: Union[tuple[int, int, int, int], str, Any]) -> tuple
         
     Returns:
         Tuple of (r, g, b, a) with values 0-255.
+        
+    Raises:
+        TypeError: If color is not a recognized type.
+        ValueError: If color name is invalid or PySide6 is not available.
     """
     # Already an RGBA tuple
     if isinstance(color, tuple) and len(color) == 4:
@@ -65,12 +69,16 @@ def _normalize_color(color: Union[tuple[int, int, int, int], str, Any]) -> tuple
             qcolor = QColor(color)
             if qcolor.isValid():
                 return (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
-            raise ValueError(f"Invalid color name: {color}")
+            raise ValueError(
+                f"Invalid color name: '{color}'. "
+                f"Use RGBA tuples like (255, 0, 0, 255) instead."
+            )
         except (ImportError, RuntimeError) as e:
             # RuntimeError can occur if Qt can't initialize (e.g., no display)
             raise ValueError(
-                f"Cannot convert color name '{color}': PySide6/Qt not available or "
-                f"cannot initialize (error: {e}). Please use RGBA tuples instead."
+                f"Cannot convert color name '{color}': PySide6 is not available "
+                f"or Qt cannot initialize ({type(e).__name__}: {e}). "
+                f"Use RGBA tuples like (255, 0, 0, 255) instead."
             )
     
     raise TypeError(

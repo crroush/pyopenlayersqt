@@ -12,10 +12,14 @@ def _qcolor_to_rgba(color: Any) -> tuple[int, int, int, int]:
     """Convert a QColor object to an RGBA tuple.
     
     Args:
-        color: QColor object from PySide6.QtGui
+        color: QColor object from PySide6.QtGui. Note that the type hint uses Any
+               to avoid requiring PySide6 as a hard dependency for type checking.
         
     Returns:
         Tuple of (r, g, b, a) with values 0-255.
+        
+    Raises:
+        TypeError: If the input is not a QColor object.
     """
     # Import here to avoid circular dependency and allow models.py to work without Qt
     try:
@@ -27,6 +31,19 @@ def _qcolor_to_rgba(color: Any) -> tuple[int, int, int, int]:
     raise TypeError(f"Expected QColor object, got {type(color)}")
 
 
+def _is_color_name_string(s: str) -> bool:
+    """Check if a string is likely a color name (not hex or CSS).
+    
+    Args:
+        s: String to check
+        
+    Returns:
+        True if the string appears to be a color name, False otherwise.
+    """
+    # Exclude hex colors (#RRGGBB) and CSS rgba/rgb strings
+    return not (s.startswith("#") or s.startswith("rgb"))
+
+
 def _color_name_to_rgba(color_name: str) -> tuple[int, int, int, int]:
     """Convert a color name (e.g., 'Green', 'Red') to RGBA tuple using QColor.
     
@@ -35,18 +52,26 @@ def _color_name_to_rgba(color_name: str) -> tuple[int, int, int, int]:
         
     Returns:
         Tuple of (r, g, b, a) with values 0-255.
+        
+    Raises:
+        ValueError: If PySide6 is not available, Qt cannot initialize, or color name is invalid.
+                   In this case, use RGBA tuples (r, g, b, a) instead.
     """
     try:
         from PySide6.QtGui import QColor
         qcolor = QColor(color_name)
         if qcolor.isValid():
             return (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
-        raise ValueError(f"Invalid color name: {color_name}")
+        raise ValueError(
+            f"Invalid color name: '{color_name}'. "
+            f"Use RGBA tuples like (255, 0, 0, 255) instead."
+        )
     except (ImportError, RuntimeError) as e:
         # RuntimeError can occur if Qt can't initialize (e.g., no display)
         raise ValueError(
-            f"Cannot convert color name '{color_name}': PySide6/Qt not available or "
-            f"cannot initialize (error: {e}). Please use RGBA tuples instead."
+            f"Cannot convert color name '{color_name}': PySide6 is not available "
+            f"or Qt cannot initialize ({type(e).__name__}: {e}). "
+            f"Use RGBA tuples like (255, 0, 0, 255) instead."
         )
 
 
@@ -110,7 +135,7 @@ def _color_to_css(c: Union[Color, Any], alpha: Optional[float] = None) -> str:
         try:
             from PySide6.QtGui import QColor
             qcolor = QColor(c)
-            if qcolor.isValid() and not c.startswith("#") and not c.startswith("rgb"):
+            if qcolor.isValid() and _is_color_name_string(c):
                 # It's a valid color name like 'Green', convert to tuple
                 c = (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
             else:
