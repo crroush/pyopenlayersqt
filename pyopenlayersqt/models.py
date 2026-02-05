@@ -41,9 +41,13 @@ def _color_name_to_rgba(color_name: str) -> tuple[int, int, int, int]:
         qcolor = QColor(color_name)
         if qcolor.isValid():
             return (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
-    except ImportError:
-        pass
-    raise ValueError(f"Invalid color name: {color_name}")
+        raise ValueError(f"Invalid color name: {color_name}")
+    except (ImportError, RuntimeError) as e:
+        # RuntimeError can occur if Qt can't initialize (e.g., no display)
+        raise ValueError(
+            f"Cannot convert color name '{color_name}': PySide6/Qt not available or "
+            f"cannot initialize (error: {e}). Please use RGBA tuples instead."
+        )
 
 
 def _normalize_color_to_rgba(
@@ -97,7 +101,7 @@ def _color_to_css(c: Union[Color, Any], alpha: Optional[float] = None) -> str:
         # If it's a QColor object, convert it to RGBA tuple
         if isinstance(c, QColor):
             c = (c.red(), c.green(), c.blue(), c.alpha())
-    except ImportError:
+    except (ImportError, RuntimeError):
         pass
     
     # Handle string inputs
@@ -112,7 +116,7 @@ def _color_to_css(c: Union[Color, Any], alpha: Optional[float] = None) -> str:
             else:
                 # It's a hex color or CSS string, handle below
                 pass
-        except ImportError:
+        except (ImportError, RuntimeError):
             pass
         
         # If still a string, handle hex and CSS strings
