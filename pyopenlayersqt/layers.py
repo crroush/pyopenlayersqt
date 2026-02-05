@@ -32,21 +32,24 @@ def _qcolor_to_rgba(color: Any) -> tuple[int, int, int, int]:
     raise TypeError(f"Expected QColor object, got {type(color)}")
 
 
-def _normalize_color(color: Union[tuple[int, int, int, int], Any]) -> tuple[int, int, int, int]:
+def _normalize_color(color: Union[tuple[int, int, int, int], str, Any]) -> tuple[int, int, int, int]:
     """Normalize a color to RGBA tuple format.
     
-    Accepts either:
+    Accepts:
     - RGBA tuple: (r, g, b, a) with values 0-255
     - QColor object from PySide6.QtGui
+    - Color name string (e.g., 'Green', 'Red', 'blue')
     
     Args:
-        color: Either an RGBA tuple or a QColor object
+        color: RGBA tuple, QColor object, or color name string
         
     Returns:
         Tuple of (r, g, b, a) with values 0-255.
     """
+    # Already an RGBA tuple
     if isinstance(color, tuple) and len(color) == 4:
         return color
+    
     # Try to convert from QColor
     try:
         from PySide6.QtGui import QColor
@@ -54,20 +57,34 @@ def _normalize_color(color: Union[tuple[int, int, int, int], Any]) -> tuple[int,
             return _qcolor_to_rgba(color)
     except ImportError:
         pass
+    
+    # Try as a color name string
+    if isinstance(color, str):
+        try:
+            from PySide6.QtGui import QColor
+            qcolor = QColor(color)
+            if qcolor.isValid():
+                return (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
+        except ImportError:
+            pass
+        raise ValueError(f"Invalid color name: {color}")
+    
     raise TypeError(
-        f"Color must be either an RGBA tuple (r, g, b, a) or a QColor object, got {type(color)}"
+        f"Color must be an RGBA tuple (r, g, b, a), a QColor object, "
+        f"or a color name string, got {type(color)}"
     )
 
 
-def _pack_rgba_colors(colors: List[Union[tuple[int, int, int, int], Any]]) -> List[int]:
+def _pack_rgba_colors(colors: List[Union[tuple[int, int, int, int], str, Any]]) -> List[int]:
     """Convert list of colors to packed 32-bit integers.
     
-    Accepts colors as either:
+    Accepts colors as:
     - RGBA tuples: (r, g, b, a) with values 0-255
     - QColor objects from PySide6.QtGui
+    - Color name strings (e.g., 'Green', 'Red')
     
     Args:
-        colors: List of RGBA tuples or QColor objects.
+        colors: List of RGBA tuples, QColor objects, or color name strings.
     
     Returns:
         List of packed 32-bit integers.

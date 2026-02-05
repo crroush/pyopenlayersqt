@@ -8,25 +8,128 @@ Color = Union[str, Tuple[int, int, int], Tuple[int, int, int, int]]
 LatLon = Tuple[float, float]  # (lat, lon) - Public API uses latitude first
 
 
-def _color_to_css(c: Color, alpha: Optional[float] = None) -> str:
+def _qcolor_to_rgba(color: Any) -> tuple[int, int, int, int]:
+    """Convert a QColor object to an RGBA tuple.
+    
+    Args:
+        color: QColor object from PySide6.QtGui
+        
+    Returns:
+        Tuple of (r, g, b, a) with values 0-255.
+    """
+    # Import here to avoid circular dependency and allow models.py to work without Qt
+    try:
+        from PySide6.QtGui import QColor
+        if isinstance(color, QColor):
+            return (color.red(), color.green(), color.blue(), color.alpha())
+    except ImportError:
+        pass
+    raise TypeError(f"Expected QColor object, got {type(color)}")
+
+
+def _color_name_to_rgba(color_name: str) -> tuple[int, int, int, int]:
+    """Convert a color name (e.g., 'Green', 'Red') to RGBA tuple using QColor.
+    
+    Args:
+        color_name: Color name (e.g., 'Green', 'Red', 'blue')
+        
+    Returns:
+        Tuple of (r, g, b, a) with values 0-255.
+    """
+    try:
+        from PySide6.QtGui import QColor
+        qcolor = QColor(color_name)
+        if qcolor.isValid():
+            return (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
+    except ImportError:
+        pass
+    raise ValueError(f"Invalid color name: {color_name}")
+
+
+def _normalize_color_to_rgba(
+    color: Union[tuple[int, int, int, int], str, Any]
+) -> tuple[int, int, int, int]:
+    """Normalize a color to RGBA tuple format.
+    
+    Accepts:
+    - RGBA tuple: (r, g, b, a) with values 0-255
+    - QColor object from PySide6.QtGui
+    - Color name string (e.g., 'Green', 'Red')
+    
+    Args:
+        color: RGBA tuple, QColor object, or color name string
+        
+    Returns:
+        Tuple of (r, g, b, a) with values 0-255.
+    """
+    # Already an RGBA tuple
+    if isinstance(color, tuple) and len(color) == 4:
+        return color
+    
+    # Try to convert from QColor
+    try:
+        from PySide6.QtGui import QColor
+        if isinstance(color, QColor):
+            return _qcolor_to_rgba(color)
+    except ImportError:
+        pass
+    
+    # Try as a color name string
+    if isinstance(color, str):
+        return _color_name_to_rgba(color)
+    
+    raise TypeError(
+        f"Color must be an RGBA tuple (r, g, b, a), a QColor object, "
+        f"or a color name string, got {type(color)}"
+    )
+
+
+def _color_to_css(c: Union[Color, Any], alpha: Optional[float] = None) -> str:
     """
     Convert color into a CSS color string.
-    - Accepts "#RRGGBB", "rgba(...)", "rgb(...)", or (r,g,b) / (r,g,b,a).
+    - Accepts "#RRGGBB", "rgba(...)", "rgb(...)", (r,g,b) / (r,g,b,a) tuples, 
+      QColor objects, or color name strings (e.g., 'Green', 'Red').
     - If alpha is provided, it overrides tuple alpha and converts rgb tuple to rgba.
     """
+    # First, try to convert QColor or color names to RGBA tuple
+    try:
+        from PySide6.QtGui import QColor
+        # If it's a QColor object, convert it to RGBA tuple
+        if isinstance(c, QColor):
+            c = (c.red(), c.green(), c.blue(), c.alpha())
+    except ImportError:
+        pass
+    
+    # Handle string inputs
     if isinstance(c, str):
-        # If caller passes "rgba(...)" already, honor it.
-        if alpha is None:
+        # Try to interpret as color name using QColor
+        try:
+            from PySide6.QtGui import QColor
+            qcolor = QColor(c)
+            if qcolor.isValid() and not c.startswith("#") and not c.startswith("rgb"):
+                # It's a valid color name like 'Green', convert to tuple
+                c = (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
+            else:
+                # It's a hex color or CSS string, handle below
+                pass
+        except ImportError:
+            pass
+        
+        # If still a string, handle hex and CSS strings
+        if isinstance(c, str):
+            # If caller passes "rgba(...)" already, honor it.
+            if alpha is None:
+                return c
+            # If it's a hex like "#RRGGBB", wrap into rgba by parsing.
+            if c.startswith("#") and len(c) == 7:
+                r = int(c[1:3], 16)
+                g = int(c[3:5], 16)
+                b = int(c[5:7], 16)
+                return f"rgba({r},{g},{b},{alpha})"
+            # Otherwise just return original string (best effort)
             return c
-        # If it's a hex like "#RRGGBB", wrap into rgba by parsing.
-        if c.startswith("#") and len(c) == 7:
-            r = int(c[1:3], 16)
-            g = int(c[3:5], 16)
-            b = int(c[5:7], 16)
-            return f"rgba({r},{g},{b},{alpha})"
-        # Otherwise just return original string (best effort)
-        return c
 
+    # Handle tuples
     if len(c) == 3:
         r, g, b = c
         a = alpha if alpha is not None else 1.0
@@ -196,18 +299,40 @@ class FastPointsStyle:
     """Style for FastPointsLayer (canvas-rendered, index-backed).
 
     RGBA channels are 0-255.
+    
+    You can specify colors either as:
+    - default_rgba/selected_rgba: RGBA tuples (r, g, b, a) with values 0-255
+    - default_color/selected_color: QColor objects or color name strings (e.g., 'Green', 'Red')
+    
+    If both are specified, the *_color options take precedence.
     """
     radius: float = 3.0
     default_rgba: tuple[int, int, int, int] = (255, 51, 51, 204)
     selected_radius: float = 6.0
     selected_rgba: tuple[int, int, int, int] = (0, 255, 255, 255)
+    
+    # Optional QColor or color name alternatives
+    default_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
+    selected_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
 
     def to_js(self) -> dict:
+        # Use *_color if provided, otherwise fall back to *_rgba
+        default_rgba_final = (
+            _normalize_color_to_rgba(self.default_color)
+            if self.default_color is not None
+            else self.default_rgba
+        )
+        selected_rgba_final = (
+            _normalize_color_to_rgba(self.selected_color)
+            if self.selected_color is not None
+            else self.selected_rgba
+        )
+        
         return {
             "radius": float(self.radius),
-            "default_rgba": list(self.default_rgba),
+            "default_rgba": list(default_rgba_final),
             "selected_radius": float(self.selected_radius),
-            "selected_rgba": list(self.selected_rgba),
+            "selected_rgba": list(selected_rgba_final),
         }
 
 
@@ -218,6 +343,12 @@ class FastGeoPointsStyle:
     Points are rendered like FastPointsStyle.
 
     Ellipse stroke/fill RGBA channels are 0-255.
+    
+    You can specify point colors either as:
+    - default_point_rgba/selected_point_rgba: RGBA tuples (r, g, b, a) with values 0-255
+    - default_color/selected_color: QColor objects or color name strings (e.g., 'Green', 'Red')
+    
+    If both are specified, the *_color options take precedence.
 
     Notes:
       - ellipses_visible toggles drawing of ellipses without hiding points.
@@ -230,6 +361,10 @@ class FastGeoPointsStyle:
     default_point_rgba: tuple[int, int, int, int] = (255, 51, 51, 204)
     selected_point_radius: float = 6.0
     selected_point_rgba: tuple[int, int, int, int] = (0, 255, 255, 255)
+    
+    # Optional QColor or color name alternatives for points
+    default_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
+    selected_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
 
     # ellipse style
     ellipse_stroke_rgba: tuple[int, int, int, int] = (255, 204, 0, 180)
@@ -248,11 +383,23 @@ class FastGeoPointsStyle:
     skip_ellipses_while_interacting: bool = True
 
     def to_js(self) -> dict:
+        # Use *_color if provided, otherwise fall back to *_point_rgba
+        default_point_rgba_final = (
+            _normalize_color_to_rgba(self.default_color)
+            if self.default_color is not None
+            else self.default_point_rgba
+        )
+        selected_point_rgba_final = (
+            _normalize_color_to_rgba(self.selected_color)
+            if self.selected_color is not None
+            else self.selected_point_rgba
+        )
+        
         return {
             "point_radius": float(self.point_radius),
-            "default_point_rgba": list(self.default_point_rgba),
+            "default_point_rgba": list(default_point_rgba_final),
             "selected_point_radius": float(self.selected_point_radius),
-            "selected_point_rgba": list(self.selected_point_rgba),
+            "selected_point_rgba": list(selected_point_rgba_final),
             "ellipse_stroke_rgba": list(self.ellipse_stroke_rgba),
             "ellipse_stroke_width": float(self.ellipse_stroke_width),
             "selected_ellipse_stroke_rgba": (
