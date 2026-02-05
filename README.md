@@ -104,6 +104,7 @@ See the [examples directory](examples/) for more working examples:
 - `05_range_slider_filter.py` - Range slider for filtering
 - `06_selection_recoloring.py` - Interactive selection and recoloring
 - `07_qcolor_and_zorder.py` - **NEW!** QColor support and z-ordering demo
+- `08_all_styles_qcolor.py` - **NEW!** QColor in ALL Style classes demo
 
 ## Core Components
 
@@ -522,8 +523,9 @@ geo_style = FastGeoPointsStyle(
 ```
 
 **Key Features:**
-- **QColor Support**: Pass `QColor` objects directly to any color parameter - no need for `.name()`
-- **Color Names**: Use color names like `"red"`, `"Green"`, `"steelblue"` directly
+- **QColor Support in ALL Styles**: Pass `QColor` objects directly to any color parameter in PointStyle, CircleStyle, PolygonStyle, EllipseStyle, FastPointsStyle, and FastGeoPointsStyle - no need for `.name()`
+- **Color Names Everywhere**: Use color names like `"red"`, `"Green"`, `"steelblue"` directly in all Style classes
+- **Multiple Formats**: All styles accept hex strings, CSS strings, RGB/RGBA tuples, QColor objects, and color names
 - **Backward Compatible**: Existing code using RGBA tuples or hex colors continues to work
 - **Z-Ordering**: Selected points and ellipses are automatically drawn on top in dense areas
 

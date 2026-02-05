@@ -2,16 +2,17 @@
 """QColor Support and Z-Ordering Example
 
 This example demonstrates:
-1. Using QColor objects directly in style definitions
+1. Using QColor objects directly in ALL style classes
 2. Using color names (e.g., 'Green', 'Red') in styles
 3. Improved z-ordering: selected points/ellipses are drawn on top
 4. Both default_rgba/selected_rgba and default_color/selected_color options
 
 Key features:
-- FastPointsStyle now accepts default_color and selected_color (QColor or color names)
-- FastGeoPointsStyle now accepts default_color and selected_color (QColor or color names)
+- ALL Style classes (PointStyle, CircleStyle, PolygonStyle, EllipseStyle) accept QColor
+- FastPointsStyle and FastGeoPointsStyle have default_color/selected_color options
 - Selected points and ellipses are always drawn on top in dense areas
-- PointStyle, CircleStyle, PolygonStyle accept QColor directly (no need for .name())
+- No need for .name() - pass QColor objects directly!
+- Color names like "red", "Green", "steelblue" work everywhere
 """
 
 import sys
