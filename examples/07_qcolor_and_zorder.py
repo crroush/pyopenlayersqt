@@ -176,7 +176,7 @@ class QColorExampleWindow(QtWidgets.QMainWindow):
         # Example 4: VectorLayer with QColor (no .name() needed!)
         print("\n4. VectorLayer using QColor objects (no .name() needed):")
         self.vector_layer = self.map_widget.add_vector_layer("vector", selectable=True)
-        
+
         coords = [
             (37.775, -122.415),
             (37.780, -122.420),
@@ -213,8 +213,11 @@ class QColorExampleWindow(QtWidgets.QMainWindow):
             del self.selections[selection.layer_id]
 
         total = sum(len(ids) for ids in self.selections.values())
-        print(f"Selection: {selection.layer_id} - {len(selection.feature_ids)} items (total: {total})")
-        
+        print(
+            f"Selection: {selection.layer_id} - "
+            f"{len(selection.feature_ids)} items (total: {total})"
+        )
+
         self.update_info_label()
 
     def update_info_label(self):
@@ -237,10 +240,10 @@ class QColorExampleWindow(QtWidgets.QMainWindow):
                     layer_info.append(f"Geo layer: {len(ids)}")
                 elif "vector" in layer_id:
                     layer_info.append(f"Vector layer: {len(ids)}")
-            
+
             self.info_label.setText(
                 f"<b>Selected: {total} item(s)</b><br><br>"
-                + "<br>".join(layer_info) + 
+                + "<br>".join(layer_info) +
                 "<br><br><b>Z-Ordering:</b> Selected items<br>are drawn on top!"
             )
 

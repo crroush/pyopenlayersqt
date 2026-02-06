@@ -73,7 +73,7 @@ def _color_name_to_rgba(color_name: str) -> tuple[int, int, int, int]:
             f"Cannot convert color name '{color_name}': PySide6 is not available "
             f"or Qt cannot initialize ({type(e).__name__}: {e}). "
             f"Use RGBA tuples like (255, 0, 0, 255) instead."
-        )
+        ) from e
 
 
 def _normalize_color_to_rgba(
@@ -95,7 +95,7 @@ def _normalize_color_to_rgba(
     # Already an RGBA tuple
     if isinstance(color, tuple) and len(color) == 4:
         return color
-    
+
     # Try to convert from QColor
     try:
         from PySide6.QtGui import QColor
@@ -103,11 +103,11 @@ def _normalize_color_to_rgba(
             return _qcolor_to_rgba(color)
     except ImportError:
         pass
-    
+
     # Try as a color name string
     if isinstance(color, str):
         return _color_name_to_rgba(color)
-    
+
     raise TypeError(
         f"Color must be an RGBA tuple (r, g, b, a), a QColor object, "
         f"or a color name string, got {type(color)}"
@@ -129,7 +129,7 @@ def _color_to_css(c: Union[Color, Any], alpha: Optional[float] = None) -> str:
             c = (c.red(), c.green(), c.blue(), c.alpha())
     except (ImportError, RuntimeError):
         pass
-    
+
     # Handle string inputs
     if isinstance(c, str):
         # Try to interpret as color name using QColor
@@ -144,7 +144,7 @@ def _color_to_css(c: Union[Color, Any], alpha: Optional[float] = None) -> str:
                 pass
         except (ImportError, RuntimeError):
             pass
-        
+
         # If still a string, handle hex and CSS strings
         if isinstance(c, str):
             # If caller passes "rgba(...)" already, honor it.
@@ -372,7 +372,7 @@ class FastPointsStyle:
     default_rgba: tuple[int, int, int, int] = (255, 51, 51, 204)
     selected_radius: float = 6.0
     selected_rgba: tuple[int, int, int, int] = (0, 255, 255, 255)
-    
+
     # Optional QColor or color name alternatives
     default_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
     selected_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
@@ -389,7 +389,7 @@ class FastPointsStyle:
             if self.selected_color is not None
             else self.selected_rgba
         )
-        
+
         return {
             "radius": float(self.radius),
             "default_rgba": list(default_rgba_final),
@@ -423,7 +423,7 @@ class FastGeoPointsStyle:
     default_point_rgba: tuple[int, int, int, int] = (255, 51, 51, 204)
     selected_point_radius: float = 6.0
     selected_point_rgba: tuple[int, int, int, int] = (0, 255, 255, 255)
-    
+
     # Optional QColor or color name alternatives for points
     default_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
     selected_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
@@ -456,7 +456,7 @@ class FastGeoPointsStyle:
             if self.selected_color is not None
             else self.selected_point_rgba
         )
-        
+
         return {
             "point_radius": float(self.point_radius),
             "default_point_rgba": list(default_point_rgba_final),

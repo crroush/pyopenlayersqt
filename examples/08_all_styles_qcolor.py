@@ -147,7 +147,7 @@ class AllStylesQColorDemo(QtWidgets.QMainWindow):
         print("\n5. FastPointsStyle with color names:")
         import numpy as np
         rng = np.random.default_rng(seed=42)
-        
+
         fast_layer = self.map_widget.add_fast_points_layer(
             "fast_points",
             selectable=True,

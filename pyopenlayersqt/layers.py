@@ -32,9 +32,11 @@ def _qcolor_to_rgba(color: Any) -> tuple[int, int, int, int]:
     raise TypeError(f"Expected QColor object, got {type(color)}")
 
 
-def _normalize_color(color: Union[tuple[int, int, int, int], str, Any]) -> tuple[int, int, int, int]:
+def _normalize_color(
+    color: Union[tuple[int, int, int, int], str, Any]
+) -> tuple[int, int, int, int]:
     """Normalize a color to RGBA tuple format.
-    
+
     Accepts:
     - RGBA tuple: (r, g, b, a) with values 0-255
     - QColor object from PySide6.QtGui
@@ -53,7 +55,7 @@ def _normalize_color(color: Union[tuple[int, int, int, int], str, Any]) -> tuple
     # Already an RGBA tuple
     if isinstance(color, tuple) and len(color) == 4:
         return color
-    
+
     # Try to convert from QColor
     try:
         from PySide6.QtGui import QColor
@@ -61,7 +63,7 @@ def _normalize_color(color: Union[tuple[int, int, int, int], str, Any]) -> tuple
             return _qcolor_to_rgba(color)
     except ImportError:
         pass
-    
+
     # Try as a color name string
     if isinstance(color, str):
         try:
@@ -79,8 +81,8 @@ def _normalize_color(color: Union[tuple[int, int, int, int], str, Any]) -> tuple
                 f"Cannot convert color name '{color}': PySide6 is not available "
                 f"or Qt cannot initialize ({type(e).__name__}: {e}). "
                 f"Use RGBA tuples like (255, 0, 0, 255) instead."
-            )
-    
+            ) from e
+
     raise TypeError(
         f"Color must be an RGBA tuple (r, g, b, a), a QColor object, "
         f"or a color name string, got {type(color)}"
