@@ -39,6 +39,9 @@ const state = {
     measurePointerMoveKey: null,  // Event listener key for map event
     measureClickKey: null,   // Event listener key for map event
     measureKeyDownKey: null, // Flag for keydown event listener (true/false)
+    // Coordinate display state
+    coordinateOverlay: null,      // Overlay element for coordinates
+    coordinatePointerMoveKey: null, // Event listener key for coordinate display
   };
 
 
@@ -1427,6 +1430,83 @@ function cmd_measure_clear(msg) {
  }
 
 
+// ---- Coordinate Display ----
+function initCoordinateDisplay() {
+  if (state.coordinateOverlay) return; // Already initialized
+  
+  // Create coordinate overlay element
+  const coordElement = document.createElement('div');
+  coordElement.className = 'ol-coordinate-display';
+  coordElement.style.cssText = 
+    'position: absolute; ' +
+    'bottom: 8px; ' +
+    'right: 8px; ' +
+    'background-color: rgba(255, 255, 255, 0.9); ' +
+    'color: #333; ' +
+    'padding: 6px 10px; ' +
+    'border-radius: 4px; ' +
+    'font-size: 12px; ' +
+    'font-family: monospace; ' +
+    'white-space: nowrap; ' +
+    'pointer-events: none; ' +
+    'box-shadow: 0 1px 4px rgba(0,0,0,0.3); ' +
+    'z-index: 1000; ' +
+    'display: none;';
+  
+  state.coordinateOverlay = coordElement;
+  
+  if (state.map) {
+    state.map.getTargetElement().appendChild(coordElement);
+  }
+}
+
+function updateCoordinateDisplay(pixel) {
+  if (!state.coordinateOverlay || !state.map) return;
+  
+  const coord3857 = state.map.getCoordinateFromPixel(pixel);
+  if (!coord3857) {
+    state.coordinateOverlay.style.display = 'none';
+    return;
+  }
+  
+  const lonlat = ol.proj.toLonLat(coord3857);
+  const lon = lonlat[0].toFixed(4);
+  const lat = lonlat[1].toFixed(4);
+  
+  state.coordinateOverlay.innerHTML = 'Lat: ' + lat + ', Lon: ' + lon;
+  state.coordinateOverlay.style.display = 'block';
+}
+
+function setCoordinateDisplayVisible(visible) {
+  initCoordinateDisplay(); // Ensure it's initialized
+  
+  if (!state.map || !state.coordinateOverlay) return;
+  
+  if (visible) {
+    // Add pointer move listener
+    if (!state.coordinatePointerMoveKey) {
+      state.coordinatePointerMoveKey = state.map.on('pointermove', function(evt) {
+        updateCoordinateDisplay(evt.pixel);
+      });
+    }
+  } else {
+    // Remove pointer move listener
+    if (state.coordinatePointerMoveKey) {
+      ol.Observable.unByKey(state.coordinatePointerMoveKey);
+      state.coordinatePointerMoveKey = null;
+    }
+    // Hide the overlay
+    if (state.coordinateOverlay) {
+      state.coordinateOverlay.style.display = 'none';
+    }
+  }
+}
+
+function cmd_coordinates_set_visible(msg) {
+  setCoordinateDisplayVisible(!!msg.visible);
+}
+
+
   function initMap() {
     // Disable tile transition for better pan/zoom performance
     const base = new ol.layer.Tile({ 
@@ -1759,6 +1839,9 @@ function cmd_measure_clear(msg) {
     case "map.set_view": return cmd_map_set_view(msg);
       case "map.base.opacity": return cmd_map_base_opacity(msg);
     case "map.set_extent_watch": return cmd_map_set_extent_watch(msg);
+
+    // --- Coordinate Display ---
+    case "coordinates.set_visible": return cmd_coordinates_set_visible(msg);
 
     // --- Measurement Mode ---
     case "measure.set_mode": return cmd_measure_set_mode(msg);

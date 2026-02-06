@@ -152,6 +152,7 @@ class OLMapWidget(QWebEngineView):
         parent: Optional[QtWidgets.QWidget] = None,
         center: Optional[Tuple[float, float]] = None,
         zoom: Optional[int] = None,
+        show_coordinates: bool = True,
     ):
         """Initialize the map widget.
 
@@ -159,12 +160,14 @@ class OLMapWidget(QWebEngineView):
             parent: Parent widget
             center: Initial map center as (lat, lon) tuple. Defaults to (0.0, 0.0).
             zoom: Initial zoom level. Defaults to 2.
+            show_coordinates: If True, displays mouse lat/lon coordinates in the lower right corner. Defaults to True.
         """
         super().__init__(parent)
 
         # Store initial view settings (public API is lat,lon)
         self._initial_center = center if center is not None else self.DEFAULT_CENTER
         self._initial_zoom = zoom if zoom is not None else self.DEFAULT_ZOOM
+        self._show_coordinates = show_coordinates
 
         # writable overlays
         self._overlays_dir = _default_overlays_dir()
@@ -347,6 +350,11 @@ class OLMapWidget(QWebEngineView):
                     "center": [float(lon), float(lat)],
                     "zoom": int(self._initial_zoom)
                 })
+            # Set coordinate display visibility
+            self._send_now({
+                "type": "coordinates.set_visible",
+                "visible": self._show_coordinates
+            })
             self._flush_pending()
             self.ready.emit()
             return
