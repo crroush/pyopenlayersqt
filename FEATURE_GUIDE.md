@@ -15,13 +15,14 @@ This document describes the visual appearance and behavior of the mouse coordina
 │                                                               │
 │                                                               │
 │                                                               │
-│                                             ┌───────────────┐ │
-│                                             │ Lat: 37.7749  │ │
-│                                             │ Lon: -122.419 │ │
-│                                             └───────────────┘ │
+│                                   ┌─────────────────────────┐ │
+│                                   │ Lat: 37.774900          │ │
+│                                   │ Lon: -122.419400        │ │
+│                                   └─────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
      ↑
      Coordinate bubble appears here in lower-right corner
+     (Fixed width: 270px minimum)
 ```
 
 ## Styling Details
@@ -36,6 +37,8 @@ This document describes the visual appearance and behavior of the mouse coordina
 - **Shadow**: Subtle box shadow (0 1px 4px rgba(0,0,0,0.3))
 - **Z-index**: 1000 (appears on top of map)
 - **Pointer Events**: None (doesn't interfere with map interactions)
+- **Min Width**: 270px (fixed size to prevent resizing with different coordinate lengths)
+- **Box Sizing**: border-box (includes padding in width calculation)
 
 ## Behavior
 
@@ -43,7 +46,7 @@ This document describes the visual appearance and behavior of the mouse coordina
 1. User moves mouse over map
 2. Coordinate bubble appears in lower-right corner
 3. Coordinates update in real-time (throttled to 50ms for performance)
-4. Format: "Lat: XX.XXXX, Lon: YY.YYYY" (4 decimal places)
+4. Format: "Lat: XX.XXXXXX, Lon: YY.YYYYYY" (6 decimal places)
 5. Bubble disappears when mouse leaves map area
 
 ### When Disabled
@@ -84,9 +87,10 @@ map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6, show_coordinates=False)
 
 ## Coordinate Precision
 
-- **Decimal Places**: 4 (e.g., 37.7749, -122.4194)
-- **Precision**: Approximately 11 meters at the equator
-- **Format**: Always shows 4 decimal places (e.g., 0.0000 for coordinates near origin)
+- **Decimal Places**: 6 (e.g., 37.774900, -122.419400)
+- **Precision**: Approximately 0.11 meters at the equator
+- **Format**: Always shows 6 decimal places (e.g., 0.000000 for coordinates near origin)
+- **Fixed Width**: Box has a minimum width of 270px to prevent resizing when coordinates change
 
 ## Edge Cases Handled
 

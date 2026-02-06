@@ -1451,7 +1451,9 @@ function initCoordinateDisplay() {
     'pointer-events: none; ' +
     'box-shadow: 0 1px 4px rgba(0,0,0,0.3); ' +
     'z-index: 1000; ' +
-    'display: none;';
+    'display: none; ' +
+    'min-width: 270px; ' +
+    'box-sizing: border-box;';
   
   state.coordinateOverlay = coordElement;
   
@@ -1470,8 +1472,8 @@ function updateCoordinateDisplay(pixel) {
   }
   
   const lonlat = ol.proj.toLonLat(coord3857);
-  const lon = lonlat[0].toFixed(4);
-  const lat = lonlat[1].toFixed(4);
+  const lon = lonlat[0].toFixed(6);
+  const lat = lonlat[1].toFixed(6);
   
   state.coordinateOverlay.textContent = 'Lat: ' + lat + ', Lon: ' + lon;
   state.coordinateOverlay.style.display = 'block';
