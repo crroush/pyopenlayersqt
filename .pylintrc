@@ -35,12 +35,12 @@ disable=import-error,
         broad-exception-caught,
         no-self-argument,
         arguments-differ,
-        too-many-positional-arguments,
         consider-using-max-builtin,
         consider-using-min-builtin,
         too-many-instance-attributes,
         too-many-statements,
-        import-outside-toplevel
+        import-outside-toplevel,
+        too-many-positional-arguments
 
 [BASIC]
 # Allow module names that start with numbers (for example files)

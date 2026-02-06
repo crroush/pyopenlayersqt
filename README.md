@@ -43,10 +43,12 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
 - **🗺️ Interactive Map Widget**: Fully-featured OpenLayers map embedded in PySide6/Qt
 - **⚡ High-Performance Rendering**: Fast points layers with spatial indexing for millions of points
 - **🎨 Rich Styling**: Customizable styles for points, polygons, circles, and ellipses
+- **🎨 QColor Support**: Use `QColor` objects or color names directly in styles - no `.name()` needed
 - **📍 Geolocation Support**: Fast geo-points layer with uncertainty ellipses
 - **🌐 WMS Integration**: Built-in Web Map Service layer support
 - **🖼️ Raster Overlays**: PNG/image overlay support with custom bounds
 - **✅ Feature Selection**: Interactive feature selection with Python ↔ JavaScript sync
+- **🎯 Smart Z-Ordering**: Selected points and ellipses automatically appear on top
 - **📊 Feature Table Widget**: High-performance table widget for displaying and managing features
 - **🔄 Bidirectional Sync**: Seamless selection synchronization between map and table
 - **📏 Distance Measurement**: Interactive measurement mode with geodesic distance calculations and great-circle path visualization
@@ -94,7 +96,15 @@ map_widget.show()
 sys.exit(app.exec())
 ```
 
-See the [examples directory](examples/) for more working examples.
+See the [examples directory](examples/) for more working examples:
+- `01_quick_start.py` - Basic map with points
+- `02_complete_example.py` - Comprehensive demo of all features
+- `03_measurement_mode.py` - Distance measurement tool
+- `04_sortable_table.py` - Feature table integration
+- `05_range_slider_filter.py` - Range slider for filtering
+- `06_selection_recoloring.py` - Interactive selection and recoloring
+- `07_qcolor_and_zorder.py` - **NEW!** QColor support and z-ordering demo
+- `08_all_styles_qcolor.py` - **NEW!** QColor in ALL Style classes demo
 
 ## Core Components
 
@@ -458,25 +468,66 @@ from pyopenlayersqt import (
     FastPointsStyle,
     FastGeoPointsStyle
 )
+from PySide6.QtGui import QColor
 
-# Vector styles use CSS colors
+# Vector styles use CSS colors, QColor objects, or color names
 point_style = PointStyle(
     radius=5.0,
-    fill_color="#ff3333",  # CSS color or (r,g,b) tuple
+    fill_color="#ff3333",        # CSS hex color
     fill_opacity=0.85,
-    stroke_color="#000000",
+    stroke_color=QColor("black"),  # QColor object (no .name() needed!)
     stroke_width=1.0,
     stroke_opacity=0.9
 )
 
-# Fast layer styles use RGBA tuples (0-255)
+# You can also use color names directly
+polygon_style = PolygonStyle(
+    stroke_color="red",    # Color name string
+    fill_color="green"     # Color name string
+)
+
+# Fast layer styles support both RGBA tuples and QColor/color names
+# Option 1: Using RGBA tuples (0-255)
 fast_style = FastPointsStyle(
     radius=3.0,
     default_rgba=(255, 51, 51, 204),
     selected_radius=6.0,
     selected_rgba=(0, 255, 255, 255)
 )
+
+# Option 2: Using QColor objects or color names (NEW!)
+fast_style_qcolor = FastPointsStyle(
+    radius=3.0,
+    default_color=QColor("steelblue"),  # QColor object
+    selected_radius=6.0,
+    selected_color="orange"              # Color name string
+)
+
+# Option 3: Mix both (color options take precedence)
+fast_style_mixed = FastPointsStyle(
+    radius=3.0,
+    default_rgba=(255, 51, 51, 204),     # Fallback
+    default_color="purple",               # This takes precedence
+    selected_radius=6.0,
+    selected_color=QColor("yellow")       # This takes precedence
+)
+
+# FastGeoPointsStyle also supports default_color and selected_color
+geo_style = FastGeoPointsStyle(
+    point_radius=4.0,
+    default_color="darkgreen",           # Color name
+    selected_color=QColor("red"),        # QColor object
+    ellipse_stroke_rgba=(100, 200, 100, 150),
+    ellipses_visible=True
+)
 ```
+
+**Key Features:**
+- **QColor Support in ALL Styles**: Pass `QColor` objects directly to any color parameter in PointStyle, CircleStyle, PolygonStyle, EllipseStyle, FastPointsStyle, and FastGeoPointsStyle - no need for `.name()`
+- **Color Names Everywhere**: Use color names like `"red"`, `"Green"`, `"steelblue"` directly in all Style classes
+- **Multiple Formats**: All styles accept hex strings, CSS strings, RGB/RGBA tuples, QColor objects, and color names
+- **Backward Compatible**: Existing code using RGBA tuples or hex colors continues to work
+- **Z-Ordering**: Selected points and ellipses are automatically drawn on top in dense areas
 
 ### Feature Selection
 

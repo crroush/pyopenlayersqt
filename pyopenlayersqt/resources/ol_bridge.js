@@ -289,8 +289,10 @@ function fp_make_canvas_layer(entry) {
 
       // Performance optimization: batch points by color to reduce canvas API calls
       // Group points by their fill color and radius to draw them together
+      // Draw unselected points first, then selected points on top for visibility
       const batchStart = performance.now();
-      const batches = new Map(); // key: "color|radius" -> array of {x, y}
+      const unselectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
+      const selectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
       
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
@@ -307,6 +309,7 @@ function fp_make_canvas_layer(entry) {
         if (isSel) fill = selCss;
 
         const key = fill + "|" + radius;
+        const batches = isSel ? selectedBatches : unselectedBatches;
         let batch = batches.get(key);
         if (!batch) {
           batch = { fill, radius, points: [] };
@@ -316,9 +319,20 @@ function fp_make_canvas_layer(entry) {
       }
       const batchTime = performance.now() - batchStart;
 
-      // Draw all batches
+      // Draw unselected batches first
       const drawStart = performance.now();
-      for (const batch of batches.values()) {
+      for (const batch of unselectedBatches.values()) {
+        ctx.fillStyle = batch.fill;
+        ctx.beginPath();
+        for (const pt of batch.points) {
+          ctx.moveTo(pt.x + batch.radius, pt.y);
+          ctx.arc(pt.x, pt.y, batch.radius, 0, Math.PI * 2);
+        }
+        ctx.fill();
+      }
+      
+      // Draw selected batches on top
+      for (const batch of selectedBatches.values()) {
         ctx.fillStyle = batch.fill;
         ctx.beginPath();
         for (const pt of batch.points) {
@@ -337,7 +351,7 @@ function fp_make_canvas_layer(entry) {
           layer_id: entry.layer_id,
           operation: "fast_points_render",
           point_count: cand.length,
-          batch_count: batches.size,
+          batch_count: unselectedBatches.size + selectedBatches.size,
           times: {
             query_ms: queryTime.toFixed(2),
             batch_ms: batchTime.toFixed(2),
@@ -650,26 +664,45 @@ function fgp_make_canvas_layer(entry) {
       }
 
       // ---- Points ----
+      // Draw unselected points first, then selected points on top
       const defCss = rgba_to_css(st.default_point_rgba || [255,51,51,204]);
       const selCss = rgba_to_css(st.selected_point_rgba || [0,255,255,255]);
 
+      // Unselected points first
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
         if (entry.deleted[i] || entry.hidden[i]) continue;
+        const fid = entry.ids[i];
+        if (entry.selectedIds.has(fid)) continue; // Skip selected, draw later
+        
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
-        const fid = entry.ids[i];
-        const isSel = entry.selectedIds.has(fid);
-        const radius = (isSel ? (st.selected_point_radius || 6.0) : (st.point_radius || 3.0)) * pixelRatio;
+        const radius = (st.point_radius || 3.0) * pixelRatio;
 
         let fill = defCss;
         const u = entry.color_u32[i];
         if (u !== 0) fill = rgba_to_css(rgba_from_u32(u));
-        if (isSel) fill = selCss;
 
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, TAU);
         ctx.fillStyle = fill;
+        ctx.fill();
+      }
+      
+      // Selected points on top
+      for (let k = 0; k < cand.length; k++) {
+        const i = cand[k];
+        if (entry.deleted[i] || entry.hidden[i]) continue;
+        const fid = entry.ids[i];
+        if (!entry.selectedIds.has(fid)) continue; // Only selected
+        
+        const x = (entry.x[i] - extent[0]) * scaleX;
+        const y = (extent[3] - entry.y[i]) * scaleY;
+        const radius = (st.selected_point_radius || 6.0) * pixelRatio;
+
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, TAU);
+        ctx.fillStyle = selCss;
         ctx.fill();
       }
 
