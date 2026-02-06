@@ -92,10 +92,10 @@ class AllStylesQColorDemo(QtWidgets.QMainWindow):
         # 2. CircleStyle with QColor and color name
         print("\n2. CircleStyle with QColor:")
         circle_layer = self.map_widget.add_vector_layer("circles")
-        circle_layer.add_circles(
-            [(37.77, -122.41)],
-            ids=["circle1"],
-            radius_m=[500],
+        circle_layer.add_circle(
+            (37.77, -122.41),
+            feature_id="circle1",
+            radius_m=500,
             style=CircleStyle(
                 stroke_color=QColor("blue"),       # QColor!
                 fill_color="steelblue",            # Color name!
@@ -114,9 +114,9 @@ class AllStylesQColorDemo(QtWidgets.QMainWindow):
             (37.74, -122.43),
             (37.76, -122.43),
         ]
-        poly_layer.add_polygons(
-            [polygon_coords],
-            ids=["poly1"],
+        poly_layer.add_polygon(
+            polygon_coords,
+            feature_id="poly1",
             style=PolygonStyle(
                 stroke_color=QColor("purple"),     # QColor!
                 fill_color=QColor(255, 0, 255, 100),  # QColor with RGBA!
@@ -128,12 +128,12 @@ class AllStylesQColorDemo(QtWidgets.QMainWindow):
         # 4. EllipseStyle with QColor
         print("\n4. EllipseStyle with QColor:")
         ellipse_layer = self.map_widget.add_vector_layer("ellipses")
-        ellipse_layer.add_ellipses(
-            [(37.79, -122.43)],
-            ids=["ellipse1"],
-            semi_major_m=[600],
-            semi_minor_m=[300],
-            tilt_deg=[45],
+        ellipse_layer.add_ellipse(
+            (37.79, -122.43),
+            sma_m=600,
+            smi_m=300,
+            tilt_deg=45,
+            feature_id="ellipse1",
             style=EllipseStyle(
                 stroke_color=QColor("gold"),       # QColor!
                 fill_color="yellow",               # Color name!
