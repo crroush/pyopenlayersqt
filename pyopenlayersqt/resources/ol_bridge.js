@@ -1473,7 +1473,7 @@ function updateCoordinateDisplay(pixel) {
   const lon = lonlat[0].toFixed(4);
   const lat = lonlat[1].toFixed(4);
   
-  state.coordinateOverlay.innerHTML = 'Lat: ' + lat + ', Lon: ' + lon;
+  state.coordinateOverlay.textContent = 'Lat: ' + lat + ', Lon: ' + lon;
   state.coordinateOverlay.style.display = 'block';
 }
 
@@ -1483,10 +1483,17 @@ function setCoordinateDisplayVisible(visible) {
   if (!state.map || !state.coordinateOverlay) return;
   
   if (visible) {
-    // Add pointer move listener
+    // Add pointer move listener with throttling for better performance
     if (!state.coordinatePointerMoveKey) {
+      let lastUpdate = 0;
+      const throttleMs = 50; // Update at most every 50ms (20fps)
+      
       state.coordinatePointerMoveKey = state.map.on('pointermove', function(evt) {
-        updateCoordinateDisplay(evt.pixel);
+        const now = Date.now();
+        if (now - lastUpdate >= throttleMs) {
+          lastUpdate = now;
+          updateCoordinateDisplay(evt.pixel);
+        }
       });
     }
   } else {
