@@ -160,7 +160,8 @@ class OLMapWidget(QWebEngineView):
             parent: Parent widget
             center: Initial map center as (lat, lon) tuple. Defaults to (0.0, 0.0).
             zoom: Initial zoom level. Defaults to 2.
-            show_coordinates: If True, displays mouse lat/lon coordinates in the lower right corner. Defaults to True.
+            show_coordinates: If True, displays mouse lat/lon coordinates in the
+                lower right corner. Defaults to True.
         """
         super().__init__(parent)
 

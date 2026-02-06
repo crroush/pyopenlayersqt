@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Test Coordinate Display Feature
+"""Coordinate Display Example
 
-This script tests the mouse coordinate display feature.
-It creates two map widgets:
-1. With coordinates enabled (default)
-2. With coordinates disabled
+This example demonstrates the mouse coordinate display feature:
+- The left map shows coordinates enabled (default behavior)
+- The right map shows coordinates disabled
+
+Move your mouse over the maps to see the coordinate display in action.
+The coordinates appear in the lower-right corner of the map showing
+the current latitude and longitude in decimal degrees.
 """
 
 import sys
