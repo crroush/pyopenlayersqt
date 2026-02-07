@@ -103,8 +103,8 @@ See the [examples directory](examples/) for more working examples:
 - `04_sortable_table.py` - Feature table integration
 - `05_range_slider_filter.py` - Range slider for filtering
 - `06_selection_recoloring.py` - Interactive selection and recoloring
-- `07_qcolor_and_zorder.py` - **NEW!** QColor support and z-ordering demo
-- `08_all_styles_qcolor.py` - **NEW!** QColor in ALL Style classes demo
+- `07_qcolor_and_zorder.py` - QColor support and z-ordering demo
+- `08_all_styles_qcolor.py` - QColor in ALL Style classes demo
 
 ## Core Components
 
@@ -128,6 +128,7 @@ map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 - `parent` - Optional parent widget
 - `center` - Initial map center as `(lat, lon)` tuple. Defaults to `(0, 0)`.
 - `zoom` - Initial zoom level (integer). Defaults to `2` (world view).
+- `show_coordinates` - If True, displays mouse lat/lon coordinates in the lower right corner. Defaults to `True`.
 
 **Key Methods:**
 
@@ -147,6 +148,7 @@ map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 - `ready` - Emitted when the map is ready
 - `selectionChanged` - Emitted when feature selection changes
 - `viewExtentChanged` - Emitted when map extent changes
+- `jsEvent` - Emitted for JavaScript events (e.g., measurement mode). Signal(str, str) with event type and JSON payload.
 
 ### Layer Types
 
