@@ -552,30 +552,12 @@ map_widget.selectionChanged.connect(on_selection_changed)
 
 ### Selection and Recoloring
 
-Update colors or styles of selected features across all layer types:
+For updating styles of selected features, see the layer-specific methods documented above:
+- `VectorLayer.update_feature_styles()` - Update styles for vector features
+- `FastPointsLayer.set_colors()` - Update colors for fast points
+- `FastGeoPointsLayer.set_colors()` - Update colors for fast geo-points
 
-```python
-# For VectorLayer: Update feature styles
-selected_ids = ["pt1", "pt2", "pt3"]
-new_styles = [
-    PointStyle(radius=10.0, fill_color="#ff0000"),
-    PointStyle(radius=10.0, fill_color="#00ff00"),
-    PointStyle(radius=10.0, fill_color="#0000ff"),
-]
-vector_layer.update_feature_styles(selected_ids, new_styles)
-
-# For FastPointsLayer: Update colors
-selected_ids = ["fp1", "fp2", "fp3"]
-new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
-fast_layer.set_colors(selected_ids, new_colors)
-
-# For FastGeoPointsLayer: Update colors
-selected_ids = ["geo1", "geo2", "geo3"]
-new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
-fast_geo_layer.set_colors(selected_ids, new_colors)
-```
-
-**Complete workflow example with multi-layer selection support:**
+**Multi-layer selection workflow example:**
 ```python
 # Track selections for all layers (layer_id -> list of feature_ids)
 selections = {}
@@ -772,146 +754,11 @@ See [examples/05_range_slider_filter.py](examples/05_range_slider_filter.py) for
 
 ## Complete Example
 
-Here's a complete example based on the demo application. **For a working version, see [examples/02_complete_example.py](examples/02_complete_example.py).**
-
-```python
-from PySide6 import QtWidgets
-from pyopenlayersqt import (
-    OLMapWidget,
-    PointStyle,
-    FastPointsStyle,
-)
-from pyopenlayersqt.features_table import FeatureTableWidget, ColumnSpec
-import sys
-import numpy as np
-
-class MapWindow(QtWidgets.QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("pyopenlayersqt Example")
-        
-        # Create map widget centered on US West Coast at appropriate zoom
-        self.map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
-        
-        # Add layers
-        self.vector = self.map_widget.add_vector_layer("vector", selectable=True)
-        
-        self.fast = self.map_widget.add_fast_points_layer(
-            "fast_points",
-            selectable=True,
-            style=FastPointsStyle(
-                radius=2.5,
-                default_rgba=(0, 180, 0, 180)
-            )
-        )
-        
-        # Create feature table
-        columns = [
-            ColumnSpec("Layer", lambda r: r.get("layer_kind", "")),
-            ColumnSpec("Type", lambda r: r.get("geom_type", "")),
-            ColumnSpec("ID", lambda r: r.get("feature_id", "")),
-        ]
-        
-        self.table = FeatureTableWidget(
-            columns=columns,
-            key_fn=lambda r: (str(r.get("layer_id")), str(r.get("feature_id")))
-        )
-        
-        # Connect signals
-        self.map_widget.selectionChanged.connect(self.on_map_selection)
-        self.table.selectionKeysChanged.connect(self.on_table_selection)
-        
-        # Layout
-        container = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(container)
-        layout.addWidget(self.table, 1)
-        layout.addWidget(self.map_widget, 2)
-        self.setCentralWidget(container)
-        
-        # Add data after map is ready
-        self.map_widget.ready.connect(self.add_sample_data)
-    
-    def add_sample_data(self):
-        # Add a vector point
-        self.vector.add_points(
-            [(37.7749, -122.4194)],
-            ids=["sf"],
-            style=PointStyle(radius=8.0, fill_color="#ff3333")
-        )
-        
-        # Add to table
-        self.table.append_rows([{
-            "layer_kind": "vector",
-            "layer_id": self.vector.id,
-            "feature_id": "sf",
-            "geom_type": "point"
-        }])
-        
-        # Add fast points
-        rng = np.random.default_rng()
-        n = 10000
-        lats = 32 + rng.random(n) * 10
-        lons = -125 + rng.random(n) * 10
-        coords = list(zip(lats.tolist(), lons.tolist()))
-        ids = [f"fp{i}" for i in range(n)]
-        self.fast.add_points(coords, ids=ids)
-        
-        # Add fast points to table
-        rows = (
-            {
-                "layer_kind": "fast_points",
-                "layer_id": self.fast.id,
-                "feature_id": ids[i],
-                "geom_type": "point"
-            }
-            for i in range(n)
-        )
-        self.table.append_rows(rows)
-    
-    def on_map_selection(self, selection):
-        keys = [(selection.layer_id, fid) for fid in selection.feature_ids]
-        self.table.select_keys(keys, clear_first=True)
-    
-    def on_table_selection(self, keys):
-        # Group by layer
-        by_layer = {}
-        for layer_id, fid in keys:
-            by_layer.setdefault(layer_id, []).append(fid)
-        
-        # Update each layer's selection
-        for layer_id, fids in by_layer.items():
-            if layer_id == self.vector.id:
-                self.map_widget.set_vector_selection(layer_id, fids)
-            elif layer_id == self.fast.id:
-                self.map_widget.set_fast_points_selection(layer_id, fids)
-
-def main():
-    app = QtWidgets.QApplication(sys.argv)
-    window = MapWindow()
-    window.resize(1200, 800)
-    window.show()
-    sys.exit(app.exec())
-
-if __name__ == "__main__":
-    main()
-```
-
-## Running the Demo
-
-The repository includes a comprehensive demo application:
-
-```bash
-python demo/demo.py
-```
-
-The demo showcases:
-- Vector layers with points, polygons, circles, and ellipses
-- Fast points rendering (up to millions of points)
-- Fast geo-points with uncertainty ellipses
-- WMS layer integration
-- Raster/heatmap overlays with custom rendering
+For a comprehensive demonstration of all features, see the complete working example at [examples/02_complete_example.py](examples/02_complete_example.py). This example includes:
+- Vector and fast points layers
 - Feature table with bidirectional selection sync
-- Dynamic styling and opacity controls
+- Sample data generation
+- Layer management
 
 ## View Extent Tracking
 
