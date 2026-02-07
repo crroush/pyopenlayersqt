@@ -329,22 +329,6 @@ class WMSOptions:
         return {"url": self.url, "params": dict(self.params), "opacity": float(self.opacity)}
 
 
-@dataclass(frozen=True)
-class HeatmapOptions:
-    """
-    "heatmap" from scattered points (lon/lat, z).
-    We render as a raster PNG on Python side, then use ImageStatic overlay in OL.
-
-    opacity: 0..1
-    colormap: matplotlib colormap name (e.g. "viridis")
-    vmin/vmax: optional fixed scaling for z
-    """
-    opacity: float = 0.55
-    colormap: str = "viridis"
-    vmin: Optional[float] = None
-    vmax: Optional[float] = None
-
-
 @dataclass
 class FeatureSelection:
     """
