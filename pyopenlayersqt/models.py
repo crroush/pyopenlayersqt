@@ -358,8 +358,8 @@ class FastPointsStyle:
     selected_rgba: tuple[int, int, int, int] = (0, 255, 255, 255)
 
     # Optional QColor or color name alternatives
-    default_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
-    selected_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
+    default_color: Optional[Union[str, Any]] = None
+    selected_color: Optional[Union[str, Any]] = None
 
     def to_js(self) -> dict:
         # Use *_color if provided, otherwise fall back to *_rgba
@@ -413,28 +413,28 @@ class FastGeoPointsStyle:
     selected_point_rgba: tuple[int, int, int, int] = (0, 255, 255, 255)
 
     # Optional QColor or color name alternatives for points
-    default_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
-    selected_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
+    default_color: Optional[Union[str, Any]] = None
+    selected_color: Optional[Union[str, Any]] = None
 
     # ellipse style
     ellipse_stroke_rgba: tuple[int, int, int, int] = (255, 204, 0, 180)
     ellipse_stroke_width: float = 1.5
 
     # Optional QColor or color name alternative for ellipse stroke
-    ellipse_stroke_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
+    ellipse_stroke_color: Optional[Union[str, Any]] = None
 
     # selected ellipse style (optional override)
     selected_ellipse_stroke_rgba: tuple[int, int, int, int] | None = None
     selected_ellipse_stroke_width: float | None = None
     
     # Optional QColor or color name alternative for selected ellipse stroke
-    selected_ellipse_stroke_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
+    selected_ellipse_stroke_color: Optional[Union[str, Any]] = None
     
     fill_ellipses: bool = False
     ellipse_fill_rgba: tuple[int, int, int, int] = (255, 204, 0, 40)
     
     # Optional QColor or color name alternative for ellipse fill
-    ellipse_fill_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
+    ellipse_fill_color: Optional[Union[str, Any]] = None
 
     # behavior
     ellipses_visible: bool = True
