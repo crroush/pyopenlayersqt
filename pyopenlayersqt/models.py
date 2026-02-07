@@ -388,11 +388,15 @@ class FastGeoPointsStyle:
 
     Points are rendered like FastPointsStyle.
 
-    Ellipse stroke/fill RGBA channels are 0-255.
-    
-    You can specify point colors either as:
-    - default_point_rgba/selected_point_rgba: RGBA tuples (r, g, b, a) with values 0-255
-    - default_color/selected_color: QColor objects or color name strings (e.g., 'Green', 'Red')
+    You can specify colors using:
+    - Point colors: default_color/selected_color (QColor objects or color names, recommended)
+    - Point colors (legacy): default_point_rgba/selected_point_rgba (RGBA tuples, deprecated)
+    - Ellipse stroke: ellipse_stroke_color (QColor or color name, recommended)
+    - Ellipse stroke (legacy): ellipse_stroke_rgba (RGBA tuple, deprecated)
+    - Ellipse fill: ellipse_fill_color (QColor or color name, recommended)
+    - Ellipse fill (legacy): ellipse_fill_rgba (RGBA tuple, deprecated)
+    - Selected ellipse stroke: selected_ellipse_stroke_color (QColor or color name, recommended)
+    - Selected ellipse stroke (legacy): selected_ellipse_stroke_rgba (RGBA tuple, deprecated)
     
     If both are specified, the *_color options take precedence.
 
@@ -416,11 +420,21 @@ class FastGeoPointsStyle:
     ellipse_stroke_rgba: tuple[int, int, int, int] = (255, 204, 0, 180)
     ellipse_stroke_width: float = 1.5
 
+    # Optional QColor or color name alternative for ellipse stroke
+    ellipse_stroke_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
+
     # selected ellipse style (optional override)
     selected_ellipse_stroke_rgba: tuple[int, int, int, int] | None = None
     selected_ellipse_stroke_width: float | None = None
+    
+    # Optional QColor or color name alternative for selected ellipse stroke
+    selected_ellipse_stroke_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
+    
     fill_ellipses: bool = False
     ellipse_fill_rgba: tuple[int, int, int, int] = (255, 204, 0, 40)
+    
+    # Optional QColor or color name alternative for ellipse fill
+    ellipse_fill_color: Optional[Union[tuple[int, int, int, int], str, Any]] = None
 
     # behavior
     ellipses_visible: bool = True
@@ -440,24 +454,45 @@ class FastGeoPointsStyle:
             if self.selected_color is not None
             else self.selected_point_rgba
         )
+        
+        # Use ellipse_stroke_color if provided, otherwise fall back to ellipse_stroke_rgba
+        ellipse_stroke_rgba_final = (
+            _normalize_color_to_rgba(self.ellipse_stroke_color)
+            if self.ellipse_stroke_color is not None
+            else self.ellipse_stroke_rgba
+        )
+        
+        # Use selected_ellipse_stroke_color if provided, otherwise fall back to selected_ellipse_stroke_rgba
+        selected_ellipse_stroke_rgba_final = None
+        if self.selected_ellipse_stroke_color is not None:
+            selected_ellipse_stroke_rgba_final = _normalize_color_to_rgba(self.selected_ellipse_stroke_color)
+        elif self.selected_ellipse_stroke_rgba is not None:
+            selected_ellipse_stroke_rgba_final = self.selected_ellipse_stroke_rgba
+        
+        # Use ellipse_fill_color if provided, otherwise fall back to ellipse_fill_rgba
+        ellipse_fill_rgba_final = (
+            _normalize_color_to_rgba(self.ellipse_fill_color)
+            if self.ellipse_fill_color is not None
+            else self.ellipse_fill_rgba
+        )
 
         return {
             "point_radius": float(self.point_radius),
             "default_point_rgba": list(default_point_rgba_final),
             "selected_point_radius": float(self.selected_point_radius),
             "selected_point_rgba": list(selected_point_rgba_final),
-            "ellipse_stroke_rgba": list(self.ellipse_stroke_rgba),
+            "ellipse_stroke_rgba": list(ellipse_stroke_rgba_final),
             "ellipse_stroke_width": float(self.ellipse_stroke_width),
             "selected_ellipse_stroke_rgba": (
-                list(self.selected_ellipse_stroke_rgba)
-                if self.selected_ellipse_stroke_rgba is not None else None
+                list(selected_ellipse_stroke_rgba_final)
+                if selected_ellipse_stroke_rgba_final is not None else None
             ),
             "selected_ellipse_stroke_width": (
                 float(self.selected_ellipse_stroke_width)
                 if self.selected_ellipse_stroke_width is not None else None
             ),
             "fill_ellipses": bool(self.fill_ellipses),
-            "ellipse_fill_rgba": list(self.ellipse_fill_rgba),
+            "ellipse_fill_rgba": list(ellipse_fill_rgba_final),
             "ellipses_visible": bool(self.ellipses_visible),
             "min_ellipse_px": float(self.min_ellipse_px),
             "max_ellipses_per_path": int(self.max_ellipses_per_path),

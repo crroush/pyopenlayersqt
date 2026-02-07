@@ -511,12 +511,15 @@ fast_style_mixed = FastPointsStyle(
     selected_color=QColor("yellow")       # This takes precedence
 )
 
-# FastGeoPointsStyle also supports default_color and selected_color
+# FastGeoPointsStyle supports QColor for all colors (points and ellipses)
 geo_style = FastGeoPointsStyle(
     point_radius=4.0,
-    default_color="darkgreen",           # Color name
-    selected_color=QColor("red"),        # QColor object
-    ellipse_stroke_color="darkgreen",    # Color name
+    default_color="darkgreen",                    # Point color (QColor or color name)
+    selected_color=QColor("red"),                 # Selected point color
+    ellipse_stroke_color="darkgreen",             # Ellipse stroke color
+    ellipse_fill_color=QColor(0, 100, 0, 40),    # Ellipse fill color (with alpha)
+    selected_ellipse_stroke_color="red",          # Selected ellipse stroke color
+    fill_ellipses=True,
     ellipses_visible=True
 )
 ```
