@@ -486,7 +486,7 @@ polygon_style = PolygonStyle(
 )
 
 # Fast layer styles support QColor/color names (recommended)
-# Option 1: Using QColor objects or color names
+# Recommended: Using QColor objects or color names
 fast_style_qcolor = FastPointsStyle(
     radius=3.0,
     default_color=QColor("steelblue"),  # QColor object
@@ -494,7 +494,7 @@ fast_style_qcolor = FastPointsStyle(
     selected_color="orange"              # Color name string
 )
 
-# Option 2: Using RGBA tuples (legacy, deprecated)
+# Legacy (deprecated): Using RGBA tuples
 fast_style = FastPointsStyle(
     radius=3.0,
     default_rgba=(255, 51, 51, 204),
@@ -502,7 +502,7 @@ fast_style = FastPointsStyle(
     selected_rgba=(0, 255, 255, 255)
 )
 
-# Option 3: Mix both (color options take precedence)
+# Mixed: Both styles (color options take precedence)
 fast_style_mixed = FastPointsStyle(
     radius=3.0,
     default_rgba=(255, 51, 51, 204),     # Fallback
