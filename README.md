@@ -269,9 +269,9 @@ fast = map_widget.add_fast_points_layer(
     selectable=True,
     style=FastPointsStyle(
         radius=2.5,
-        default_rgba=(0, 180, 0, 180),  # RGBA 0-255
+        default_color="green",  # Color name or QColor
         selected_radius=6.0,
-        selected_rgba=(255, 255, 0, 255)
+        selected_color="yellow"
     ),
     cell_size_m=750.0  # Spatial index cell size
 )
@@ -283,13 +283,13 @@ ids = [f"pt{i}" for i in range(len(coords))]
 # Option 1: Single color for all points
 fast.add_points(coords, ids=ids)
 
-# Option 2: Per-point colors using RGBA tuples
-colors = [(r, g, b, a), ...]  # RGBA tuples (0-255)
-fast.add_points(coords, ids=ids, colors_rgba=colors)
-
-# Option 3: Per-point colors using QColor objects
+# Option 2: Per-point colors using QColor objects
 from PySide6.QtGui import QColor
 colors = [QColor(255, 0, 0, 180), QColor(0, 255, 0, 180), ...]
+fast.add_points(coords, ids=ids, colors_rgba=colors)
+
+# Option 3: Per-point colors using color names
+colors = ["red", "green", "blue", ...]
 fast.add_points(coords, ids=ids, colors_rgba=colors)
 
 # Remove specific points
@@ -297,12 +297,12 @@ fast.remove_points(["pt1", "pt2"])
 
 # Update colors of specific points (e.g., selected points)
 feature_ids = ["pt10", "pt25", "pt50"]
-# Can use RGBA tuples
-new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
-fast.set_colors(feature_ids, new_colors)
-# Or QColor objects
+# Use QColor objects (recommended)
 from PySide6.QtGui import QColor
 new_colors = [QColor("red"), QColor("green"), QColor("blue")]
+fast.set_colors(feature_ids, new_colors)
+# Or color names
+new_colors = ["red", "green", "blue"]
 fast.set_colors(feature_ids, new_colors)
 
 # Temporarily hide/show features (without removing them)
@@ -328,14 +328,14 @@ fast_geo = map_widget.add_fast_geopoints_layer(
     style=FastGeoPointsStyle(
         # Point styling
         point_radius=2.5,
-        default_point_rgba=(40, 80, 255, 180),
+        default_color="steelblue",  # Color name or QColor
         selected_point_radius=6.0,
-        selected_point_rgba=(255, 255, 255, 255),
+        selected_color="white",
         # Ellipse styling
-        ellipse_stroke_rgba=(40, 80, 255, 160),
+        ellipse_stroke_color="steelblue",
         ellipse_stroke_width=1.2,
         fill_ellipses=False,
-        ellipse_fill_rgba=(40, 80, 255, 40),
+        ellipse_fill_color=QColor(40, 80, 255, 40),
         # Behavior
         ellipses_visible=True,
         min_ellipse_px=0.0,  # Cull tiny ellipses
@@ -365,12 +365,12 @@ fast_geo.set_ellipses_visible(False)
 
 # Update colors of specific points (e.g., selected points)
 feature_ids = ["geo5", "geo12", "geo20"]
-# Can use RGBA tuples
-new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
-fast_geo.set_colors(feature_ids, new_colors)
-# Or QColor objects
+# Use QColor objects (recommended)
 from PySide6.QtGui import QColor
 new_colors = [QColor("red"), QColor("green"), QColor("blue")]
+fast_geo.set_colors(feature_ids, new_colors)
+# Or color names
+new_colors = ["red", "green", "blue"]
 fast_geo.set_colors(feature_ids, new_colors)
 
 # Temporarily hide/show features (without removing them)
@@ -485,21 +485,21 @@ polygon_style = PolygonStyle(
     fill_color="green"     # Color name string
 )
 
-# Fast layer styles support both RGBA tuples and QColor/color names
-# Option 1: Using RGBA tuples (0-255)
-fast_style = FastPointsStyle(
-    radius=3.0,
-    default_rgba=(255, 51, 51, 204),
-    selected_radius=6.0,
-    selected_rgba=(0, 255, 255, 255)
-)
-
-# Option 2: Using QColor objects or color names (NEW!)
+# Fast layer styles support QColor/color names (recommended)
+# Option 1: Using QColor objects or color names
 fast_style_qcolor = FastPointsStyle(
     radius=3.0,
     default_color=QColor("steelblue"),  # QColor object
     selected_radius=6.0,
     selected_color="orange"              # Color name string
+)
+
+# Option 2: Using RGBA tuples (legacy, deprecated)
+fast_style = FastPointsStyle(
+    radius=3.0,
+    default_rgba=(255, 51, 51, 204),
+    selected_radius=6.0,
+    selected_rgba=(0, 255, 255, 255)
 )
 
 # Option 3: Mix both (color options take precedence)
@@ -516,7 +516,7 @@ geo_style = FastGeoPointsStyle(
     point_radius=4.0,
     default_color="darkgreen",           # Color name
     selected_color=QColor("red"),        # QColor object
-    ellipse_stroke_rgba=(100, 200, 100, 150),
+    ellipse_stroke_color="darkgreen",    # Color name
     ellipses_visible=True
 )
 ```
@@ -524,7 +524,7 @@ geo_style = FastGeoPointsStyle(
 **Key Features:**
 - **QColor Support in ALL Styles**: Pass `QColor` objects directly to any color parameter in PointStyle, CircleStyle, PolygonStyle, EllipseStyle, FastPointsStyle, and FastGeoPointsStyle - no need for `.name()`
 - **Color Names Everywhere**: Use color names like `"red"`, `"Green"`, `"steelblue"` directly in all Style classes
-- **Multiple Formats**: All styles accept hex strings, CSS strings, RGB/RGBA tuples, QColor objects, and color names
+- **Multiple Formats**: All styles accept QColor objects, color names, hex strings, and CSS strings (RGBA tuples are deprecated)
 - **Backward Compatible**: Existing code using RGBA tuples or hex colors continues to work
 - **Z-Ordering**: Selected points and ellipses are automatically drawn on top in dense areas
 
@@ -575,15 +575,16 @@ map_widget.selectionChanged.connect(on_selection_changed)
 
 # Recolor all selected items across all layers
 def recolor_selected_red():
+    from PySide6.QtGui import QColor
     for layer_id, feature_ids in selections.items():
         if layer_id == vector_layer.id:
-            styles = [PointStyle(fill_color="#ff0000") for _ in feature_ids]
+            styles = [PointStyle(fill_color="red") for _ in feature_ids]
             vector_layer.update_feature_styles(feature_ids, styles)
         elif layer_id == fast_layer.id:
-            colors = [(255, 0, 0, 255) for _ in feature_ids]
+            colors = [QColor("red") for _ in feature_ids]
             fast_layer.set_colors(feature_ids, colors)
         elif layer_id == fast_geo_layer.id:
-            colors = [(255, 0, 0, 255) for _ in feature_ids]
+            colors = [QColor("red") for _ in feature_ids]
             fast_geo_layer.set_colors(feature_ids, colors)
 ```
 
@@ -703,7 +704,7 @@ from pyopenlayersqt import FastPointsStyle
 fast_layer = map_widget.add_fast_points_layer(
     "filterable_points",
     selectable=True,
-    style=FastPointsStyle(radius=3.0, default_rgba=(0, 180, 100, 200))
+    style=FastPointsStyle(radius=3.0, default_color="green")
 )
 
 # Numeric range slider
