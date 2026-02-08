@@ -38,13 +38,13 @@ def main():
             default_color=QColor("steelblue"),
             selected_point_radius=7.0,
             selected_color=QColor("orange"),
-            
+
             # Ellipse styling
             ellipse_stroke_color=QColor("steelblue"),
             ellipse_stroke_width=1.5,
             fill_ellipses=True,
             ellipse_fill_color=QColor(70, 130, 180, 60),  # Semi-transparent blue
-            
+
             # Behavior
             ellipses_visible=True,
             min_ellipse_px=2.0,  # Don't draw very small ellipses
@@ -66,10 +66,10 @@ def main():
     # Uncertainty ellipses with varying sizes and orientations
     # Semi-major axis (meters) - represents primary uncertainty direction
     sma_m = (50 + rng.random(n_points) * 500).tolist()
-    
+
     # Semi-minor axis (meters) - represents secondary uncertainty direction
     smi_m = (30 + rng.random(n_points) * 200).tolist()
-    
+
     # Tilt (degrees from north) - ellipse rotation
     tilt_deg = (rng.random(n_points) * 360).tolist()
 

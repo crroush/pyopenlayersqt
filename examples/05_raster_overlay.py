@@ -26,23 +26,23 @@ from pyopenlayersqt import OLMapWidget, RasterStyle
 
 def generate_heatmap_image(width=512, height=512, seed=42):
     """Generate a simple heatmap image using inverse distance weighting.
-    
+
     Returns:
         PIL Image in RGBA format
     """
     rng = np.random.default_rng(seed)
-    
+
     # Generate random point locations and values
     n_points = 20
     point_x = rng.random(n_points) * width
     point_y = rng.random(n_points) * height
     point_values = rng.random(n_points)
-    
+
     # Create grid for the heatmap
     x = np.arange(width)
     y = np.arange(height)
     grid_x, grid_y = np.meshgrid(x, y)
-    
+
     # Inverse distance weighting to create smooth heatmap
     grid_values = np.zeros((height, width))
     for i in range(n_points):
@@ -50,10 +50,10 @@ def generate_heatmap_image(width=512, height=512, seed=42):
         # Avoid division by zero
         dist = np.maximum(dist, 1.0)
         grid_values += point_values[i] / (dist + 10.0)
-    
+
     # Normalize to 0-1 range
     grid_values = (grid_values - grid_values.min()) / (grid_values.max() - grid_values.min())
-    
+
     # Apply colormap (using matplotlib-like colormap)
     # Create a viridis-like colormap manually
     colors = np.array([
@@ -63,12 +63,12 @@ def generate_heatmap_image(width=512, height=512, seed=42):
         [94, 201, 98, 255],    # Green
         [253, 231, 37, 255]    # Yellow
     ], dtype=np.uint8)
-    
+
     # Map values to colors
     indices = (grid_values * (len(colors) - 1)).astype(int)
     indices = np.clip(indices, 0, len(colors) - 1)
     rgba = colors[indices]
-    
+
     # Create PIL image
     img = Image.fromarray(rgba, mode='RGBA')
     return img

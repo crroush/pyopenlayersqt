@@ -61,7 +61,7 @@ class SelectionExample(QtWidgets.QMainWindow):
     def _add_vector_layer(self):
         """Add vector points layer."""
         self.vector_layer = self.map_widget.add_vector_layer("vector_points", selectable=True)
-        
+
         # Add a few large marker points
         coords = [
             (37.7749, -122.4194),  # SF
@@ -92,7 +92,7 @@ class SelectionExample(QtWidgets.QMainWindow):
                 selected_color=QColor("yellow")
             )
         )
-        
+
         # Add scattered points
         rng = np.random.default_rng(seed=42)
         n = 100
@@ -116,7 +116,7 @@ class SelectionExample(QtWidgets.QMainWindow):
                 ellipse_fill_color=QColor(70, 130, 180, 40)
             )
         )
-        
+
         # Add points with ellipses
         rng = np.random.default_rng(seed=43)
         n = 30
@@ -127,7 +127,7 @@ class SelectionExample(QtWidgets.QMainWindow):
         sma_m = (100 + rng.random(n) * 400).tolist()
         smi_m = (50 + rng.random(n) * 200).tolist()
         tilt_deg = (rng.random(n) * 360).tolist()
-        
+
         self.geo_layer.add_points_with_ellipses(
             coords=coords,
             sma_m=sma_m,
@@ -140,7 +140,7 @@ class SelectionExample(QtWidgets.QMainWindow):
         """Create information panel."""
         panel = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(panel)
-        
+
         instructions = QtWidgets.QLabel(
             "Selection Instructions:\n"
             "• Click on any point to select it\n"
@@ -149,11 +149,11 @@ class SelectionExample(QtWidgets.QMainWindow):
             "• Click on empty area to clear selection"
         )
         layout.addWidget(instructions)
-        
+
         self.selection_label = QtWidgets.QLabel("No selection")
         self.selection_label.setStyleSheet("font-weight: bold; color: blue;")
         layout.addWidget(self.selection_label)
-        
+
         return panel
 
     def _on_selection_changed(self, selection):
@@ -163,7 +163,7 @@ class SelectionExample(QtWidgets.QMainWindow):
             self.selections[selection.layer_id] = selection.feature_ids
         elif selection.layer_id in self.selections:
             del self.selections[selection.layer_id]
-        
+
         # Update display
         total = sum(len(ids) for ids in self.selections.values())
         if total == 0:
