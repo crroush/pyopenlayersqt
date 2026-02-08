@@ -230,6 +230,24 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
         self.endResetModel()
 
+    def remove_keys(self, keys: Sequence[FeatureKey]) -> None:
+        """Remove rows that match any key in ``keys`` (full reset)."""
+        if not self._rows or not keys:
+            return
+
+        key_set = {(str(layer_id), str(feature_id)) for layer_id, feature_id in keys}
+        if not key_set:
+            return
+
+        kept = [r for r in self._rows if self._key_fn(r) not in key_set]
+        if len(kept) == len(self._rows):
+            return
+
+        self.beginResetModel()
+        self._rows = kept
+        self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        self.endResetModel()
+
     def row_for_key(self, key: FeatureKey) -> Optional[int]:
         """Return row index for a key, if present."""
         return self._row_by_key.get(key)
@@ -424,6 +442,10 @@ class FeatureTableWidget(QWidget):
 
     def remove_where(self, predicate: Callable[[Any], bool]) -> None:
         self.model.remove_where(predicate)
+
+    def remove_keys(self, keys: Sequence[FeatureKey]) -> None:
+        """Remove rows by (layer_id, feature_id) keys."""
+        self.model.remove_keys(keys)
 
     def row_for(self, layer_id: str, feature_id: str) -> Optional[int]:
         """Return row index for (layer_id, feature_id), if present."""
