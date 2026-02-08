@@ -6,7 +6,6 @@ from .models import (
     EllipseStyle,
     RasterStyle,
     WMSOptions,
-    HeatmapOptions,
     FeatureSelection,
     LatLon,
     # Fast layers styles
@@ -30,7 +29,6 @@ __all__ = [
     "EllipseStyle",
     "RasterStyle",
     "WMSOptions",
-    "HeatmapOptions",
     "FeatureSelection",
     "LatLon",
     # Fast layers styles + layers

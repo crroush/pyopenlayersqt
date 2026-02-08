@@ -3,7 +3,7 @@
 OpenLayers + Qt (QWebEngine) mapping widget for Python.
 
 A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt application using QWebEngine. Designed for displaying and interacting with large volumes of geospatial data.
-<img width="821" height="503" alt="image" src="https://github.com/user-attachments/assets/ef34e565-12f5-48b3-92e5-bbe752a96992" />
+<img width="803" height="467" alt="image" src="https://github.com/user-attachments/assets/0d607680-b16a-46ed-9562-eeb00525cf02" />
 
 ## Table of Contents
 
@@ -22,21 +22,19 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
   - [Style Classes](#style-classes)
   - [Feature Selection](#feature-selection)
   - [Selection and Recoloring](#selection-and-recoloring)
+  - [Deleting Features](#deleting-features)
   - [Distance Measurement Mode](#distance-measurement-mode)
   - [FeatureTableWidget](#featuretablewidget)
   - [RangeSliderWidget](#rangesliderwidget)
 - [Complete Example](#complete-example)
-- [Running the Demo](#running-the-demo)
 - [View Extent Tracking](#view-extent-tracking)
 - [Advanced: Direct JavaScript Communication](#advanced-direct-javascript-communication)
 - [Performance Tips](#performance-tips)
 - [Architecture](#architecture)
 - [License](#license)
 - [Contributing](#contributing)
-- [Versioning and Releases](#versioning-and-releases)
-  - [For Maintainers: Creating a Release](#for-maintainers-creating-a-release)
-  - [PyPI Setup Requirements](#pypi-setup-requirements)
 - [Credits](#credits)
+
 
 ## Features
 
@@ -46,7 +44,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
 - **🎨 QColor Support**: Use `QColor` objects or color names directly in styles - no `.name()` needed
 - **📍 Geolocation Support**: Fast geo-points layer with uncertainty ellipses
 - **🌐 WMS Integration**: Built-in Web Map Service layer support
-- **🖼️ Raster Overlays**: PNG/image overlay support with custom bounds
+- **🖼️ Raster Overlays**: PNG/ overlay support with custom bounds
 - **✅ Feature Selection**: Interactive feature selection with Python ↔ JavaScript sync
 - **🎯 Smart Z-Ordering**: Selected points and ellipses automatically appear on top
 - **📊 Feature Table Widget**: High-performance table widget for displaying and managing features
@@ -72,6 +70,7 @@ pip install pyopenlayersqt
 
 ```python
 from PySide6 import QtWidgets
+from PySide6.QtGui import QColor
 from pyopenlayersqt import OLMapWidget, PointStyle
 import sys
 
@@ -83,12 +82,12 @@ map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 # Add a vector layer
 vector_layer = map_widget.add_vector_layer("my_layer", selectable=True)
 
-# Add some points
+# Add some points with QColor styling
 coords = [(37.7749, -122.4194), (34.0522, -118.2437)]  # SF, LA
 vector_layer.add_points(
     coords,
     ids=["sf", "la"],
-    style=PointStyle(radius=8.0, fill_color="#ff3333")
+    style=PointStyle(radius=8.0, fill_color=QColor("red"))
 )
 
 # Show the map
@@ -97,14 +96,18 @@ sys.exit(app.exec())
 ```
 
 See the [examples directory](examples/) for more working examples:
-- `01_quick_start.py` - Basic map with points
-- `02_complete_example.py` - Comprehensive demo of all features
-- `03_measurement_mode.py` - Distance measurement tool
-- `04_sortable_table.py` - Feature table integration
-- `05_range_slider_filter.py` - Range slider for filtering
-- `06_selection_recoloring.py` - Interactive selection and recoloring
-- `07_qcolor_and_zorder.py` - **NEW!** QColor support and z-ordering demo
-- `08_all_styles_qcolor.py` - **NEW!** QColor in ALL Style classes demo
+- `01_basic_map_with_markers.py` - Basic map with QColor markers (start here!)
+- `02_layer_types_and_styling.py` - All geometry types with QColor
+- `03_fast_points_performance.py` - High-performance rendering (10,000+ points)
+- `04_wms_and_base_layers.py` - WMS integration and opacity control
+- `05_raster_overlay.py` - Raster/heatmap visualization
+- `06_geo_uncertainty_ellipses.py` - Geolocation uncertainty with ellipses
+- `07_feature_selection.py` - Interactive selection across layers
+- `08_table_integration.py` - Bidirectional map-table sync (CORE)
+- `09_selection_and_recoloring.py` - Interactive recoloring (CORE)
+- `10_range_slider_filtering.py` - Range slider filtering
+- `11_measurement_tool.py` - Distance measurement tool
+- `12_coordinate_display.py` - Coordinate display toggle
 
 ## Core Components
 
@@ -121,13 +124,14 @@ map_widget = OLMapWidget()
 # Or create with custom initial view
 map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 ```
-<img width="323" height="257" alt="image" src="https://github.com/user-attachments/assets/1f726e15-0598-4bb6-9223-b2a0d60238ff" />
+<img width="515" height="401" alt="image" src="https://github.com/user-attachments/assets/6dbe1d15-cb28-4b68-a182-ec677a01e651" />
 
 **Constructor Parameters:**
 
 - `parent` - Optional parent widget
 - `center` - Initial map center as `(lat, lon)` tuple. Defaults to `(0, 0)`.
 - `zoom` - Initial zoom level (integer). Defaults to `2` (world view).
+- `show_coordinates` - If True, displays mouse lat/lon coordinates in the lower right corner. Defaults to `True`.
 
 **Key Methods:**
 
@@ -147,6 +151,7 @@ map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 - `ready` - Emitted when the map is ready
 - `selectionChanged` - Emitted when feature selection changes
 - `viewExtentChanged` - Emitted when map extent changes
+- `jsEvent` - Emitted for JavaScript events (e.g., measurement mode). Signal(str, str) with event type and JSON payload.
 
 ### Layer Types
 
@@ -195,9 +200,9 @@ vector.add_points(
     ids=["id1", "id2", ...],
     style=PointStyle(
         radius=6.0,
-        fill_color="#ff3333",
+        fill_color=QColor("red"),
         fill_opacity=0.85,
-        stroke_color="#000000",
+        stroke_color=QColor("black"),
         stroke_width=1.0
     )
 )
@@ -207,9 +212,9 @@ vector.add_polygon(
     ring=[(lat1, lon1), (lat2, lon2), ...],
     feature_id="poly1",
     style=PolygonStyle(
-        stroke_color="#00aaff",
+        stroke_color=QColor("dodgerblue"),
         stroke_width=2.0,
-        fill_color="#00aaff",
+        fill_color=QColor("dodgerblue"),
         fill_opacity=0.15
     )
 )
@@ -219,7 +224,7 @@ vector.add_line(
     coords=[(lat1, lon1), (lat2, lon2), (lat3, lon3)],
     feature_id="ln1",
     style=PolygonStyle(
-        stroke_color="#00aaff",
+        stroke_color=QColor("dodgerblue"),
         stroke_width=2.0
     )
 )
@@ -229,7 +234,7 @@ vector.add_circle(
     center=(lat, lon),
     radius_m=1000.0,
     feature_id="circle1",
-    style=CircleStyle(stroke_color="#00aaff", fill_opacity=0.15)
+    style=CircleStyle(stroke_color=QColor("dodgerblue"), fill_opacity=0.15)
 )
 
 # Add ellipses (semi-major/minor axes in meters, tilt in degrees from north)
@@ -239,14 +244,14 @@ vector.add_ellipse(
     smi_m=1200.0,  # Semi-minor axis
     tilt_deg=45.0,  # Tilt from true north
     feature_id="ell1",
-    style=EllipseStyle(stroke_color="#ffcc00", fill_opacity=0.12)
+    style=EllipseStyle(stroke_color=QColor("gold"), fill_opacity=0.12)
 )
 
 # Update styles of specific features (e.g., selected features)
 feature_ids = ["id1", "id2"]
 new_styles = [
-    PointStyle(radius=8.0, fill_color="#ff0000", fill_opacity=1.0),
-    PointStyle(radius=8.0, fill_color="#00ff00", fill_opacity=1.0),
+    PointStyle(radius=8.0, fill_color=QColor("red"), fill_opacity=1.0),
+    PointStyle(radius=8.0, fill_color=QColor("green"), fill_opacity=1.0),
 ]
 vector.update_feature_styles(feature_ids, new_styles)
 
@@ -256,6 +261,7 @@ vector.remove_features(["id1", "poly1"])
 # Clear all features
 vector.clear()
 ```
+<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/a9ec05ba-717b-494a-abab-eac30adb55fb" />
 
 #### FastPointsLayer
 
@@ -270,9 +276,9 @@ fast = map_widget.add_fast_points_layer(
     selectable=True,
     style=FastPointsStyle(
         radius=2.5,
-        default_rgba=(0, 180, 0, 180),  # RGBA 0-255
+        default_color="green",  # Color name or QColor
         selected_radius=6.0,
-        selected_rgba=(255, 255, 0, 255)
+        selected_color="yellow"
     ),
     cell_size_m=750.0  # Spatial index cell size
 )
@@ -284,13 +290,13 @@ ids = [f"pt{i}" for i in range(len(coords))]
 # Option 1: Single color for all points
 fast.add_points(coords, ids=ids)
 
-# Option 2: Per-point colors using RGBA tuples
-colors = [(r, g, b, a), ...]  # RGBA tuples (0-255)
-fast.add_points(coords, ids=ids, colors_rgba=colors)
-
-# Option 3: Per-point colors using QColor objects
+# Option 2: Per-point colors using QColor objects
 from PySide6.QtGui import QColor
 colors = [QColor(255, 0, 0, 180), QColor(0, 255, 0, 180), ...]
+fast.add_points(coords, ids=ids, colors_rgba=colors)
+
+# Option 3: Per-point colors using color names
+colors = ["red", "green", "blue", ...]
 fast.add_points(coords, ids=ids, colors_rgba=colors)
 
 # Remove specific points
@@ -298,12 +304,12 @@ fast.remove_points(["pt1", "pt2"])
 
 # Update colors of specific points (e.g., selected points)
 feature_ids = ["pt10", "pt25", "pt50"]
-# Can use RGBA tuples
-new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
-fast.set_colors(feature_ids, new_colors)
-# Or QColor objects
+# Use QColor objects (recommended)
 from PySide6.QtGui import QColor
 new_colors = [QColor("red"), QColor("green"), QColor("blue")]
+fast.set_colors(feature_ids, new_colors)
+# Or color names
+new_colors = ["red", "green", "blue"]
 fast.set_colors(feature_ids, new_colors)
 
 # Temporarily hide/show features (without removing them)
@@ -314,6 +320,7 @@ fast.show_all_features()  # Show all hidden features
 # Clear all points
 fast.clear()
 ```
+<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/dbff66f1-b649-4232-8afd-5a3b1f619b43" />
 
 #### FastGeoPointsLayer
 
@@ -329,14 +336,14 @@ fast_geo = map_widget.add_fast_geopoints_layer(
     style=FastGeoPointsStyle(
         # Point styling
         point_radius=2.5,
-        default_point_rgba=(40, 80, 255, 180),
+        default_color="steelblue",  # Color name or QColor
         selected_point_radius=6.0,
-        selected_point_rgba=(255, 255, 255, 255),
+        selected_color="white",
         # Ellipse styling
-        ellipse_stroke_rgba=(40, 80, 255, 160),
+        ellipse_stroke_color="steelblue",
         ellipse_stroke_width=1.2,
         fill_ellipses=False,
-        ellipse_fill_rgba=(40, 80, 255, 40),
+        ellipse_fill_color=QColor(40, 80, 255, 40),
         # Behavior
         ellipses_visible=True,
         min_ellipse_px=0.0,  # Cull tiny ellipses
@@ -366,12 +373,12 @@ fast_geo.set_ellipses_visible(False)
 
 # Update colors of specific points (e.g., selected points)
 feature_ids = ["geo5", "geo12", "geo20"]
-# Can use RGBA tuples
-new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
-fast_geo.set_colors(feature_ids, new_colors)
-# Or QColor objects
+# Use QColor objects (recommended)
 from PySide6.QtGui import QColor
 new_colors = [QColor("red"), QColor("green"), QColor("blue")]
+fast_geo.set_colors(feature_ids, new_colors)
+# Or color names
+new_colors = ["red", "green", "blue"]
 fast_geo.set_colors(feature_ids, new_colors)
 
 # Temporarily hide/show features (without removing them)
@@ -385,6 +392,7 @@ fast_geo.remove_ids(["geo1", "geo2"])
 # Clear all
 fast_geo.clear()
 ```
+<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/00098627-e9ec-4e75-9a86-03aeeb3da1e5" />
 
 #### WMSLayer
 
@@ -416,6 +424,7 @@ wms_layer.set_opacity(0.5)
 # Remove layer
 wms_layer.remove()
 ```
+<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/413956f3-6df8-4141-813d-08419c5da10e" />
 
 #### RasterLayer
 
@@ -452,7 +461,7 @@ raster.set_opacity(0.8)
 # Remove layer
 raster.remove()
 ```
-<img width="828" height="506" alt="image" src="https://github.com/user-attachments/assets/5e0038df-0e53-4abb-86db-2cdf5d5615d6" />
+<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/2ff33448-afcd-42fc-9b0a-91066ee84202" />
 
 ### Style Classes
 
@@ -470,12 +479,12 @@ from pyopenlayersqt import (
 )
 from PySide6.QtGui import QColor
 
-# Vector styles use CSS colors, QColor objects, or color names
+# Vector styles use QColor objects or color names (recommended)
 point_style = PointStyle(
     radius=5.0,
-    fill_color="#ff3333",        # CSS hex color
+    fill_color=QColor("red"),        # QColor object (recommended)
     fill_opacity=0.85,
-    stroke_color=QColor("black"),  # QColor object (no .name() needed!)
+    stroke_color=QColor("black"),    # QColor object
     stroke_width=1.0,
     stroke_opacity=0.9
 )
@@ -486,16 +495,8 @@ polygon_style = PolygonStyle(
     fill_color="green"     # Color name string
 )
 
-# Fast layer styles support both RGBA tuples and QColor/color names
-# Option 1: Using RGBA tuples (0-255)
-fast_style = FastPointsStyle(
-    radius=3.0,
-    default_rgba=(255, 51, 51, 204),
-    selected_radius=6.0,
-    selected_rgba=(0, 255, 255, 255)
-)
-
-# Option 2: Using QColor objects or color names (NEW!)
+# Fast layer styles support QColor/color names (recommended)
+# Recommended: Using QColor objects or color names
 fast_style_qcolor = FastPointsStyle(
     radius=3.0,
     default_color=QColor("steelblue"),  # QColor object
@@ -503,7 +504,15 @@ fast_style_qcolor = FastPointsStyle(
     selected_color="orange"              # Color name string
 )
 
-# Option 3: Mix both (color options take precedence)
+# Legacy (deprecated): Using RGBA tuples
+fast_style = FastPointsStyle(
+    radius=3.0,
+    default_rgba=(255, 51, 51, 204),
+    selected_radius=6.0,
+    selected_rgba=(0, 255, 255, 255)
+)
+
+# Mixed: Both styles (color options take precedence)
 fast_style_mixed = FastPointsStyle(
     radius=3.0,
     default_rgba=(255, 51, 51, 204),     # Fallback
@@ -512,12 +521,15 @@ fast_style_mixed = FastPointsStyle(
     selected_color=QColor("yellow")       # This takes precedence
 )
 
-# FastGeoPointsStyle also supports default_color and selected_color
+# FastGeoPointsStyle supports QColor for all colors (points and ellipses)
 geo_style = FastGeoPointsStyle(
     point_radius=4.0,
-    default_color="darkgreen",           # Color name
-    selected_color=QColor("red"),        # QColor object
-    ellipse_stroke_rgba=(100, 200, 100, 150),
+    default_color="darkgreen",                    # Point color (QColor or color name)
+    selected_color=QColor("red"),                 # Selected point color
+    ellipse_stroke_color="darkgreen",             # Ellipse stroke color
+    ellipse_fill_color=QColor(0, 100, 0, 40),    # Ellipse fill color (with alpha)
+    selected_ellipse_stroke_color="red",          # Selected ellipse stroke color
+    fill_ellipses=True,
     ellipses_visible=True
 )
 ```
@@ -525,7 +537,7 @@ geo_style = FastGeoPointsStyle(
 **Key Features:**
 - **QColor Support in ALL Styles**: Pass `QColor` objects directly to any color parameter in PointStyle, CircleStyle, PolygonStyle, EllipseStyle, FastPointsStyle, and FastGeoPointsStyle - no need for `.name()`
 - **Color Names Everywhere**: Use color names like `"red"`, `"Green"`, `"steelblue"` directly in all Style classes
-- **Multiple Formats**: All styles accept hex strings, CSS strings, RGB/RGBA tuples, QColor objects, and color names
+- **Multiple Formats**: All styles accept QColor objects, color names, hex strings, and CSS strings (RGBA tuples are deprecated)
 - **Backward Compatible**: Existing code using RGBA tuples or hex colors continues to work
 - **Z-Ordering**: Selected points and ellipses are automatically drawn on top in dense areas
 
@@ -550,30 +562,12 @@ map_widget.selectionChanged.connect(on_selection_changed)
 
 ### Selection and Recoloring
 
-Update colors or styles of selected features across all layer types:
+For updating styles of selected features, see the layer-specific methods documented above:
+- `VectorLayer.update_feature_styles()` - Update styles for vector features
+- `FastPointsLayer.set_colors()` - Update colors for fast points
+- `FastGeoPointsLayer.set_colors()` - Update colors for fast geo-points
 
-```python
-# For VectorLayer: Update feature styles
-selected_ids = ["pt1", "pt2", "pt3"]
-new_styles = [
-    PointStyle(radius=10.0, fill_color="#ff0000"),
-    PointStyle(radius=10.0, fill_color="#00ff00"),
-    PointStyle(radius=10.0, fill_color="#0000ff"),
-]
-vector_layer.update_feature_styles(selected_ids, new_styles)
-
-# For FastPointsLayer: Update colors
-selected_ids = ["fp1", "fp2", "fp3"]
-new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
-fast_layer.set_colors(selected_ids, new_colors)
-
-# For FastGeoPointsLayer: Update colors
-selected_ids = ["geo1", "geo2", "geo3"]
-new_colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]
-fast_geo_layer.set_colors(selected_ids, new_colors)
-```
-
-**Complete workflow example with multi-layer selection support:**
+**Multi-layer selection workflow example:**
 ```python
 # Track selections for all layers (layer_id -> list of feature_ids)
 selections = {}
@@ -594,19 +588,108 @@ map_widget.selectionChanged.connect(on_selection_changed)
 
 # Recolor all selected items across all layers
 def recolor_selected_red():
+    from PySide6.QtGui import QColor
     for layer_id, feature_ids in selections.items():
         if layer_id == vector_layer.id:
-            styles = [PointStyle(fill_color="#ff0000") for _ in feature_ids]
+            styles = [PointStyle(fill_color="red") for _ in feature_ids]
             vector_layer.update_feature_styles(feature_ids, styles)
         elif layer_id == fast_layer.id:
-            colors = [(255, 0, 0, 255) for _ in feature_ids]
+            colors = [QColor("red") for _ in feature_ids]
             fast_layer.set_colors(feature_ids, colors)
         elif layer_id == fast_geo_layer.id:
-            colors = [(255, 0, 0, 255) for _ in feature_ids]
+            colors = [QColor("red") for _ in feature_ids]
             fast_geo_layer.set_colors(feature_ids, colors)
 ```
 
-See [examples/06_selection_recoloring.py](examples/06_selection_recoloring.py) for a complete interactive example.
+See [examples/09_selection_and_recoloring.py](examples/09_selection_and_recoloring.py) for a complete interactive example.
+
+### Deleting Features
+
+Each layer type provides methods to remove features, either individually, in batches, or all at once.
+
+#### VectorLayer Deletion
+
+```python
+# Remove specific features by ID
+vector_layer.remove_features(["point1", "polygon2", "circle3"])
+
+# Clear all features from the layer
+vector_layer.clear()
+```
+
+#### FastPointsLayer Deletion
+
+```python
+# Remove specific points by ID
+fast_layer.remove_points(["pt1", "pt2", "pt100"])
+
+# Clear all points from the layer
+fast_layer.clear()
+```
+
+#### FastGeoPointsLayer Deletion
+
+```python
+# Remove specific geo-points by ID
+geo_layer.remove_ids(["geo1", "geo2", "geo50"])
+
+# Clear all geo-points from the layer
+geo_layer.clear()
+```
+
+#### Deleting Selected Features
+
+A common pattern is to delete features that the user has selected interactively:
+
+```python
+from PySide6.QtGui import QShortcut, QKeySequence
+
+# Track selections across all layers
+selections = {}
+
+def on_selection_changed(selection):
+    """Update the selections dictionary when selection changes."""
+    if len(selection.feature_ids) > 0:
+        selections[selection.layer_id] = selection.feature_ids
+    elif selection.layer_id in selections:
+        del selections[selection.layer_id]
+
+map_widget.selectionChanged.connect(on_selection_changed)
+
+def delete_selected():
+    """Delete all currently selected features across all layers."""
+    for layer_id, feature_ids in list(selections.items()):
+        if layer_id == vector_layer.id:
+            vector_layer.remove_features(feature_ids)
+        elif layer_id == fast_layer.id:
+            fast_layer.remove_points(feature_ids)
+        elif layer_id == geo_layer.id:
+            geo_layer.remove_ids(feature_ids)
+    
+    # Clear selections after deletion
+    selections.clear()
+    print(f"Deleted features")
+
+# Connect to a button
+delete_button.clicked.connect(delete_selected)
+
+# Or add keyboard shortcut (Delete key)
+delete_shortcut = QShortcut(QKeySequence.Delete, map_widget)
+delete_shortcut.activated.connect(delete_selected)
+```
+
+#### Removing Entire Layers
+
+To remove an entire layer from the map:
+
+```python
+# Remove the layer (also removes all its features)
+vector_layer.remove()
+fast_layer.remove()
+geo_layer.remove()
+```
+
+**Complete CRUD Example:** See [examples/08_table_integration.py](examples/08_table_integration.py) for a full working example demonstrating Create, Read, Update, and Delete operations with interactive add/delete buttons and keyboard shortcuts across all layer types.
 
 ### Distance Measurement Mode
 
@@ -647,7 +730,7 @@ map_widget.set_measure_mode(False)
 - Press `Escape` to exit measurement mode
 - Measurement events emitted to Python with distances and coordinates
 
-See [examples/03_measurement_mode.py](examples/03_measurement_mode.py) for a complete working example.
+See [examples/11_measurement_tool.py](examples/11_measurement_tool.py) for a complete working example.
 
 ### FeatureTableWidget
 
@@ -722,7 +805,7 @@ from pyopenlayersqt import FastPointsStyle
 fast_layer = map_widget.add_fast_points_layer(
     "filterable_points",
     selectable=True,
-    style=FastPointsStyle(radius=3.0, default_rgba=(0, 180, 100, 200))
+    style=FastPointsStyle(radius=3.0, default_color="green")
 )
 
 # Numeric range slider
@@ -766,150 +849,15 @@ fast_layer.show_all_features()  # Show all on map
 table.show_all_rows()  # Show all in table
 ```
 
-See [examples/05_range_slider_filter.py](examples/05_range_slider_filter.py) for a complete working example with map and table filtering.
+See [examples/10_range_slider_filtering.py](examples/10_range_slider_filtering.py) for a complete working example with map and table filtering.
 
 ## Complete Example
 
-Here's a complete example based on the demo application. **For a working version, see [examples/02_complete_example.py](examples/02_complete_example.py).**
-
-```python
-from PySide6 import QtWidgets
-from pyopenlayersqt import (
-    OLMapWidget,
-    PointStyle,
-    FastPointsStyle,
-)
-from pyopenlayersqt.features_table import FeatureTableWidget, ColumnSpec
-import sys
-import numpy as np
-
-class MapWindow(QtWidgets.QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("pyopenlayersqt Example")
-        
-        # Create map widget centered on US West Coast at appropriate zoom
-        self.map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
-        
-        # Add layers
-        self.vector = self.map_widget.add_vector_layer("vector", selectable=True)
-        
-        self.fast = self.map_widget.add_fast_points_layer(
-            "fast_points",
-            selectable=True,
-            style=FastPointsStyle(
-                radius=2.5,
-                default_rgba=(0, 180, 0, 180)
-            )
-        )
-        
-        # Create feature table
-        columns = [
-            ColumnSpec("Layer", lambda r: r.get("layer_kind", "")),
-            ColumnSpec("Type", lambda r: r.get("geom_type", "")),
-            ColumnSpec("ID", lambda r: r.get("feature_id", "")),
-        ]
-        
-        self.table = FeatureTableWidget(
-            columns=columns,
-            key_fn=lambda r: (str(r.get("layer_id")), str(r.get("feature_id")))
-        )
-        
-        # Connect signals
-        self.map_widget.selectionChanged.connect(self.on_map_selection)
-        self.table.selectionKeysChanged.connect(self.on_table_selection)
-        
-        # Layout
-        container = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(container)
-        layout.addWidget(self.table, 1)
-        layout.addWidget(self.map_widget, 2)
-        self.setCentralWidget(container)
-        
-        # Add data after map is ready
-        self.map_widget.ready.connect(self.add_sample_data)
-    
-    def add_sample_data(self):
-        # Add a vector point
-        self.vector.add_points(
-            [(37.7749, -122.4194)],
-            ids=["sf"],
-            style=PointStyle(radius=8.0, fill_color="#ff3333")
-        )
-        
-        # Add to table
-        self.table.append_rows([{
-            "layer_kind": "vector",
-            "layer_id": self.vector.id,
-            "feature_id": "sf",
-            "geom_type": "point"
-        }])
-        
-        # Add fast points
-        rng = np.random.default_rng()
-        n = 10000
-        lats = 32 + rng.random(n) * 10
-        lons = -125 + rng.random(n) * 10
-        coords = list(zip(lats.tolist(), lons.tolist()))
-        ids = [f"fp{i}" for i in range(n)]
-        self.fast.add_points(coords, ids=ids)
-        
-        # Add fast points to table
-        rows = (
-            {
-                "layer_kind": "fast_points",
-                "layer_id": self.fast.id,
-                "feature_id": ids[i],
-                "geom_type": "point"
-            }
-            for i in range(n)
-        )
-        self.table.append_rows(rows)
-    
-    def on_map_selection(self, selection):
-        keys = [(selection.layer_id, fid) for fid in selection.feature_ids]
-        self.table.select_keys(keys, clear_first=True)
-    
-    def on_table_selection(self, keys):
-        # Group by layer
-        by_layer = {}
-        for layer_id, fid in keys:
-            by_layer.setdefault(layer_id, []).append(fid)
-        
-        # Update each layer's selection
-        for layer_id, fids in by_layer.items():
-            if layer_id == self.vector.id:
-                self.map_widget.set_vector_selection(layer_id, fids)
-            elif layer_id == self.fast.id:
-                self.map_widget.set_fast_points_selection(layer_id, fids)
-
-def main():
-    app = QtWidgets.QApplication(sys.argv)
-    window = MapWindow()
-    window.resize(1200, 800)
-    window.show()
-    sys.exit(app.exec())
-
-if __name__ == "__main__":
-    main()
-```
-
-## Running the Demo
-
-The repository includes a comprehensive demo application:
-
-```bash
-python demo/demo.py
-```
-
-The demo showcases:
-- Vector layers with points, polygons, circles, and ellipses
-- Fast points rendering (up to millions of points)
-- Fast geo-points with uncertainty ellipses
-- WMS layer integration
-- Raster/heatmap overlays with custom rendering
+For a comprehensive demonstration of all features, see the complete working example at [examples/08_table_integration.py](examples/08_table_integration.py). This example includes:
+- Vector and fast points layers
 - Feature table with bidirectional selection sync
-- Dynamic styling and opacity controls
+- Sample data generation
+- Layer management
 
 ## View Extent Tracking
 
@@ -978,98 +926,7 @@ MIT License
 
 Contributions are welcome! Please feel free to submit issues or pull requests.
 
-## Versioning and Releases
-
-This project uses [Semantic Versioning](https://semver.org/) for version numbers (MAJOR.MINOR.PATCH).
-
-### For Maintainers: Creating a Release
-
-#### 1. Update the Version
-
-Update the version number in `pyproject.toml`:
-
-```toml
-[project]
-version = "X.Y.Z"  # e.g., "0.2.0"
-```
-
-#### 2. Commit the Version Change
-
-```bash
-git add pyproject.toml
-git commit -m "Bump version to X.Y.Z"
-git push origin main
-```
-
-#### 3. Create and Push a Git Tag
-
-Create a tag matching the version number (with a `v` prefix):
-
-```bash
-git tag vX.Y.Z  # e.g., v0.2.0
-git push origin vX.Y.Z
-```
-
-For pre-release versions, use a suffix:
-
-```bash
-git tag vX.Y.Z-alpha.1  # e.g., v0.2.0-alpha.1
-git tag vX.Y.Z-beta.1   # e.g., v0.2.0-beta.1
-git tag vX.Y.Z-rc.1     # e.g., v0.2.0-rc.1
-git push origin vX.Y.Z-alpha.1
-```
-
-#### 4. Automated Publishing
-
-Once the tag is pushed, GitHub Actions will automatically:
-- Build the package using PEP 517 (`python -m build`)
-- Publish to PyPI using trusted publishing (OIDC)
-
-You can monitor the workflow at: https://github.com/crroush/pyopenlayersqt/actions
-
-#### 5. Manual Workflow Trigger
-
-You can also trigger the publish workflow manually from the GitHub Actions tab:
-1. Go to https://github.com/crroush/pyopenlayersqt/actions
-2. Select the "Publish to PyPI" workflow
-3. Click "Run workflow"
-4. Select the branch/tag to build from
-
-### PyPI Setup Requirements
-
-This project uses **PyPI Trusted Publishing** (OIDC), which is more secure than using API tokens.
-
-#### Initial Setup (One-Time)
-
-1. **Create a PyPI Account** (if you don't have one):
-   - Go to https://pypi.org/account/register/
-
-2. **Configure Trusted Publisher** on PyPI:
-   - Go to https://pypi.org/manage/account/publishing/
-   - Add a new pending publisher with these details:
-     - **PyPI Project Name**: `pyopenlayersqt`
-     - **Owner**: `crroush`
-     - **Repository name**: `pyopenlayersqt`
-     - **Workflow name**: `publish.yml`
-     - **Environment name**: `pypi`
-
-3. **After First Successful Publish**:
-   - The pending publisher will be automatically converted to an active publisher
-   - Future releases will publish automatically when you push a tag
-
-#### Alternative: Using API Tokens
-
-If trusted publishing is not available, you can use API tokens instead:
-
-1. Generate a PyPI API token at https://pypi.org/manage/account/token/
-2. Add it as a GitHub repository secret named `PYPI_API_TOKEN`
-3. Update the workflow to use token-based authentication (see commented section in `.github/workflows/publish.yml`)
-
-### Verification
-
-After a release is published, verify it at:
-- PyPI: https://pypi.org/project/pyopenlayersqt/
-- Test installation: `pip install --upgrade pyopenlayersqt`
+For maintainers, see [CONTRIBUTING.md](CONTRIBUTING.md) for information on creating releases and publishing to PyPI.
 
 ## Credits
 
