@@ -61,9 +61,9 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
             "geo_points",
             selectable=True,
             style=FastGeoPointsStyle(
-                radius=4.0,
+                point_radius=4.0,
                 default_color=QColor("blue"),
-                selected_radius=7.0,
+                selected_point_radius=7.0,
                 selected_color=QColor("orange")
             )
         )
