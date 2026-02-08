@@ -64,9 +64,6 @@ def _is_http_url(s: str) -> bool:
     return s.startswith("http://") or s.startswith("https://")
 
 
-def _is_truthy_env(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
 
 class _Bridge(QObject):
     eventReceived = Signal(str, str)
@@ -174,7 +171,7 @@ class OLMapWidget(QWebEngineView):
         self._initial_center = center if center is not None else self.DEFAULT_CENTER
         self._initial_zoom = zoom if zoom is not None else self.DEFAULT_ZOOM
         self._show_coordinates = show_coordinates
-        self._perf_logging_enabled = _is_truthy_env("PYOPENLAYERSQT_BENCH") or _is_truthy_env("PYOPENLAYERSQT_PERF")
+        self._perf_logging_enabled = os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1" or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
 
         # writable overlays
         self._overlays_dir = _default_overlays_dir()

@@ -66,7 +66,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         self.region_by_site: dict[str, str] = {}
         self._selected_region_ids: set[str] = set()
         self._selected_site_ids: set[str] = set()
-        self._benchmark = self._is_truthy_env("PYOPENLAYERSQT_BENCH") or self._is_truthy_env("PYOPENLAYERSQT_PERF")
+        self._benchmark = os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1" or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
 
         self.map_widget.selectionChanged.connect(self._on_map_selection)
         self.regions_table.selectionKeysChanged.connect(self._on_region_table_selection)
@@ -74,10 +74,6 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         self.map_widget.ready.connect(self._add_data)
 
         self._build_layout()
-
-    @staticmethod
-    def _is_truthy_env(name: str) -> bool:
-        return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
     def _perf_log(self, message: str) -> None:
         if self._benchmark:
