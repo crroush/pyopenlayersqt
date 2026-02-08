@@ -427,13 +427,13 @@ class FastGeoPointsStyle:
     # selected ellipse style (optional override)
     selected_ellipse_stroke_rgba: tuple[int, int, int, int] | None = None
     selected_ellipse_stroke_width: float | None = None
-    
+
     # Optional QColor or color name alternative for selected ellipse stroke
     selected_ellipse_stroke_color: Optional[Union[str, Any]] = None
-    
+
     fill_ellipses: bool = False
     ellipse_fill_rgba: tuple[int, int, int, int] = (255, 204, 0, 40)
-    
+
     # Optional QColor or color name alternative for ellipse fill
     ellipse_fill_color: Optional[Union[str, Any]] = None
 
@@ -455,21 +455,25 @@ class FastGeoPointsStyle:
             if self.selected_color is not None
             else self.selected_point_rgba
         )
-        
-        # Use ellipse_stroke_color if provided, otherwise fall back to ellipse_stroke_rgba
+
+        # Use ellipse_stroke_color if provided, else ellipse_stroke_rgba
         ellipse_stroke_rgba_final = (
             _normalize_color_to_rgba(self.ellipse_stroke_color)
             if self.ellipse_stroke_color is not None
             else self.ellipse_stroke_rgba
         )
-        
-        # Use selected_ellipse_stroke_color if provided, otherwise fall back to selected_ellipse_stroke_rgba
+
+        # Use selected_ellipse_stroke_color if provided, else _rgba fallback
         selected_ellipse_stroke_rgba_final = None
         if self.selected_ellipse_stroke_color is not None:
-            selected_ellipse_stroke_rgba_final = _normalize_color_to_rgba(self.selected_ellipse_stroke_color)
+            selected_ellipse_stroke_rgba_final = _normalize_color_to_rgba(
+                self.selected_ellipse_stroke_color
+            )
         elif self.selected_ellipse_stroke_rgba is not None:
-            selected_ellipse_stroke_rgba_final = self.selected_ellipse_stroke_rgba
-        
+            selected_ellipse_stroke_rgba_final = (
+                self.selected_ellipse_stroke_rgba
+            )
+
         # Use ellipse_fill_color if provided, otherwise fall back to ellipse_fill_rgba
         ellipse_fill_rgba_final = (
             _normalize_color_to_rgba(self.ellipse_fill_color)
