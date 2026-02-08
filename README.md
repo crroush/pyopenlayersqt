@@ -3,7 +3,7 @@
 OpenLayers + Qt (QWebEngine) mapping widget for Python.
 
 A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt application using QWebEngine. Designed for displaying and interacting with large volumes of geospatial data.
-<img width="821" height="503" alt="image" src="https://github.com/user-attachments/assets/ef34e565-12f5-48b3-92e5-bbe752a96992" />
+<img width="803" height="467" alt="image" src="https://github.com/user-attachments/assets/0d607680-b16a-46ed-9562-eeb00525cf02" />
 
 ## Table of Contents
 
@@ -44,7 +44,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
 - **🎨 QColor Support**: Use `QColor` objects or color names directly in styles - no `.name()` needed
 - **📍 Geolocation Support**: Fast geo-points layer with uncertainty ellipses
 - **🌐 WMS Integration**: Built-in Web Map Service layer support
-- **🖼️ Raster Overlays**: PNG/image overlay support with custom bounds
+- **🖼️ Raster Overlays**: PNG/ overlay support with custom bounds
 - **✅ Feature Selection**: Interactive feature selection with Python ↔ JavaScript sync
 - **🎯 Smart Z-Ordering**: Selected points and ellipses automatically appear on top
 - **📊 Feature Table Widget**: High-performance table widget for displaying and managing features
@@ -124,7 +124,7 @@ map_widget = OLMapWidget()
 # Or create with custom initial view
 map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 ```
-<img width="323" height="257" alt="image" src="https://github.com/user-attachments/assets/1f726e15-0598-4bb6-9223-b2a0d60238ff" />
+<img width="515" height="401" alt="image" src="https://github.com/user-attachments/assets/6dbe1d15-cb28-4b68-a182-ec677a01e651" />
 
 **Constructor Parameters:**
 
@@ -261,6 +261,7 @@ vector.remove_features(["id1", "poly1"])
 # Clear all features
 vector.clear()
 ```
+<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/a9ec05ba-717b-494a-abab-eac30adb55fb" />
 
 #### FastPointsLayer
 
@@ -319,6 +320,7 @@ fast.show_all_features()  # Show all hidden features
 # Clear all points
 fast.clear()
 ```
+<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/dbff66f1-b649-4232-8afd-5a3b1f619b43" />
 
 #### FastGeoPointsLayer
 
@@ -390,6 +392,7 @@ fast_geo.remove_ids(["geo1", "geo2"])
 # Clear all
 fast_geo.clear()
 ```
+<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/00098627-e9ec-4e75-9a86-03aeeb3da1e5" />
 
 #### WMSLayer
 
@@ -421,6 +424,7 @@ wms_layer.set_opacity(0.5)
 # Remove layer
 wms_layer.remove()
 ```
+<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/413956f3-6df8-4141-813d-08419c5da10e" />
 
 #### RasterLayer
 
