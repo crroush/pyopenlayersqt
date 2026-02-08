@@ -338,7 +338,7 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
     def _delete_selected(self):
         """Delete currently selected features from map and table."""
         # Get selected keys from table
-        selected_keys = self.table.get_selected_keys()
+        selected_keys = self.table.selected_keys
         if not selected_keys:
             print("No features selected for deletion")
             return
