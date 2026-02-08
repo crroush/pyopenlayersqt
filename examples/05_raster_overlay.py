@@ -183,12 +183,12 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
             (37.85, -122.35)  # Northeast corner (lat, lon)
         ]
 
+        # Create controls first (so opacity_slider exists)
+        controls = self._create_controls()
+
         # Start with rectangular (no mask)
         self.raster_layer = None
         self._update_raster_with_mask("Rectangle")
-
-        # Create controls
-        controls = self._create_controls()
 
         # Layout
         container = QtWidgets.QWidget()
