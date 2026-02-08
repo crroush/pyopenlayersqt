@@ -108,6 +108,7 @@ See the [examples directory](examples/) for more working examples:
 - `10_range_slider_filtering.py` - Range slider filtering
 - `11_measurement_tool.py` - Distance measurement tool
 - `12_coordinate_display.py` - Coordinate display toggle
+- `13_dual_table_linking.py` - Two-table parent/child map-table selection workflow
 
 ## Core Components
 

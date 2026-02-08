@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import threading
 import time
@@ -169,6 +170,10 @@ class OLMapWidget(QWebEngineView):
         self._initial_center = center if center is not None else self.DEFAULT_CENTER
         self._initial_zoom = zoom if zoom is not None else self.DEFAULT_ZOOM
         self._show_coordinates = show_coordinates
+        self._perf_logging_enabled = (
+            os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
+            or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
+        )
 
         # writable overlays
         self._overlays_dir = _default_overlays_dir()
@@ -342,20 +347,23 @@ class OLMapWidget(QWebEngineView):
         if event_type == "ready":
             self._js_ready = True
             # Set initial view if different from defaults
-            if (self._initial_center != self.DEFAULT_CENTER or
-                self._initial_zoom != self.DEFAULT_ZOOM):
+            if (
+                self._initial_center != self.DEFAULT_CENTER
+                or self._initial_zoom != self.DEFAULT_ZOOM
+            ):
                 # Swap lat,lon (public API) to lon,lat (internal format)
                 lat, lon = self._initial_center
-                self._send_now({
-                    "type": "map.set_view",
-                    "center": [float(lon), float(lat)],
-                    "zoom": int(self._initial_zoom)
-                })
+                self._send_now(
+                    {
+                        "type": "map.set_view",
+                        "center": [float(lon), float(lat)],
+                        "zoom": int(self._initial_zoom),
+                    }
+                )
             # Set coordinate display visibility
-            self._send_now({
-                "type": "coordinates.set_visible",
-                "visible": self._show_coordinates
-            })
+            self._send_now(
+                {"type": "coordinates.set_visible", "visible": self._show_coordinates}
+            )
             self._flush_pending()
             self.ready.emit()
             return
@@ -396,10 +404,11 @@ class OLMapWidget(QWebEngineView):
                 obj = json.loads(payload_json) if payload_json else {}
             except Exception:
                 obj = {"raw": payload_json}
-            try:
-                print("PERF:", obj, flush=True)
-            except Exception:
-                pass
+            if self._perf_logging_enabled:
+                try:
+                    print("PERF:", obj, flush=True)
+                except Exception:
+                    pass
             self.perfReceived.emit(obj)
             return
 
