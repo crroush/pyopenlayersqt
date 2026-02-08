@@ -290,17 +290,6 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
                     self._selected_site_ids = incoming_site_ids
                     return
 
-                # Some map selection implementations emit a transient empty selection
-                # before the final selected set. Ignore that transient clear when it
-                # conflicts with an active region-driven full selection.
-                if (
-                    self._selected_region_ids
-                    and not incoming_site_ids
-                    and expected_site_ids
-                    and self._selected_site_ids == expected_site_ids
-                ):
-                    return
-
                 self._selected_site_ids = incoming_site_ids
 
                 # Map subset selection highlights sites only; clear region table/map selection.
