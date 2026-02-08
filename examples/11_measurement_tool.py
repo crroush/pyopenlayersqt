@@ -5,8 +5,14 @@ This example demonstrates the measurement mode feature:
 - Enable/disable measurement mode with a button
 - Click on map to add measurement points
 - Display geodesic distances (great circle distances)
-- Clear all measurements
+- Delete all measurements with Clear button
 - Visualize measurement path and segments
+
+Features demonstrated:
+- set_measure_mode() to enable/disable measurement
+- clear_measurements() to delete all measurement points
+- jsEvent signal for measurement updates
+- Cumulative distance calculation
 
 Useful for measuring distances on the map interactively.
 """

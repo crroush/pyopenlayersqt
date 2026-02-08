@@ -69,6 +69,7 @@ pip install pyopenlayersqt
 
 ```python
 from PySide6 import QtWidgets
+from PySide6.QtGui import QColor
 from pyopenlayersqt import OLMapWidget, PointStyle
 import sys
 
@@ -80,12 +81,12 @@ map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 # Add a vector layer
 vector_layer = map_widget.add_vector_layer("my_layer", selectable=True)
 
-# Add some points
+# Add some points with QColor styling
 coords = [(37.7749, -122.4194), (34.0522, -118.2437)]  # SF, LA
 vector_layer.add_points(
     coords,
     ids=["sf", "la"],
-    style=PointStyle(radius=8.0, fill_color="#ff3333")
+    style=PointStyle(radius=8.0, fill_color=QColor("red"))
 )
 
 # Show the map
@@ -198,9 +199,9 @@ vector.add_points(
     ids=["id1", "id2", ...],
     style=PointStyle(
         radius=6.0,
-        fill_color="#ff3333",
+        fill_color=QColor("red"),
         fill_opacity=0.85,
-        stroke_color="#000000",
+        stroke_color=QColor("black"),
         stroke_width=1.0
     )
 )
@@ -210,9 +211,9 @@ vector.add_polygon(
     ring=[(lat1, lon1), (lat2, lon2), ...],
     feature_id="poly1",
     style=PolygonStyle(
-        stroke_color="#00aaff",
+        stroke_color=QColor("dodgerblue"),
         stroke_width=2.0,
-        fill_color="#00aaff",
+        fill_color=QColor("dodgerblue"),
         fill_opacity=0.15
     )
 )
@@ -222,7 +223,7 @@ vector.add_line(
     coords=[(lat1, lon1), (lat2, lon2), (lat3, lon3)],
     feature_id="ln1",
     style=PolygonStyle(
-        stroke_color="#00aaff",
+        stroke_color=QColor("dodgerblue"),
         stroke_width=2.0
     )
 )
@@ -232,7 +233,7 @@ vector.add_circle(
     center=(lat, lon),
     radius_m=1000.0,
     feature_id="circle1",
-    style=CircleStyle(stroke_color="#00aaff", fill_opacity=0.15)
+    style=CircleStyle(stroke_color=QColor("dodgerblue"), fill_opacity=0.15)
 )
 
 # Add ellipses (semi-major/minor axes in meters, tilt in degrees from north)
@@ -242,14 +243,14 @@ vector.add_ellipse(
     smi_m=1200.0,  # Semi-minor axis
     tilt_deg=45.0,  # Tilt from true north
     feature_id="ell1",
-    style=EllipseStyle(stroke_color="#ffcc00", fill_opacity=0.12)
+    style=EllipseStyle(stroke_color=QColor("gold"), fill_opacity=0.12)
 )
 
 # Update styles of specific features (e.g., selected features)
 feature_ids = ["id1", "id2"]
 new_styles = [
-    PointStyle(radius=8.0, fill_color="#ff0000", fill_opacity=1.0),
-    PointStyle(radius=8.0, fill_color="#00ff00", fill_opacity=1.0),
+    PointStyle(radius=8.0, fill_color=QColor("red"), fill_opacity=1.0),
+    PointStyle(radius=8.0, fill_color=QColor("green"), fill_opacity=1.0),
 ]
 vector.update_feature_styles(feature_ids, new_styles)
 
@@ -473,12 +474,12 @@ from pyopenlayersqt import (
 )
 from PySide6.QtGui import QColor
 
-# Vector styles use CSS colors, QColor objects, or color names
+# Vector styles use QColor objects or color names (recommended)
 point_style = PointStyle(
     radius=5.0,
-    fill_color="#ff3333",        # CSS hex color
+    fill_color=QColor("red"),        # QColor object (recommended)
     fill_opacity=0.85,
-    stroke_color=QColor("black"),  # QColor object (no .name() needed!)
+    stroke_color=QColor("black"),    # QColor object
     stroke_width=1.0,
     stroke_opacity=0.9
 )
