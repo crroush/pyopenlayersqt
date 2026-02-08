@@ -22,6 +22,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
   - [Style Classes](#style-classes)
   - [Feature Selection](#feature-selection)
   - [Selection and Recoloring](#selection-and-recoloring)
+  - [Deleting Features](#deleting-features)
   - [Distance Measurement Mode](#distance-measurement-mode)
   - [FeatureTableWidget](#featuretablewidget)
   - [RangeSliderWidget](#rangesliderwidget)
@@ -597,6 +598,94 @@ def recolor_selected_red():
 ```
 
 See [examples/09_selection_and_recoloring.py](examples/09_selection_and_recoloring.py) for a complete interactive example.
+
+### Deleting Features
+
+Each layer type provides methods to remove features, either individually, in batches, or all at once.
+
+#### VectorLayer Deletion
+
+```python
+# Remove specific features by ID
+vector_layer.remove_features(["point1", "polygon2", "circle3"])
+
+# Clear all features from the layer
+vector_layer.clear()
+```
+
+#### FastPointsLayer Deletion
+
+```python
+# Remove specific points by ID
+fast_layer.remove_points(["pt1", "pt2", "pt100"])
+
+# Clear all points from the layer
+fast_layer.clear()
+```
+
+#### FastGeoPointsLayer Deletion
+
+```python
+# Remove specific geo-points by ID
+geo_layer.remove_ids(["geo1", "geo2", "geo50"])
+
+# Clear all geo-points from the layer
+geo_layer.clear()
+```
+
+#### Deleting Selected Features
+
+A common pattern is to delete features that the user has selected interactively:
+
+```python
+from PySide6.QtGui import QShortcut, QKeySequence
+
+# Track selections across all layers
+selections = {}
+
+def on_selection_changed(selection):
+    """Update the selections dictionary when selection changes."""
+    if len(selection.feature_ids) > 0:
+        selections[selection.layer_id] = selection.feature_ids
+    elif selection.layer_id in selections:
+        del selections[selection.layer_id]
+
+map_widget.selectionChanged.connect(on_selection_changed)
+
+def delete_selected():
+    """Delete all currently selected features across all layers."""
+    for layer_id, feature_ids in list(selections.items()):
+        if layer_id == vector_layer.id:
+            vector_layer.remove_features(feature_ids)
+        elif layer_id == fast_layer.id:
+            fast_layer.remove_points(feature_ids)
+        elif layer_id == geo_layer.id:
+            geo_layer.remove_ids(feature_ids)
+    
+    # Clear selections after deletion
+    selections.clear()
+    print(f"Deleted features")
+
+# Connect to a button
+delete_button.clicked.connect(delete_selected)
+
+# Or add keyboard shortcut (Delete key)
+delete_shortcut = QShortcut(QKeySequence.Delete, map_widget)
+delete_shortcut.activated.connect(delete_selected)
+```
+
+#### Removing Entire Layers
+
+To remove an entire layer from the map:
+
+```python
+# Remove the layer (also removes all its features)
+vector_layer.remove()
+fast_layer.remove()
+geo_layer.remove()
+```
+
+**Complete CRUD Example:** See [examples/08_table_integration.py](examples/08_table_integration.py) for a full working example demonstrating Create, Read, Update, and Delete operations with interactive add/delete buttons and keyboard shortcuts across all layer types.
 
 ### Distance Measurement Mode
 
