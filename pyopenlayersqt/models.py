@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-# Color type: "#RRGGBB", "rgba(...)", tuples, QColor objects, or color names
+# Color type: QColor objects, color names, "#RRGGBB", "rgba(...)", or tuples (deprecated)
 # Using Any for QColor to avoid hard dependency on PySide6 in type checking
+# Note: RGBA tuples are deprecated; prefer QColor objects or color name strings
 Color = Union[str, Tuple[int, int, int], Tuple[int, int, int, int], Any]
 LatLon = Tuple[float, float]  # (lat, lon) - Public API uses latitude first
 
