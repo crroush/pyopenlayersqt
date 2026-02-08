@@ -1,36 +1,46 @@
 #!/usr/bin/env python3
-"""Raster Image Overlay (Heatmap)
+"""Raster Image Overlay with Polygon Masking
 
 This example demonstrates:
-- Creating a custom raster image (heatmap visualization)
+- Creating raster images masked to ARBITRARY POLYGON SHAPES
+- Different masking techniques (circle, triangle, hexagon, star, irregular)
+- How to use polygon masks for non-rectangular raster data
 - Adding raster overlays to the map with geographic bounds
 - Adjusting raster opacity
-- Using matplotlib colormaps for visualization
 - Generating heatmaps from scattered point data
 
-Raster overlays are useful for visualizing continuous data like:
-- Temperature maps
-- Population density
-- Probability distributions
-- Any grid-based data
+Real-world use cases:
+- Masking data to country/state/region boundaries
+- Irregular geographic areas
+- Custom shapes and zones
+- Non-rectangular data visualization
+- Temperature maps, population density, probability distributions
 """
 
 import sys
 import io
+import math
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from PySide6 import QtWidgets
 from PySide6.QtCore import Qt
 
 from pyopenlayersqt import OLMapWidget, RasterStyle
 
 
-def generate_heatmap_image(width=512, height=512, seed=42):
-    """Generate a simple heatmap image using inverse distance weighting.
+def generate_masked_heatmap(width=512, height=512, polygon=None, seed=42):
+    """Generate a heatmap image masked to an arbitrary polygon shape.
+
+    Args:
+        width: Image width in pixels
+        height: Image height in pixels
+        polygon: List of (x, y) tuples defining polygon vertices in pixel coordinates.
+                 If None, no masking is applied (full rectangle).
+        seed: Random seed for reproducibility
 
     Returns:
-        bytes: PNG image data
+        bytes: PNG image data with alpha channel (transparent outside polygon)
     """
     rng = np.random.default_rng(seed)
 
@@ -73,40 +83,109 @@ def generate_heatmap_image(width=512, height=512, seed=42):
 
     # Create PIL image and return as PNG bytes
     img = Image.fromarray(rgba, mode='RGBA')
+
+    # Apply polygon mask if provided
+    if polygon is not None:
+        # Create a mask image (0 = transparent, 255 = opaque)
+        mask = Image.new('L', (width, height), 0)
+        draw = ImageDraw.Draw(mask)
+        # Draw filled polygon on mask
+        draw.polygon(polygon, fill=255)
+
+        # Apply mask to alpha channel
+        img.putalpha(mask)
+
     buf = io.BytesIO()
     img.save(buf, format='PNG')
     return buf.getvalue()
 
 
+def _get_circle_polygon(width, height, num_points=50):
+    """Generate polygon approximating a circle."""
+    center_x, center_y = width / 2, height / 2
+    radius = min(width, height) * 0.4
+    points = []
+    for i in range(num_points):
+        angle = 2 * math.pi * i / num_points
+        x = center_x + radius * math.cos(angle)
+        y = center_y + radius * math.sin(angle)
+        points.append((x, y))
+    return points
+
+
+def _get_triangle_polygon(width, height):
+    """Generate equilateral triangle polygon."""
+    center_x, center_y = width / 2, height / 2
+    radius = min(width, height) * 0.4
+    points = []
+    for i in range(3):
+        angle = 2 * math.pi * i / 3 - math.pi / 2  # Start from top
+        x = center_x + radius * math.cos(angle)
+        y = center_y + radius * math.sin(angle)
+        points.append((x, y))
+    return points
+
+
+def _get_hexagon_polygon(width, height):
+    """Generate hexagon polygon."""
+    center_x, center_y = width / 2, height / 2
+    radius = min(width, height) * 0.4
+    points = []
+    for i in range(6):
+        angle = 2 * math.pi * i / 6
+        x = center_x + radius * math.cos(angle)
+        y = center_y + radius * math.sin(angle)
+        points.append((x, y))
+    return points
+
+
+def _get_star_polygon(width, height):
+    """Generate 5-pointed star polygon."""
+    center_x, center_y = width / 2, height / 2
+    outer_radius = min(width, height) * 0.4
+    inner_radius = outer_radius * 0.4
+    points = []
+    for i in range(10):
+        angle = 2 * math.pi * i / 10 - math.pi / 2  # Start from top
+        radius = outer_radius if i % 2 == 0 else inner_radius
+        x = center_x + radius * math.cos(angle)
+        y = center_y + radius * math.sin(angle)
+        points.append((x, y))
+    return points
+
+
+def _get_irregular_polygon(width, height):
+    """Generate an irregular custom polygon."""
+    # Custom irregular shape (percentage-based coordinates)
+    shape_pct = [
+        (0.2, 0.3), (0.4, 0.2), (0.7, 0.3),
+        (0.8, 0.5), (0.7, 0.7), (0.5, 0.8),
+        (0.3, 0.7), (0.1, 0.5)
+    ]
+    return [(x * width, y * height) for x, y in shape_pct]
+
+
 class RasterOverlayExample(QtWidgets.QMainWindow):
-    """Raster overlay example window."""
+    """Raster overlay example with polygon masking."""
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Raster Image Overlay (Heatmap)")
+        self.setWindowTitle("Raster Image Overlay with Polygon Masking")
         self.resize(1200, 800)
 
         # Create map centered on San Francisco Bay Area
         self.map_widget = OLMapWidget(center=(37.7749, -122.4194), zoom=10)
 
-        # Generate a heatmap image as PNG bytes
-        heatmap_png = generate_heatmap_image(512, 512)
-
         # Define geographic bounds for the image
         # Two (lat, lon) tuples defining SW and NE corners
-        bounds = [
+        self.bounds = [
             (37.7, -122.5),   # Southwest corner (lat, lon)
             (37.85, -122.35)  # Northeast corner (lat, lon)
         ]
 
-        # Add the raster overlay
-        # First parameter is the image data (PNG bytes), not a keyword argument
-        self.raster_layer = self.map_widget.add_raster_image(
-            heatmap_png,
-            bounds=bounds,
-            style=RasterStyle(opacity=0.6),
-            name="heatmap"
-        )
+        # Start with rectangular (no mask)
+        self.raster_layer = None
+        self._update_raster_with_mask("Rectangle")
 
         # Create controls
         controls = self._create_controls()
@@ -125,11 +204,35 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
 
         # Info label
         info = QtWidgets.QLabel(
-            "This heatmap overlay demonstrates raster image rendering. "
-            "Adjust opacity to blend with the base map."
+            "Demonstrate polygon masking for raster images. "
+            "Select a shape to mask the heatmap overlay."
         )
         info.setWordWrap(True)
         layout.addWidget(info, stretch=1)
+
+        # Mask shape selector
+        mask_group = QtWidgets.QGroupBox("Polygon Mask")
+        mask_layout = QtWidgets.QVBoxLayout(mask_group)
+
+        shape_layout = QtWidgets.QHBoxLayout()
+        shape_layout.addWidget(QtWidgets.QLabel("Shape:"))
+        self.shape_combo = QtWidgets.QComboBox()
+        self.shape_combo.addItems([
+            "Rectangle",
+            "Circle",
+            "Triangle",
+            "Hexagon",
+            "Star",
+            "Irregular"
+        ])
+        shape_layout.addWidget(self.shape_combo)
+
+        update_btn = QtWidgets.QPushButton("Update Mask")
+        update_btn.clicked.connect(self._on_update_mask)
+        shape_layout.addWidget(update_btn)
+
+        mask_layout.addLayout(shape_layout)
+        layout.addWidget(mask_group)
 
         # Opacity control
         opacity_group = QtWidgets.QGroupBox("Heatmap Opacity")
@@ -145,6 +248,50 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
         layout.addWidget(opacity_group)
 
         return panel
+
+    def _get_polygon_for_shape(self, shape_name):
+        """Get polygon points for the selected shape."""
+        width, height = 512, 512
+
+        if shape_name == "Rectangle":
+            return None  # No mask = full rectangle
+        elif shape_name == "Circle":
+            return _get_circle_polygon(width, height)
+        elif shape_name == "Triangle":
+            return _get_triangle_polygon(width, height)
+        elif shape_name == "Hexagon":
+            return _get_hexagon_polygon(width, height)
+        elif shape_name == "Star":
+            return _get_star_polygon(width, height)
+        elif shape_name == "Irregular":
+            return _get_irregular_polygon(width, height)
+        return None
+
+    def _update_raster_with_mask(self, shape_name):
+        """Generate and display heatmap with the selected mask shape."""
+        # Get polygon for this shape
+        polygon = self._get_polygon_for_shape(shape_name)
+
+        # Generate masked heatmap
+        heatmap_png = generate_masked_heatmap(512, 512, polygon=polygon)
+
+        # Remove old raster layer if exists
+        if self.raster_layer:
+            self.raster_layer.remove()
+
+        # Add new raster overlay
+        # First parameter is the image data (PNG bytes), not a keyword argument
+        self.raster_layer = self.map_widget.add_raster_image(
+            heatmap_png,
+            bounds=self.bounds,
+            style=RasterStyle(opacity=self.opacity_slider.value() / 100.0),
+            name=f"heatmap_{shape_name.lower()}"
+        )
+
+    def _on_update_mask(self):
+        """Handle mask shape update."""
+        shape_name = self.shape_combo.currentText()
+        self._update_raster_with_mask(shape_name)
 
     def _on_opacity_changed(self, value):
         """Update raster layer opacity."""
