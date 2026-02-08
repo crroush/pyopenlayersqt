@@ -23,7 +23,7 @@ import time
 
 import numpy as np
 from PySide6 import QtWidgets
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QAbstractItemView
 
@@ -66,7 +66,6 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         self.region_by_site: dict[str, str] = {}
         self._selected_region_ids: set[str] = set()
         self._selected_site_ids: set[str] = set()
-        self._programmatic_site_sync_active = False
         self._benchmark = os.environ.get("PYOPENLAYERSQT_BENCH", "").lower() in {"1", "true", "yes"}
 
         self.map_widget.selectionChanged.connect(self._on_map_selection)
@@ -274,9 +273,6 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
             if selection.layer_id == self.site_layer.id:
                 site_ids = list(selection.feature_ids)
 
-                # Ignore map events emitted by programmatic table->map writes.
-                if self._programmatic_site_sync_active:
-                    return
 
                 self._selected_site_ids = set(site_ids)
 
@@ -295,18 +291,10 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
             self._syncing_from_map = False
 
     def _set_site_map_selection_programmatically(self, site_ids: list[str]) -> None:
-        """Write site selection to the map while suppressing map echo events.
-
-        Fast-points selection updates can emit one or more immediate map selection
-        events; those should not be treated as user subset gestures that clear
-        region selection.
-        """
-        self._programmatic_site_sync_active = True
+        """Write site selection to map without emitting selectionChanged callbacks."""
+        blocker = QSignalBlocker(self.map_widget)
         self.map_widget.set_fast_points_selection(self.site_layer.id, site_ids)
-        QTimer.singleShot(0, self._clear_programmatic_site_sync_flag)
-
-    def _clear_programmatic_site_sync_flag(self) -> None:
-        self._programmatic_site_sync_active = False
+        del blocker
 
 
 def main() -> None:
