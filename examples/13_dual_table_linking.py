@@ -66,6 +66,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         self.region_by_site: dict[str, str] = {}
         self._selected_region_ids: set[str] = set()
         self._selected_site_ids: set[str] = set()
+        self._suppress_next_site_map_event = False
         self._benchmark = os.environ.get("PYOPENLAYERSQT_BENCH", "").lower() in {"1", "true", "yes"}
 
         self.map_widget.selectionChanged.connect(self._on_map_selection)
@@ -230,6 +231,9 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
             [(self.site_layer.id, sid) for sid in selected_site_ids],
             clear_first=True,
         )
+        # This site-layer selection is programmatic (driven by region table/map region),
+        # not a user subset action on the site layer.
+        self._suppress_next_site_map_event = True
         self.map_widget.set_fast_points_selection(self.site_layer.id, selected_site_ids)
 
         if self._benchmark:
@@ -252,6 +256,9 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         site_ids = [fid for _layer_id, fid in keys]
         t0 = time.perf_counter()
         self._selected_site_ids = set(site_ids)
+        # Programmatic write to map from table should not be interpreted as a user
+        # map-subset gesture that clears region selection.
+        self._suppress_next_site_map_event = True
         self.map_widget.set_fast_points_selection(self.site_layer.id, site_ids)
 
         if self._benchmark:
@@ -268,6 +275,13 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
 
             if selection.layer_id == self.site_layer.id:
                 site_ids = list(selection.feature_ids)
+
+                # Ignore one map event that we know was caused by a programmatic
+                # set_fast_points_selection call from table/region synchronization.
+                if self._suppress_next_site_map_event:
+                    self._suppress_next_site_map_event = False
+                    return
+
                 self._selected_site_ids = set(site_ids)
 
                 # Map subset selection highlights sites only; clear region table/map selection.
