@@ -262,6 +262,14 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
             dt = (time.perf_counter() - t0) * 1000.0
             print(f"[bench] site table -> map selection ({len(site_ids):,} ids) in {dt:.1f} ms")
 
+    def _expected_site_ids_for_selected_regions(self) -> set[str]:
+        """Return the full site-id union implied by current region selection."""
+        return {
+            sid
+            for rid in self._selected_region_ids
+            for sid in self.site_by_region.get(rid, [])
+        }
+
     def _on_map_selection(self, selection) -> None:
         self._syncing_from_map = True
         try:
@@ -272,9 +280,28 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
 
             if selection.layer_id == self.site_layer.id:
                 site_ids = list(selection.feature_ids)
+                incoming_site_ids = set(site_ids)
 
+                # If incoming site selection exactly matches the currently selected
+                # region union, treat this as synchronization echo and do not clear
+                # parent region selection.
+                expected_site_ids = self._expected_site_ids_for_selected_regions()
+                if self._selected_region_ids and incoming_site_ids == expected_site_ids:
+                    self._selected_site_ids = incoming_site_ids
+                    return
 
-                self._selected_site_ids = set(site_ids)
+                # Some map selection implementations emit a transient empty selection
+                # before the final selected set. Ignore that transient clear when it
+                # conflicts with an active region-driven full selection.
+                if (
+                    self._selected_region_ids
+                    and not incoming_site_ids
+                    and expected_site_ids
+                    and self._selected_site_ids == expected_site_ids
+                ):
+                    return
+
+                self._selected_site_ids = incoming_site_ids
 
                 # Map subset selection highlights sites only; clear region table/map selection.
                 self._selected_region_ids.clear()
