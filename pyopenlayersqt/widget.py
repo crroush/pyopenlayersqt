@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import threading
 import time
@@ -61,6 +62,10 @@ def _default_overlays_dir(app_name: str = "pyopenlayersqt") -> Path:
 def _is_http_url(s: str) -> bool:
     s = s.strip()
     return s.startswith("http://") or s.startswith("https://")
+
+
+def _is_truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 class _Bridge(QObject):
@@ -169,6 +174,7 @@ class OLMapWidget(QWebEngineView):
         self._initial_center = center if center is not None else self.DEFAULT_CENTER
         self._initial_zoom = zoom if zoom is not None else self.DEFAULT_ZOOM
         self._show_coordinates = show_coordinates
+        self._perf_logging_enabled = _is_truthy_env("PYOPENLAYERSQT_BENCH") or _is_truthy_env("PYOPENLAYERSQT_PERF")
 
         # writable overlays
         self._overlays_dir = _default_overlays_dir()
@@ -396,10 +402,11 @@ class OLMapWidget(QWebEngineView):
                 obj = json.loads(payload_json) if payload_json else {}
             except Exception:
                 obj = {"raw": payload_json}
-            try:
-                print("PERF:", obj, flush=True)
-            except Exception:
-                pass
+            if self._perf_logging_enabled:
+                try:
+                    print("PERF:", obj, flush=True)
+                except Exception:
+                    pass
             self.perfReceived.emit(obj)
             return
 
