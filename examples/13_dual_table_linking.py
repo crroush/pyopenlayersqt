@@ -17,7 +17,9 @@ Dataset scale:
 
 from __future__ import annotations
 
+import os
 import sys
+import time
 
 import numpy as np
 from PySide6 import QtWidgets
@@ -67,8 +69,11 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         self.region_ids: list[str] = []
         self.site_by_region: dict[str, list[str]] = {}
         self.region_by_site: dict[str, str] = {}
-        self._all_site_keys: list[tuple[str, str]] = []
         self._selected_region_ids: set[str] = set()
+        self._site_rows_by_region: dict[str, list[dict[str, str]]] = {}
+        self._selected_site_ids: set[str] = set()
+        self._allowed_site_ids: set[str] = set()
+        self._benchmark = os.environ.get("PYOPENLAYERSQT_BENCH", "").lower() in {"1", "true", "yes"}
 
         self.map_widget.selectionChanged.connect(self._on_map_selection)
         self.regions_table.selectionKeysChanged.connect(self._on_region_table_selection)
@@ -130,6 +135,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         self.setCentralWidget(container)
 
     def _add_data(self) -> None:
+        t0 = time.perf_counter()
         rng = np.random.default_rng(7)
 
         region_seed = [
@@ -145,7 +151,6 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
             ("South", "Delivery", 29.76, -95.36),
         ]
 
-        site_rows = []
 
         for idx, (name, category, lat, lon) in enumerate(region_seed):
             region_id = f"region_{idx}"
@@ -183,7 +188,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
             scores = rng.integers(50, 100, size=count)
             for i, site_id in enumerate(site_ids):
                 self.region_by_site[site_id] = region_id
-                site_rows.append(
+                self._site_rows_by_region.setdefault(region_id, []).append(
                     {
                         "site_name": f"{name} Site {i + 1}",
                         "region_name": name,
@@ -193,11 +198,13 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
                     }
                 )
 
-        self.sites_table.append_rows(site_rows)
-        self._all_site_keys = [(self.site_layer.id, row["feature_id"]) for row in site_rows]
+        # Start with one selected region to keep initial UI responsive.
+        self._apply_region_selection([self.region_ids[0]])
 
-        # Start with two selected regions to demonstrate multi-select behavior.
-        self._apply_region_selection(self.region_ids[:2])
+        if self._benchmark:
+            dt = (time.perf_counter() - t0)
+            total_sites = self.SITES_PER_REGION * len(region_seed)
+            print(f"[bench] data load complete: {len(region_seed)} regions, {total_sites:,} sites in {dt:.2f} s")
 
     def _apply_region_selection(
         self,
@@ -205,6 +212,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         *,
         update_map_selection: bool = True,
     ) -> None:
+        t0 = time.perf_counter()
         selected = list(dict.fromkeys(region_ids))
         self._selected_region_ids = set(selected)
 
@@ -215,34 +223,45 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         if update_map_selection:
             self.map_widget.set_vector_selection(self.region_layer.id, selected)
 
+        selected_site_ids = list(self._selected_site_ids)
+
+        # Rebuild the visible child table with only selected-region rows
+        # (much faster than repeatedly hide/show over 100k rows).
+        self.sites_table.clear()
         if not selected:
-            # With no selected region, keep child table empty/cleared.
-            self.sites_table.show_all_rows()
-            self.sites_table.hide_rows_by_keys(self._all_site_keys)
-            self.sites_table.clear_selection()
+            self._allowed_site_ids.clear()
+            self._selected_site_ids.clear()
             self.map_widget.set_fast_points_selection(self.site_layer.id, [])
+            if self._benchmark:
+                dt = (time.perf_counter() - t0) * 1000.0
+                print(f"[bench] region selection -> empty scope in {dt:.1f} ms")
             return
 
-        allowed_ids = {
-            site_id
-            for rid in selected
-            for site_id in self.site_by_region.get(rid, [])
-        }
-        hide_keys = [k for k in self._all_site_keys if k[1] not in allowed_ids]
+        allowed_rows = []
+        allowed_ids = set()
+        for rid in selected:
+            rows = self._site_rows_by_region.get(rid, [])
+            allowed_rows.extend(rows)
+            allowed_ids.update(self.site_by_region.get(rid, []))
 
-        self.sites_table.show_all_rows()
-        if hide_keys:
-            self.sites_table.hide_rows_by_keys(hide_keys)
+        self.sites_table.append_rows(allowed_rows)
+        self._allowed_site_ids = allowed_ids
 
-        # Drop any child selection now out of scope.
-        selected_site_ids = [
-            fid for _layer_id, fid in self.sites_table.selected_keys() if fid in allowed_ids
-        ]
+        # Keep map/table child selection only for currently scoped rows.
+        scoped_selected_ids = [sid for sid in selected_site_ids if sid in self._allowed_site_ids]
         self.sites_table.select_keys(
-            [(self.site_layer.id, sid) for sid in selected_site_ids],
+            [(self.site_layer.id, sid) for sid in scoped_selected_ids],
             clear_first=True,
         )
-        self.map_widget.set_fast_points_selection(self.site_layer.id, selected_site_ids)
+        self._selected_site_ids = set(scoped_selected_ids)
+        self.map_widget.set_fast_points_selection(self.site_layer.id, scoped_selected_ids)
+
+        if self._benchmark:
+            dt = (time.perf_counter() - t0) * 1000.0
+            print(
+                f"[bench] region selection -> {len(selected)} regions, "
+                f"{len(allowed_rows):,} table rows in {dt:.1f} ms"
+            )
 
     def _on_region_table_selection(self, keys: list[tuple[str, str]]) -> None:
         if self._syncing_from_map:
@@ -255,15 +274,15 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
             return
 
         site_ids = [fid for _layer_id, fid in keys]
-        if self._selected_region_ids:
-            allowed = {
-                sid
-                for rid in self._selected_region_ids
-                for sid in self.site_by_region.get(rid, [])
-            }
-            site_ids = [fid for fid in site_ids if fid in allowed]
+        if self._allowed_site_ids:
+            site_ids = [fid for fid in site_ids if fid in self._allowed_site_ids]
 
+        t0 = time.perf_counter()
+        self._selected_site_ids = set(site_ids)
         self.map_widget.set_fast_points_selection(self.site_layer.id, site_ids)
+        if self._benchmark:
+            dt = (time.perf_counter() - t0) * 1000.0
+            print(f"[bench] site table -> map selection ({len(site_ids):,} ids) in {dt:.1f} ms")
 
     def _on_map_selection(self, selection) -> None:
         self._syncing_from_map = True
@@ -287,17 +306,15 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
                             sorted(owners),
                             update_map_selection=False,
                         )
-                    allowed = {
-                        sid
-                        for rid in self._selected_region_ids
-                        for sid in self.site_by_region.get(rid, [])
-                    }
-                    site_ids = [sid for sid in site_ids if sid in allowed]
+                    site_ids = [sid for sid in site_ids if sid in self._allowed_site_ids]
 
+                self._selected_site_ids = set(site_ids)
                 self.sites_table.select_keys(
                     [(self.site_layer.id, sid) for sid in site_ids],
                     clear_first=True,
                 )
+                if self._benchmark:
+                    print(f"[bench] map -> site table selection ({len(site_ids):,} ids)")
         finally:
             self._syncing_from_map = False
 
