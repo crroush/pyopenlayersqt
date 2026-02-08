@@ -128,7 +128,9 @@ class MeasurementExample(QtWidgets.QMainWindow):
         if event_type == "measurement":
             try:
                 data = json.loads(payload_json)
-                total_km = data.get("total_km", 0.0)
+                # JS emits cumulative_distance_m in meters, convert to km
+                cumulative_m = data.get("cumulative_distance_m", 0.0)
+                total_km = cumulative_m / 1000.0
                 self.distance_label.setText(f"Distance: {total_km:.2f} km")
             except json.JSONDecodeError:
                 pass

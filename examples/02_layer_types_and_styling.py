@@ -2,13 +2,14 @@
 """Layer Types and Styling with QColor
 
 This example demonstrates different layer types and styling options:
-- VectorLayer for points, circles, polygons, and ellipses
+- VectorLayer for points, circles, lines, polygons, and ellipses
 - Comprehensive QColor-based styling for all geometry types
 - Different stroke and fill options
 
 Features demonstrated:
 - Points with custom radius and colors
 - Circles with geodesic radius
+- Lines/Polylines (non-closed paths)
 - Polygons with custom fill and stroke
 - Ellipses with custom dimensions
 """
@@ -66,7 +67,23 @@ def main():
         )
     )
 
-    # 3. Polygon (simple triangle)
+    # 3. Line/Polyline (non-closed path)
+    line_coords = [
+        (37.7749, -122.4194),  # San Francisco
+        (37.8044, -122.2712),  # Oakland
+        (37.7500, -122.2000),  # East Bay
+    ]
+    layer.add_line(
+        coords=line_coords,
+        feature_id="line1",
+        style=PolygonStyle(
+            stroke_color=QColor("purple"),
+            stroke_width=3.0,
+            stroke_opacity=0.8
+        )
+    )
+
+    # 4. Polygon (simple triangle)
     polygon_ring = [
         (37.7000, -122.5000),
         (37.7000, -122.3500),
@@ -86,7 +103,7 @@ def main():
         )
     )
 
-    # 4. Ellipse (uncertainty visualization)
+    # 5. Ellipse (uncertainty visualization)
     layer.add_ellipse(
         center=(37.7500, -122.2000),  # East Bay
         sma_m=3000,  # Semi-major axis: 3km
@@ -103,7 +120,7 @@ def main():
         )
     )
 
-    # 5. Additional styled points using color names
+    # 6. Additional styled points using color names
     layer.add_points(
         [(37.7200, -122.4800)],
         ids=["point2"],
