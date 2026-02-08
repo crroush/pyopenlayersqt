@@ -367,7 +367,7 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
 
     def _update_stats(self):
         """Update the statistics label."""
-        total = self.table.model().rowCount()
+        total = self.table.model.rowCount()
         self.stats_label.setText(f"Total features: {total}")
 
     def _on_map_selection(self, selection):
