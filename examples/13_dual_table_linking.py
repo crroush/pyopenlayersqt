@@ -213,10 +213,12 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         if self._benchmark:
             dt = time.perf_counter() - t0
             total_sites = self.SITES_PER_REGION * len(region_seed)
-            self._perf_log(
-                f"data load complete: {len(region_seed)} regions",
-                f", {total_sites:,} sites in {dt:.2f} s",
+            perf_str = (
+                f"data load complete: {len(region_seed)} regions"
+                f", {total_sites:,} sites in {dt:.2f} s"
             )
+
+            self._perf_log(perf_str)
 
     def _apply_region_selection(
         self,
