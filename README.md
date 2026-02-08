@@ -94,14 +94,18 @@ sys.exit(app.exec())
 ```
 
 See the [examples directory](examples/) for more working examples:
-- `01_quick_start.py` - Basic map with points
-- `02_complete_example.py` - Comprehensive demo of all features
-- `03_measurement_mode.py` - Distance measurement tool
-- `04_sortable_table.py` - Feature table integration
-- `05_range_slider_filter.py` - Range slider for filtering
-- `06_selection_recoloring.py` - Interactive selection and recoloring
-- `07_qcolor_and_zorder.py` - QColor support and z-ordering demo
-- `08_all_styles_qcolor.py` - QColor in ALL Style classes demo
+- `01_basic_map_with_markers.py` - Basic map with QColor markers (start here!)
+- `02_layer_types_and_styling.py` - All geometry types with QColor
+- `03_fast_points_performance.py` - High-performance rendering (10,000+ points)
+- `04_wms_and_base_layers.py` - WMS integration and opacity control
+- `05_raster_overlay.py` - Raster/heatmap visualization
+- `06_geo_uncertainty_ellipses.py` - Geolocation uncertainty with ellipses
+- `07_feature_selection.py` - Interactive selection across layers
+- `08_table_integration.py` - Bidirectional map-table sync (CORE)
+- `09_selection_and_recoloring.py` - Interactive recoloring (CORE)
+- `10_range_slider_filtering.py` - Range slider filtering
+- `11_measurement_tool.py` - Distance measurement tool
+- `12_coordinate_display.py` - Coordinate display toggle
 
 ## Core Components
 
@@ -591,7 +595,7 @@ def recolor_selected_red():
             fast_geo_layer.set_colors(feature_ids, colors)
 ```
 
-See [examples/06_selection_recoloring.py](examples/06_selection_recoloring.py) for a complete interactive example.
+See [examples/09_selection_and_recoloring.py](examples/09_selection_and_recoloring.py) for a complete interactive example.
 
 ### Distance Measurement Mode
 
@@ -632,7 +636,7 @@ map_widget.set_measure_mode(False)
 - Press `Escape` to exit measurement mode
 - Measurement events emitted to Python with distances and coordinates
 
-See [examples/03_measurement_mode.py](examples/03_measurement_mode.py) for a complete working example.
+See [examples/11_measurement_tool.py](examples/11_measurement_tool.py) for a complete working example.
 
 ### FeatureTableWidget
 
@@ -751,11 +755,11 @@ fast_layer.show_all_features()  # Show all on map
 table.show_all_rows()  # Show all in table
 ```
 
-See [examples/05_range_slider_filter.py](examples/05_range_slider_filter.py) for a complete working example with map and table filtering.
+See [examples/10_range_slider_filtering.py](examples/10_range_slider_filtering.py) for a complete working example with map and table filtering.
 
 ## Complete Example
 
-For a comprehensive demonstration of all features, see the complete working example at [examples/02_complete_example.py](examples/02_complete_example.py). This example includes:
+For a comprehensive demonstration of all features, see the complete working example at [examples/08_table_integration.py](examples/08_table_integration.py). This example includes:
 - Vector and fast points layers
 - Feature table with bidirectional selection sync
 - Sample data generation
