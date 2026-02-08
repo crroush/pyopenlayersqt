@@ -34,9 +34,6 @@ class MeasurementExample(QtWidgets.QMainWindow):
         # Add some reference points
         self._add_reference_points()
 
-        # Track measurement state
-        self.measurement_enabled = False
-
         # Connect jsEvent for measurement updates
         self.map_widget.jsEvent.connect(self._on_js_event)
 

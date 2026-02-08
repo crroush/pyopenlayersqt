@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 from PySide6 import QtWidgets
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 from pyopenlayersqt import OLMapWidget, FastPointsStyle
@@ -118,7 +119,7 @@ class RangeSliderExample(QtWidgets.QMainWindow):
         sliders_layout.addStretch(1)
 
         # Splitter for table and map
-        splitter = QtWidgets.QSplitter(QtWidgets.Qt.Horizontal)
+        splitter = QtWidgets.QSplitter(Qt.Horizontal)
         splitter.addWidget(self.table)
         splitter.addWidget(self.map_widget)
         splitter.setStretchFactor(0, 1)

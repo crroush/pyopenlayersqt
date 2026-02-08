@@ -21,6 +21,7 @@ import io
 import numpy as np
 from PIL import Image
 from PySide6 import QtWidgets
+from PySide6.QtCore import Qt
 
 from pyopenlayersqt import OLMapWidget, RasterStyle
 
@@ -134,7 +135,7 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
         opacity_group = QtWidgets.QGroupBox("Heatmap Opacity")
         opacity_layout = QtWidgets.QHBoxLayout(opacity_group)
         opacity_layout.addWidget(QtWidgets.QLabel("Opacity:"))
-        self.opacity_slider = QtWidgets.QSlider(QtWidgets.Qt.Horizontal)
+        self.opacity_slider = QtWidgets.QSlider(Qt.Horizontal)
         self.opacity_slider.setRange(0, 100)
         self.opacity_slider.setValue(60)
         self.opacity_slider.valueChanged.connect(self._on_opacity_changed)

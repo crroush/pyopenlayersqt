@@ -67,17 +67,15 @@ def main():
     )
 
     # 3. Polygon (simple triangle)
-    polygon_coords = [
-        [
-            (37.7000, -122.5000),
-            (37.7000, -122.3500),
-            (37.6500, -122.4250),
-            (37.7000, -122.5000),  # Close the polygon
-        ]
+    polygon_ring = [
+        (37.7000, -122.5000),
+        (37.7000, -122.3500),
+        (37.6500, -122.4250),
+        (37.7000, -122.5000),  # Close the polygon
     ]
-    layer.add_polygons(
-        polygon_coords,
-        ids=["polygon1"],
+    layer.add_polygon(
+        ring=polygon_ring,
+        feature_id="polygon1",
         style=PolygonStyle(
             stroke_color=QColor("darkgreen"),
             stroke_width=2.5,
@@ -89,12 +87,12 @@ def main():
     )
 
     # 4. Ellipse (uncertainty visualization)
-    layer.add_ellipses(
-        [(37.7500, -122.2000)],  # East Bay
-        ids=["ellipse1"],
+    layer.add_ellipse(
+        center=(37.7500, -122.2000),  # East Bay
         sma_m=3000,  # Semi-major axis: 3km
         smi_m=1500,  # Semi-minor axis: 1.5km
         tilt_deg=45,  # 45 degrees from north
+        feature_id="ellipse1",
         style=EllipseStyle(
             stroke_color=QColor("orange"),
             stroke_width=2.0,
