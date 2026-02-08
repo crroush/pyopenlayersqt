@@ -71,6 +71,9 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         # Create feature table
         self.table = self._create_table()
 
+        # Cache map-side selection per layer; map events are emitted per-layer.
+        self._map_selection_by_layer = {}
+
         # Connect signals for bidirectional sync
         self.map_widget.selectionChanged.connect(self._on_map_selection)
         self.table.selectionKeysChanged.connect(self._on_table_selection)
@@ -348,17 +351,21 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         for layer_id, fid in selected_keys:
             by_layer.setdefault(layer_id, []).append(fid)
 
-        # Delete from each layer
+        # Delete from each layer and clear map-side selection for deleted layers.
         for layer_id, fids in by_layer.items():
             if layer_id == self.vector_layer.id:
                 self.vector_layer.remove_features(fids)
+                self.map_widget.set_vector_selection(layer_id, [])
                 print(f"Deleted {len(fids)} cities")
             elif layer_id == self.fast_layer.id:
                 self.fast_layer.remove_points(fids)
+                self.map_widget.set_fast_points_selection(layer_id, [])
                 print(f"Deleted {len(fids)} measurements")
             elif layer_id == self.geo_layer.id:
                 self.geo_layer.remove_ids(fids)
+                self.map_widget.set_fast_geopoints_selection(layer_id, [])
                 print(f"Deleted {len(fids)} geo points")
+            self._map_selection_by_layer[layer_id] = []
 
         # Remove from table
         self.table.remove_keys(selected_keys)
@@ -372,7 +379,14 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
 
     def _on_map_selection(self, selection):
         """Handle map selection changes -> update table."""
-        keys = [(selection.layer_id, fid) for fid in selection.feature_ids]
+        self._map_selection_by_layer[selection.layer_id] = list(selection.feature_ids)
+
+        # JS emits selection events per-layer; aggregate all known layer selections
+        # so the table reflects multi-layer selection state.
+        keys = []
+        for layer_id, feature_ids in self._map_selection_by_layer.items():
+            keys.extend((layer_id, fid) for fid in feature_ids)
+
         self.table.select_keys(keys, clear_first=True)
 
     def _on_table_selection(self, keys):

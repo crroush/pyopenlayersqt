@@ -196,16 +196,26 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
 
     def append_rows(self, rows: Iterable[Any]) -> None:
         """Append many rows efficiently."""
-        new_rows = list(rows)
+        incoming_rows = list(rows)
+        if not incoming_rows:
+            return
+
+        # Filter out duplicate keys first so beginInsertRows uses the exact range.
+        new_rows: List[Any] = []
+        for row in incoming_rows:
+            key = self._key_fn(row)
+            if key in self._row_by_key:
+                continue
+            new_rows.append(row)
+
         if not new_rows:
             return
+
         start = len(self._rows)
         end = start + len(new_rows) - 1
         self.beginInsertRows(QtCore.QModelIndex(), start, end)
         for r in new_rows:
             k = self._key_fn(r)
-            if k in self._row_by_key:
-                continue
             self._row_by_key[k] = len(self._rows)
             self._rows.append(r)
         self.endInsertRows()
@@ -215,6 +225,24 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         if not self._rows:
             return
         kept = [r for r in self._rows if not predicate(r)]
+        self.beginResetModel()
+        self._rows = kept
+        self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        self.endResetModel()
+
+    def remove_keys(self, keys: Sequence[FeatureKey]) -> None:
+        """Remove rows that match any key in ``keys`` (full reset)."""
+        if not self._rows or not keys:
+            return
+
+        key_set = {(str(layer_id), str(feature_id)) for layer_id, feature_id in keys}
+        if not key_set:
+            return
+
+        kept = [r for r in self._rows if self._key_fn(r) not in key_set]
+        if len(kept) == len(self._rows):
+            return
+
         self.beginResetModel()
         self._rows = kept
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
@@ -414,6 +442,10 @@ class FeatureTableWidget(QWidget):
 
     def remove_where(self, predicate: Callable[[Any], bool]) -> None:
         self.model.remove_where(predicate)
+
+    def remove_keys(self, keys: Sequence[FeatureKey]) -> None:
+        """Remove rows by (layer_id, feature_id) keys."""
+        self.model.remove_keys(keys)
 
     def row_for(self, layer_id: str, feature_id: str) -> Optional[int]:
         """Return row index for (layer_id, feature_id), if present."""

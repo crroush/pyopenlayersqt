@@ -391,6 +391,7 @@ function cmd_fast_points_add_layer(msg) {
     grid: new Map(),
     cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
+    idIndex: new Map(),
     style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255] },
     source: null,
     layer: null,
@@ -416,6 +417,7 @@ function cmd_fast_points_add_points(msg) {
     entry.y.push(p[1]);
     const fid = (ids ? ids[i] : String(startIndex + i));
     entry.ids.push(fid);
+    entry.idIndex.set(String(fid), startIndex + i);
     entry.deleted.push(false);
     entry.hidden.push(false);
     entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
@@ -427,8 +429,9 @@ function cmd_fast_points_add_points(msg) {
 function cmd_fast_points_clear(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
-  entry.x = []; entry.y = []; entry.ids = []; entry.color_u32 = []; entry.deleted = [];
+  entry.x = []; entry.y = []; entry.ids = []; entry.color_u32 = []; entry.deleted = []; entry.hidden = [];
   entry.grid = new Map();
+  entry.idIndex = new Map();
   entry.selectedIds = new Set();
   fp_redraw(entry);
   fp_emit_selection(entry);
@@ -440,13 +443,11 @@ function cmd_fast_points_remove_ids(msg) {
   const raw = (msg.feature_ids || msg.ids || []);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
-  for (let i = 0; i < entry.ids.length; i++) {
-    const fid = entry.ids[i];
-    if (!entry.deleted[i] && ids.has(String(fid))) {
-      entry.deleted[i] = true;
-      // entry.selectedIds stores the original fid type
-      entry.selectedIds.delete(fid);
-    }
+  for (const id of ids) {
+    const i = entry.idIndex.get(id);
+    if (i == null || entry.deleted[i]) continue;
+    entry.deleted[i] = true;
+    entry.selectedIds.delete(entry.ids[i]);
   }
   fp_redraw(entry);
   fp_emit_selection(entry);
@@ -485,7 +486,7 @@ function cmd_fast_points_select_set(msg) {
     if (entry.type !== "fast_points") return;
     entry.selectedIds = new Set(msg.feature_ids || []);
     fp_redraw(entry);
-    fgp_emit_selection(entry);
+    fp_emit_selection(entry);
 }
 
 function cmd_fast_points_hide_ids(msg) {
@@ -494,11 +495,10 @@ function cmd_fast_points_hide_ids(msg) {
   const raw = (msg.feature_ids || msg.ids || []);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
-  for (let i = 0; i < entry.ids.length; i++) {
-    const fid = entry.ids[i];
-    if (!entry.deleted[i] && ids.has(String(fid))) {
-      entry.hidden[i] = true;
-    }
+  for (const id of ids) {
+    const i = entry.idIndex.get(id);
+    if (i == null || entry.deleted[i]) continue;
+    entry.hidden[i] = true;
   }
   fp_redraw(entry);
 }
@@ -509,11 +509,10 @@ function cmd_fast_points_show_ids(msg) {
   const raw = (msg.feature_ids || msg.ids || []);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
-  for (let i = 0; i < entry.ids.length; i++) {
-    const fid = entry.ids[i];
-    if (!entry.deleted[i] && ids.has(String(fid))) {
-      entry.hidden[i] = false;
-    }
+  for (const id of ids) {
+    const i = entry.idIndex.get(id);
+    if (i == null || entry.deleted[i]) continue;
+    entry.hidden[i] = false;
   }
   fp_redraw(entry);
 }
@@ -534,16 +533,10 @@ function cmd_fast_points_set_colors(msg) {
   const colors = msg.colors || [];
   if (fids.length !== colors.length) return;
   
-  // Build a map of id -> index for fast lookup
-  const idToIdx = new Map();
-  for (let i = 0; i < entry.ids.length; i++) {
-    idToIdx.set(entry.ids[i], i);
-  }
-  
   // Update colors for the specified features
   for (let k = 0; k < fids.length; k++) {
-    const idx = idToIdx.get(String(fids[k]));
-    if (idx !== undefined) {
+    const idx = entry.idIndex.get(String(fids[k]));
+    if (idx != null) {
       entry.color_u32[idx] = colors[k] >>> 0;
     }
   }
@@ -741,6 +734,7 @@ function cmd_fast_geopoints_add_layer(msg) {
     grid: new Map(),
     cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
+    idIndex: new Map(),
     style,
     source: null,
     layer: null,
@@ -770,6 +764,7 @@ function cmd_fast_geopoints_add_points(msg) {
     entry.y.push(p[1]);
     const fid = (ids ? ids[i] : String(startIndex + i));
     entry.ids.push(fid);
+    entry.idIndex.set(String(fid), startIndex + i);
     entry.deleted.push(false);
     entry.hidden.push(false);
     entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
@@ -795,6 +790,7 @@ function cmd_fast_geopoints_clear(msg) {
   entry.x = []; entry.y = []; entry.ids = []; entry.color_u32 = []; entry.deleted = []; entry.hidden = [];
   entry.a = []; entry.b = []; entry.rot = [];
   entry.grid = new Map();
+  entry.idIndex = new Map();
   entry.selectedIds = new Set();
   fgp_redraw(entry);
   fgp_emit_selection(entry);
@@ -803,13 +799,14 @@ function cmd_fast_geopoints_clear(msg) {
 function cmd_fast_geopoints_remove_ids(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
-  const ids = new Set(msg.feature_ids || msg.ids || []);
+  const raw = (msg.feature_ids || msg.ids || []);
+  const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
-  for (let i = 0; i < entry.ids.length; i++) {
-    if (!entry.deleted[i] && ids.has(entry.ids[i])) {
-      entry.deleted[i] = true;
-      entry.selectedIds.delete(entry.ids[i]);
-    }
+  for (const id of ids) {
+    const i = entry.idIndex.get(id);
+    if (i == null || entry.deleted[i]) continue;
+    entry.deleted[i] = true;
+    entry.selectedIds.delete(entry.ids[i]);
   }
   fgp_redraw(entry);
   fgp_emit_selection(entry);
@@ -856,11 +853,10 @@ function cmd_fast_geopoints_hide_ids(msg) {
   const raw = (msg.feature_ids || msg.ids || []);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
-  for (let i = 0; i < entry.ids.length; i++) {
-    const fid = entry.ids[i];
-    if (!entry.deleted[i] && ids.has(String(fid))) {
-      entry.hidden[i] = true;
-    }
+  for (const id of ids) {
+    const i = entry.idIndex.get(id);
+    if (i == null || entry.deleted[i]) continue;
+    entry.hidden[i] = true;
   }
   fgp_redraw(entry);
 }
@@ -871,11 +867,10 @@ function cmd_fast_geopoints_show_ids(msg) {
   const raw = (msg.feature_ids || msg.ids || []);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
-  for (let i = 0; i < entry.ids.length; i++) {
-    const fid = entry.ids[i];
-    if (!entry.deleted[i] && ids.has(String(fid))) {
-      entry.hidden[i] = false;
-    }
+  for (const id of ids) {
+    const i = entry.idIndex.get(id);
+    if (i == null || entry.deleted[i]) continue;
+    entry.hidden[i] = false;
   }
   fgp_redraw(entry);
 }
@@ -896,16 +891,10 @@ function cmd_fast_geopoints_set_colors(msg) {
   const colors = msg.colors || [];
   if (fids.length !== colors.length) return;
   
-  // Build a map of id -> index for fast lookup
-  const idToIdx = new Map();
-  for (let i = 0; i < entry.ids.length; i++) {
-    idToIdx.set(entry.ids[i], i);
-  }
-  
   // Update colors for the specified features
   for (let k = 0; k < fids.length; k++) {
-    const idx = idToIdx.get(String(fids[k]));
-    if (idx !== undefined) {
+    const idx = entry.idIndex.get(String(fids[k]));
+    if (idx != null) {
       entry.color_u32[idx] = colors[k] >>> 0;
     }
   }
