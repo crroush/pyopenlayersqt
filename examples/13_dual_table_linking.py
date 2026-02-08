@@ -23,7 +23,7 @@ import time
 
 import numpy as np
 from PySide6 import QtWidgets
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QAbstractItemView
 
@@ -66,7 +66,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         self.region_by_site: dict[str, str] = {}
         self._selected_region_ids: set[str] = set()
         self._selected_site_ids: set[str] = set()
-        self._suppress_next_site_map_event = False
+        self._programmatic_site_sync_active = False
         self._benchmark = os.environ.get("PYOPENLAYERSQT_BENCH", "").lower() in {"1", "true", "yes"}
 
         self.map_widget.selectionChanged.connect(self._on_map_selection)
@@ -233,8 +233,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         )
         # This site-layer selection is programmatic (driven by region table/map region),
         # not a user subset action on the site layer.
-        self._suppress_next_site_map_event = True
-        self.map_widget.set_fast_points_selection(self.site_layer.id, selected_site_ids)
+        self._set_site_map_selection_programmatically(selected_site_ids)
 
         if self._benchmark:
             dt = (time.perf_counter() - t0) * 1000.0
@@ -258,8 +257,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         self._selected_site_ids = set(site_ids)
         # Programmatic write to map from table should not be interpreted as a user
         # map-subset gesture that clears region selection.
-        self._suppress_next_site_map_event = True
-        self.map_widget.set_fast_points_selection(self.site_layer.id, site_ids)
+        self._set_site_map_selection_programmatically(site_ids)
 
         if self._benchmark:
             dt = (time.perf_counter() - t0) * 1000.0
@@ -276,10 +274,8 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
             if selection.layer_id == self.site_layer.id:
                 site_ids = list(selection.feature_ids)
 
-                # Ignore one map event that we know was caused by a programmatic
-                # set_fast_points_selection call from table/region synchronization.
-                if self._suppress_next_site_map_event:
-                    self._suppress_next_site_map_event = False
+                # Ignore map events emitted by programmatic table->map writes.
+                if self._programmatic_site_sync_active:
                     return
 
                 self._selected_site_ids = set(site_ids)
@@ -297,6 +293,20 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
                     print(f"[bench] map -> site table selection ({len(site_ids):,} ids), regions cleared")
         finally:
             self._syncing_from_map = False
+
+    def _set_site_map_selection_programmatically(self, site_ids: list[str]) -> None:
+        """Write site selection to the map while suppressing map echo events.
+
+        Fast-points selection updates can emit one or more immediate map selection
+        events; those should not be treated as user subset gestures that clear
+        region selection.
+        """
+        self._programmatic_site_sync_active = True
+        self.map_widget.set_fast_points_selection(self.site_layer.id, site_ids)
+        QTimer.singleShot(0, self._clear_programmatic_site_sync_flag)
+
+    def _clear_programmatic_site_sync_flag(self) -> None:
+        self._programmatic_site_sync_active = False
 
 
 def main() -> None:
