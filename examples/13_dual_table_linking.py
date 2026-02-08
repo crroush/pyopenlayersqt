@@ -66,7 +66,10 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         self.region_by_site: dict[str, str] = {}
         self._selected_region_ids: set[str] = set()
         self._selected_site_ids: set[str] = set()
-        self._benchmark = os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1" or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
+        self._benchmark = (
+            os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
+            or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
+        )
 
         self.map_widget.selectionChanged.connect(self._on_map_selection)
         self.regions_table.selectionKeysChanged.connect(self._on_region_table_selection)
@@ -112,7 +115,9 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
             "is highlighted and Table 1 is cleared."
         )
         info.setWordWrap(True)
-        info.setStyleSheet("background-color: #e8f4f8; padding: 8px; border-radius: 4px;")
+        info.setStyleSheet(
+            "background-color: #e8f4f8; padding: 8px; border-radius: 4px;"
+        )
 
         tabs = QtWidgets.QTabWidget()
         tabs.addTab(self.regions_table, "Table 1: Regions (multi-select)")
@@ -164,20 +169,24 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
                     stroke_width=2.0,
                 ),
             )
-            self.regions_table.append_rows([
-                {
-                    "name": name,
-                    "category": category,
-                    "site_count": f"{self.SITES_PER_REGION:,}",
-                    "layer_id": self.region_layer.id,
-                    "feature_id": region_id,
-                }
-            ])
+            self.regions_table.append_rows(
+                [
+                    {
+                        "name": name,
+                        "category": category,
+                        "site_count": f"{self.SITES_PER_REGION:,}",
+                        "layer_id": self.region_layer.id,
+                        "feature_id": region_id,
+                    }
+                ]
+            )
 
             count = self.SITES_PER_REGION
             offsets_lat = (rng.random(count) - 0.5) * 2.2
             offsets_lon = (rng.random(count) - 0.5) * 2.6
-            coords = [(lat + offsets_lat[i], lon + offsets_lon[i]) for i in range(count)]
+            coords = [
+                (lat + offsets_lat[i], lon + offsets_lon[i]) for i in range(count)
+            ]
 
             site_ids = [f"site_{idx}_{i}" for i in range(count)]
             self.site_layer.add_points(coords, ids=site_ids)
@@ -204,7 +213,9 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         if self._benchmark:
             dt = time.perf_counter() - t0
             total_sites = self.SITES_PER_REGION * len(region_seed)
-            self._perf_log(f"data load complete: {len(region_seed)} regions, {total_sites:,} sites in {dt:.2f} s")
+            self._perf_log(
+                f"data load complete: {len(region_seed)} regions, {total_sites:,} sites in {dt:.2f} s"
+            )
 
     def _apply_region_selection(
         self,
@@ -225,9 +236,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
 
         # Region selection means select all sites for those region(s).
         selected_site_ids = [
-            sid
-            for rid in selected
-            for sid in self.site_by_region.get(rid, [])
+            sid for rid in selected for sid in self.site_by_region.get(rid, [])
         ]
         self._selected_site_ids = set(selected_site_ids)
         self.sites_table.select_keys(
@@ -264,7 +273,9 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
 
         if self._benchmark:
             dt = (time.perf_counter() - t0) * 1000.0
-            self._perf_log(f"site table -> map selection ({len(site_ids):,} ids) in {dt:.1f} ms")
+            self._perf_log(
+                f"site table -> map selection ({len(site_ids):,} ids) in {dt:.1f} ms"
+            )
 
     def _expected_site_ids_for_selected_regions(self) -> set[str]:
         """Return the full site-id union implied by current region selection."""
@@ -306,7 +317,9 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
                     clear_first=True,
                 )
                 if self._benchmark:
-                    self._perf_log(f"map -> site table selection ({len(site_ids):,} ids), regions cleared")
+                    self._perf_log(
+                        f"map -> site table selection ({len(site_ids):,} ids), regions cleared"
+                    )
         finally:
             self._syncing_from_map = False
 
