@@ -16,6 +16,7 @@ Raster overlays are useful for visualizing continuous data like:
 """
 
 import sys
+import io
 
 import numpy as np
 from PIL import Image
@@ -28,7 +29,7 @@ def generate_heatmap_image(width=512, height=512, seed=42):
     """Generate a simple heatmap image using inverse distance weighting.
 
     Returns:
-        PIL Image in RGBA format
+        bytes: PNG image data
     """
     rng = np.random.default_rng(seed)
 
@@ -69,9 +70,11 @@ def generate_heatmap_image(width=512, height=512, seed=42):
     indices = np.clip(indices, 0, len(colors) - 1)
     rgba = colors[indices]
 
-    # Create PIL image
+    # Create PIL image and return as PNG bytes
     img = Image.fromarray(rgba, mode='RGBA')
-    return img
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    return buf.getvalue()
 
 
 class RasterOverlayExample(QtWidgets.QMainWindow):
@@ -85,16 +88,20 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
         # Create map centered on San Francisco Bay Area
         self.map_widget = OLMapWidget(center=(37.7749, -122.4194), zoom=10)
 
-        # Generate a heatmap image
-        heatmap_img = generate_heatmap_image(512, 512)
+        # Generate a heatmap image as PNG bytes
+        heatmap_png = generate_heatmap_image(512, 512)
 
         # Define geographic bounds for the image
-        # [lon_min, lat_min, lon_max, lat_max] in EPSG:4326 (WGS84)
-        bounds = [-122.5, 37.7, -122.35, 37.85]  # Covers San Francisco
+        # Two (lat, lon) tuples defining SW and NE corners
+        bounds = [
+            (37.7, -122.5),   # Southwest corner (lat, lon)
+            (37.85, -122.35)  # Northeast corner (lat, lon)
+        ]
 
         # Add the raster overlay
+        # First parameter is the image data (PNG bytes), not a keyword argument
         self.raster_layer = self.map_widget.add_raster_image(
-            image=heatmap_img,
+            heatmap_png,
             bounds=bounds,
             style=RasterStyle(opacity=0.6),
             name="heatmap"

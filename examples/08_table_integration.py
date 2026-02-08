@@ -16,6 +16,7 @@ import sys
 
 import numpy as np
 from PySide6 import QtWidgets
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 from pyopenlayersqt import OLMapWidget, PointStyle, FastPointsStyle
@@ -59,7 +60,7 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         self.map_widget.ready.connect(self._add_data)
 
         # Layout
-        splitter = QtWidgets.QSplitter(QtWidgets.Qt.Horizontal)
+        splitter = QtWidgets.QSplitter(Qt.Horizontal)
         splitter.addWidget(self.table)
         splitter.addWidget(self.map_widget)
         splitter.setStretchFactor(0, 1)  # Table gets 1/3

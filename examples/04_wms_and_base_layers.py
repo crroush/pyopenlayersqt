@@ -13,6 +13,7 @@ WMS allows you to overlay external map data sources onto your map.
 import sys
 
 from PySide6 import QtWidgets
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 from pyopenlayersqt import OLMapWidget, WMSOptions, PointStyle
@@ -80,7 +81,7 @@ class WMSExample(QtWidgets.QMainWindow):
         wms_group = QtWidgets.QGroupBox("WMS Layer Opacity")
         wms_layout = QtWidgets.QHBoxLayout(wms_group)
         wms_layout.addWidget(QtWidgets.QLabel("Opacity:"))
-        self.wms_slider = QtWidgets.QSlider(QtWidgets.Qt.Horizontal)
+        self.wms_slider = QtWidgets.QSlider(Qt.Horizontal)
         self.wms_slider.setRange(0, 100)
         self.wms_slider.setValue(70)
         self.wms_slider.valueChanged.connect(self._on_wms_opacity_changed)
@@ -93,7 +94,7 @@ class WMSExample(QtWidgets.QMainWindow):
         base_group = QtWidgets.QGroupBox("OpenStreetMap Base Layer Opacity")
         base_layout = QtWidgets.QHBoxLayout(base_group)
         base_layout.addWidget(QtWidgets.QLabel("Opacity:"))
-        self.base_slider = QtWidgets.QSlider(QtWidgets.Qt.Horizontal)
+        self.base_slider = QtWidgets.QSlider(Qt.Horizontal)
         self.base_slider.setRange(0, 100)
         self.base_slider.setValue(100)
         self.base_slider.valueChanged.connect(self._on_base_opacity_changed)

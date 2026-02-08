@@ -105,8 +105,6 @@ class CoordinateDisplayExample(QtWidgets.QMainWindow):
 
     def _toggle_coordinates(self, checked):
         """Toggle coordinate display."""
-        # Note: Currently, the coordinate display toggle requires JavaScript
-        # communication. For this example, we'll use JavaScript evaluation.
         if checked:
             # Hide coordinates
             self.toggle_btn.setText("Show Coordinates")
@@ -115,9 +113,9 @@ class CoordinateDisplayExample(QtWidgets.QMainWindow):
                 "background-color: #f8d7da; color: #721c24; "
                 "padding: 8px; border-radius: 4px; font-weight: bold;"
             )
-            # Send message to hide coordinates
-            self.map_widget.send({
-                "type": "set_coordinate_display",
+            # Send message to hide coordinates - use the correct message type
+            self.map_widget._send({
+                "type": "coordinates.set_visible",
                 "visible": False
             })
         else:
@@ -128,9 +126,9 @@ class CoordinateDisplayExample(QtWidgets.QMainWindow):
                 "background-color: #d4edda; color: #155724; "
                 "padding: 8px; border-radius: 4px; font-weight: bold;"
             )
-            # Send message to show coordinates
-            self.map_widget.send({
-                "type": "set_coordinate_display",
+            # Send message to show coordinates - use the correct message type
+            self.map_widget._send({
+                "type": "coordinates.set_visible",
                 "visible": True
             })
 

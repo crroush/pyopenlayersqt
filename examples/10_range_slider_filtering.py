@@ -80,8 +80,7 @@ class RangeSliderExample(QtWidgets.QMainWindow):
             min_val=0.0,
             max_val=100.0,
             step=1.0,
-            label="Filter by Value",
-            value_formatter=lambda v: f"{v:.0f}"
+            label="Filter by Value"
         )
         value_slider.rangeChanged.connect(self._on_value_range_changed)
 
@@ -92,8 +91,7 @@ class RangeSliderExample(QtWidgets.QMainWindow):
             min_val=start_date.timestamp(),
             max_val=end_date.timestamp(),
             step=3600,  # 1 hour steps
-            label="Filter by Timestamp",
-            value_formatter=lambda v: datetime.fromtimestamp(v).strftime("%Y-%m-%d %H:%M")
+            label="Filter by Timestamp"
         )
         time_slider.rangeChanged.connect(self._on_time_range_changed)
 

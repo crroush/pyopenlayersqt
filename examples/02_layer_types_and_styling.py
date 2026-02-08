@@ -52,10 +52,10 @@ def main():
     )
 
     # 2. Circle with geodesic radius (5km)
-    layer.add_circles(
-        [(37.8044, -122.2712)],  # Oakland
-        ids=["circle1"],
+    layer.add_circle(
+        center=(37.8044, -122.2712),  # Oakland
         radius_m=5000,  # 5 kilometers
+        feature_id="circle1",
         style=CircleStyle(
             stroke_color=QColor("steelblue"),
             stroke_width=3.0,

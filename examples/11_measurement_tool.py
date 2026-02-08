@@ -111,7 +111,6 @@ class MeasurementExample(QtWidgets.QMainWindow):
 
     def _toggle_measurement(self, checked):
         """Toggle measurement mode."""
-        self.measurement_enabled = checked
         self.map_widget.set_measure_mode(checked)
 
         if checked:
