@@ -793,6 +793,35 @@ def on_map_selection(selection):
 map_widget.selectionChanged.connect(on_map_selection)
 ```
 
+#### Row removal APIs: `remove_keys` vs `remove_where`
+
+`FeatureTableWidget` provides two row-removal methods for different use cases:
+
+- `table.remove_keys(keys)`
+  - Use when you already know the exact `(layer_id, feature_id)` keys to remove.
+  - Best for map-driven actions like deleting selected features from one or more
+    layers, because keys are already available from selection events.
+  - Example:
+
+    ```python
+    selected_keys = table.selected_keys()  # [(layer_id, feature_id), ...]
+    if selected_keys:
+        table.remove_keys(selected_keys)
+    ```
+
+- `table.remove_where(predicate)`
+  - Use when removal logic depends on arbitrary row attributes/conditions rather
+    than known keys.
+  - Example:
+
+    ```python
+    # Remove all rows from a specific layer kind
+    table.remove_where(lambda row: row.get("layer_kind") == "geo_points")
+    ```
+
+In short: prefer `remove_keys` for explicit feature-ID removals (typical CRUD
+flows), and `remove_where` for ad-hoc, attribute-based filtering/removal.
+
 ### RangeSliderWidget
 
 Dual-handle range slider for filtering features by numeric or timestamp ranges:
