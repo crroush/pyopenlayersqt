@@ -255,15 +255,15 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
 
         if shape_name == "Rectangle":
             return None  # No mask = full rectangle
-        elif shape_name == "Circle":
+        if shape_name == "Circle":
             return _get_circle_polygon(width, height)
-        elif shape_name == "Triangle":
+        if shape_name == "Triangle":
             return _get_triangle_polygon(width, height)
-        elif shape_name == "Hexagon":
+        if shape_name == "Hexagon":
             return _get_hexagon_polygon(width, height)
-        elif shape_name == "Star":
+        if shape_name == "Star":
             return _get_star_polygon(width, height)
-        elif shape_name == "Irregular":
+        if shape_name == "Irregular":
             return _get_irregular_polygon(width, height)
         return None
 
