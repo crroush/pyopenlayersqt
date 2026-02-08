@@ -66,7 +66,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         self.region_by_site: dict[str, str] = {}
         self._selected_region_ids: set[str] = set()
         self._selected_site_ids: set[str] = set()
-        self._benchmark = os.environ.get("PYOPENLAYERSQT_BENCH", "").lower() in {"1", "true", "yes"}
+        self._benchmark = self._is_truthy_env("PYOPENLAYERSQT_BENCH") or self._is_truthy_env("PYOPENLAYERSQT_PERF")
 
         self.map_widget.selectionChanged.connect(self._on_map_selection)
         self.regions_table.selectionKeysChanged.connect(self._on_region_table_selection)
@@ -74,6 +74,14 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         self.map_widget.ready.connect(self._add_data)
 
         self._build_layout()
+
+    @staticmethod
+    def _is_truthy_env(name: str) -> bool:
+        return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+    def _perf_log(self, message: str) -> None:
+        if self._benchmark:
+            print(f"[PERF] {message}")
 
     def _create_regions_table(self) -> FeatureTableWidget:
         columns = [
@@ -200,7 +208,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         if self._benchmark:
             dt = time.perf_counter() - t0
             total_sites = self.SITES_PER_REGION * len(region_seed)
-            print(f"[bench] data load complete: {len(region_seed)} regions, {total_sites:,} sites in {dt:.2f} s")
+            self._perf_log(f"data load complete: {len(region_seed)} regions, {total_sites:,} sites in {dt:.2f} s")
 
     def _apply_region_selection(
         self,
@@ -236,8 +244,8 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
 
         if self._benchmark:
             dt = (time.perf_counter() - t0) * 1000.0
-            print(
-                f"[bench] region selection -> {len(selected)} regions, "
+            self._perf_log(
+                f"region selection -> {len(selected)} regions, "
                 f"{len(selected_site_ids):,} sites selected in {dt:.1f} ms"
             )
 
@@ -260,7 +268,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
 
         if self._benchmark:
             dt = (time.perf_counter() - t0) * 1000.0
-            print(f"[bench] site table -> map selection ({len(site_ids):,} ids) in {dt:.1f} ms")
+            self._perf_log(f"site table -> map selection ({len(site_ids):,} ids) in {dt:.1f} ms")
 
     def _expected_site_ids_for_selected_regions(self) -> set[str]:
         """Return the full site-id union implied by current region selection."""
@@ -302,7 +310,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
                     clear_first=True,
                 )
                 if self._benchmark:
-                    print(f"[bench] map -> site table selection ({len(site_ids):,} ids), regions cleared")
+                    self._perf_log(f"map -> site table selection ({len(site_ids):,} ids), regions cleared")
         finally:
             self._syncing_from_map = False
 
