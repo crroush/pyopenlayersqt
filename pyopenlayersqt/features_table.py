@@ -196,16 +196,26 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
 
     def append_rows(self, rows: Iterable[Any]) -> None:
         """Append many rows efficiently."""
-        new_rows = list(rows)
+        incoming_rows = list(rows)
+        if not incoming_rows:
+            return
+
+        # Filter out duplicate keys first so beginInsertRows uses the exact range.
+        new_rows: List[Any] = []
+        for row in incoming_rows:
+            key = self._key_fn(row)
+            if key in self._row_by_key:
+                continue
+            new_rows.append(row)
+
         if not new_rows:
             return
+
         start = len(self._rows)
         end = start + len(new_rows) - 1
         self.beginInsertRows(QtCore.QModelIndex(), start, end)
         for r in new_rows:
             k = self._key_fn(r)
-            if k in self._row_by_key:
-                continue
             self._row_by_key[k] = len(self._rows)
             self._rows.append(r)
         self.endInsertRows()
