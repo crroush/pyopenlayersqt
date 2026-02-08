@@ -186,11 +186,17 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         # Start with first region selected.
         self._set_active_region(self.region_ids[0])
 
-    def _set_active_region(self, region_id: str) -> None:
+    def _set_active_region(
+        self,
+        region_id: str,
+        *,
+        update_map_selection: bool = True,
+    ) -> None:
         self._active_region_id = region_id
 
         self.regions_table.select_keys([(self.region_layer.id, region_id)], clear_first=True)
-        self.map_widget.set_vector_selection(self.region_layer.id, [region_id])
+        if update_map_selection:
+            self.map_widget.set_vector_selection(self.region_layer.id, [region_id])
 
         allowed_ids = set(self.site_by_region.get(region_id, []))
         hide_keys = [k for k in self._all_site_keys if k[1] not in allowed_ids]
@@ -225,7 +231,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
             if selection.layer_id == self.region_layer.id:
                 if selection.feature_ids:
                     region_id = selection.feature_ids[0]
-                    self._set_active_region(region_id)
+                    self._set_active_region(region_id, update_map_selection=False)
                 else:
                     self.regions_table.clear_selection()
                     self._active_region_id = None
@@ -240,7 +246,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
                 if site_ids:
                     owner = self.region_by_site.get(site_ids[0])
                     if owner and owner != self._active_region_id:
-                        self._set_active_region(owner)
+                        self._set_active_region(owner, update_map_selection=False)
                     allowed = set(self.site_by_region.get(self._active_region_id or "", []))
                     site_ids = [sid for sid in site_ids if sid in allowed]
 
