@@ -461,7 +461,7 @@ raster.set_opacity(0.8)
 # Remove layer
 raster.remove()
 ```
-<img width="828" height="506" alt="image" src="https://github.com/user-attachments/assets/5e0038df-0e53-4abb-86db-2cdf5d5615d6" />
+<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/2ff33448-afcd-42fc-9b0a-91066ee84202" />
 
 ### Style Classes
 
