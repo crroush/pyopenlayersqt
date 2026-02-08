@@ -103,9 +103,9 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
 
     def _build_layout(self) -> None:
         info = QtWidgets.QLabel(
-            "<b>Workflow:</b> Use tabs below the map. Multi-select regions in Table 1 "
-            "(or on-map red markers). Table 2 keeps all sites visible, and you can multi-select "
-            "sites across regions. This demo loads 100,000 site points."
+            "<b>Workflow:</b> Selecting region(s) in Table 1 selects all corresponding sites "
+            "in Table 2 and on the map. If you draw a subset selection on the map, only Table 2 "
+            "is highlighted and Table 1 is cleared."
         )
         info.setWordWrap(True)
         info.setStyleSheet("background-color: #e8f4f8; padding: 8px; border-radius: 4px;")
@@ -194,10 +194,8 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
 
         self.sites_table.append_rows(site_rows)
 
-        # Start with one region selected and no site selection.
+        # Start with one selected region, selecting all corresponding sites.
         self._apply_region_selection([self.region_ids[0]])
-        self.sites_table.clear_selection()
-        self.map_widget.set_fast_points_selection(self.site_layer.id, [])
 
         if self._benchmark:
             dt = time.perf_counter() - t0
@@ -221,9 +219,25 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         if update_map_selection:
             self.map_widget.set_vector_selection(self.region_layer.id, selected)
 
+        # Region selection means select all sites for those region(s).
+        selected_site_ids = [
+            sid
+            for rid in selected
+            for sid in self.site_by_region.get(rid, [])
+        ]
+        self._selected_site_ids = set(selected_site_ids)
+        self.sites_table.select_keys(
+            [(self.site_layer.id, sid) for sid in selected_site_ids],
+            clear_first=True,
+        )
+        self.map_widget.set_fast_points_selection(self.site_layer.id, selected_site_ids)
+
         if self._benchmark:
             dt = (time.perf_counter() - t0) * 1000.0
-            print(f"[bench] region selection -> {len(selected)} regions in {dt:.1f} ms")
+            print(
+                f"[bench] region selection -> {len(selected)} regions, "
+                f"{len(selected_site_ids):,} sites selected in {dt:.1f} ms"
+            )
 
     def _on_region_table_selection(self, keys: list[tuple[str, str]]) -> None:
         if self._syncing_from_map:
@@ -256,26 +270,17 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
                 site_ids = list(selection.feature_ids)
                 self._selected_site_ids = set(site_ids)
 
-                # Promote owners in Table 1 while preserving existing multi-selection.
-                if site_ids:
-                    owners = {
-                        self.region_by_site[sid]
-                        for sid in site_ids
-                        if sid in self.region_by_site
-                    }
-                    if owners:
-                        promoted = sorted(self._selected_region_ids.union(owners))
-                        self._apply_region_selection(
-                            promoted,
-                            update_map_selection=False,
-                        )
+                # Map subset selection highlights sites only; clear region table/map selection.
+                self._selected_region_ids.clear()
+                self.regions_table.clear_selection()
+                self.map_widget.set_vector_selection(self.region_layer.id, [])
 
                 self.sites_table.select_keys(
                     [(self.site_layer.id, sid) for sid in site_ids],
                     clear_first=True,
                 )
                 if self._benchmark:
-                    print(f"[bench] map -> site table selection ({len(site_ids):,} ids)")
+                    print(f"[bench] map -> site table selection ({len(site_ids):,} ids), regions cleared")
         finally:
             self._syncing_from_map = False
 
