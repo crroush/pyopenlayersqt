@@ -915,6 +915,7 @@ plot.highlightFeatureKeys.connect(
 
 - Multiple trace modes (`scatter`, `line`, `both`)
 - Rectangle box selection (Shift/Ctrl additive selection)
+- Bidirectional map/plot selection workflows (plot→map and map→plot)
 - Programmatic selection for table/map-driven workflows
 - QColor-first styling (QColor objects or color name strings)
 - Recolor/delete selected points

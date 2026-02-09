@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QRubberBand, QVBoxLayout, QWidget
 
 FeatureKey = Tuple[str, str]
 ColorValue = Union[str, QColor, tuple[int, int, int], tuple[int, int, int, int]]
+LineStyleValue = Union[str, Qt.PenStyle]
 
 
 def _to_qcolor(color: ColorValue) -> QColor:
@@ -32,6 +33,25 @@ def _to_qcolor(color: ColorValue) -> QColor:
     if isinstance(color, tuple) and len(color) == 4:
         return QColor(int(color[0]), int(color[1]), int(color[2]), int(color[3]))
     raise TypeError(f"Unsupported color type: {type(color)}")
+
+
+def _to_pen_style(style: LineStyleValue) -> Qt.PenStyle:
+    """Normalize line style input to Qt pen style."""
+    if isinstance(style, Qt.PenStyle):
+        return style
+    text = str(style).lower().strip()
+    mapping = {
+        "solid": Qt.SolidLine,
+        "-": Qt.SolidLine,
+        "dash": Qt.DashLine,
+        "--": Qt.DashLine,
+        "dot": Qt.DotLine,
+        ":": Qt.DotLine,
+        "dashdot": Qt.DashDotLine,
+        "-.": Qt.DashDotLine,
+        "dashdotdot": Qt.DashDotDotLine,
+    }
+    return mapping.get(text, Qt.SolidLine)
 
 
 @dataclass(frozen=True)
@@ -49,6 +69,7 @@ class TraceStyle:
     color: ColorValue = "dodgerblue"
     marker_size: float = 8.0
     line_width: float = 2.0
+    line_style: LineStyleValue = "solid"
     selected_color: ColorValue = "orange"
     selected_marker_size: float = 11.0
 
@@ -313,12 +334,48 @@ class PlotWidget(QWidget):
         self._refresh_all_series()
         self._emit_selection_signals()
 
+    def set_selected_feature_keys(self, keys: Iterable[FeatureKey], additive: bool = False) -> None:
+        """Programmatically select points by feature keys."""
+        key_set = {(str(layer_id), str(feature_id)) for layer_id, feature_id in keys}
+        refs: List[PlotPointRef] = []
+        for trace_id, trace in self._traces.items():
+            if not additive:
+                trace.selected_mask[:] = False
+            if trace.feature_keys is None:
+                continue
+            for i, key in enumerate(trace.feature_keys):
+                if key in key_set and trace.active_mask[i]:
+                    refs.append(PlotPointRef(trace_id=trace_id, index=i))
+        self.set_selected_points(refs, additive=additive)
+
+    def set_trace_style(self, trace_id: str, style: TraceStyle) -> None:
+        """Replace trace style and refresh series visuals."""
+        trace = self._traces.get(str(trace_id))
+        if trace is None:
+            return
+        trace.style = style
+        self._refresh_trace_series(trace)
+        self.traceDataChanged.emit(trace.trace_id)
+
+    def set_datetime_axis_format(self, fmt: str) -> None:
+        """Set datetime axis label format."""
+        self._axis_x_datetime.setFormat(str(fmt))
+
+    def set_datetime_axis_tick_count(self, tick_count: int) -> None:
+        """Set datetime axis tick count."""
+        self._axis_x_datetime.setTickCount(max(2, int(tick_count)))
+
+    def set_datetime_labels_angle(self, angle_deg: float) -> None:
+        """Set datetime axis label angle to improve readability."""
+        self._axis_x_datetime.setLabelsAngle(float(angle_deg))
+
     def _create_series(self, trace: TraceData) -> None:
         if trace.mode in {"line", "both"}:
             line = QLineSeries()
             pen = line.pen()
             pen.setColor(_to_qcolor(trace.style.color))
             pen.setWidthF(trace.style.line_width)
+            pen.setStyle(_to_pen_style(trace.style.line_style))
             line.setPen(pen)
             line.setName(f"{trace.trace_id} (line)")
             self._attach_series(line)
@@ -356,6 +413,11 @@ class PlotWidget(QWidget):
         unselected = active & ~selected
 
         if trace.line_series is not None:
+            pen = trace.line_series.pen()
+            pen.setColor(_to_qcolor(trace.style.color))
+            pen.setWidthF(trace.style.line_width)
+            pen.setStyle(_to_pen_style(trace.style.line_style))
+            trace.line_series.setPen(pen)
             points = [QPointF(float(x), float(y)) for x, y in zip(x_vals[active], trace.y[active])]
             trace.line_series.replace(points)
 
