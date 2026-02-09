@@ -111,7 +111,7 @@ See the [examples directory](examples/) for more working examples:
 - `11_measurement_tool.py` - Distance measurement tool
 - `12_coordinate_display.py` - Coordinate display toggle
 - `13_dual_table_linking.py` - Two-table parent/child map-table selection workflow
-- `14_plot_widget_integration.py` - Plot + map linking with box selection and highlight sync
+- `14_plot_widget_integration.py` - Plot + map + table linking with bidirectional selection, line-style controls, and resizable panes
 
 ## Core Components
 
