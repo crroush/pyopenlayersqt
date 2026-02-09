@@ -39,7 +39,9 @@ class MainWindow(QMainWindow):
             ),
         )
         self.plot = PlotWidget()
-        self.info = QLabel("Box-select points in the plot. Selected points are highlighted on the map.")
+        self.info = QLabel(
+            "Box-select points in the plot. Selected points are highlighted in the fast-points layer."
+        )
 
         self._build_data()
 
@@ -81,11 +83,12 @@ class MainWindow(QMainWindow):
                 selected_marker_size=10,
             ),
             timestamps=ts,
-            feature_keys=[("stations", f"pt_{i}") for i in range(n)],
+            feature_keys=[(self.fast_points.id, f"pt_{i}") for i in range(n)],
         )
 
     def _on_plot_highlight(self, keys: list[tuple[str, str]]) -> None:
-        self.map_widget.set_selection(keys)
+        selected_ids = [feature_id for layer_id, feature_id in keys if layer_id == self.fast_points.id]
+        self.map_widget.set_fast_points_selection(self.fast_points.id, selected_ids)
         self.info.setText(f"Selected points: {len(keys)}")
 
 

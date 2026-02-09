@@ -903,7 +903,12 @@ plot.add_trace(
     feature_keys=[("layer", fid) for fid in feature_ids],
 )
 
-plot.highlightFeatureKeys.connect(map_widget.set_selection)
+plot.highlightFeatureKeys.connect(
+    lambda keys: map_widget.set_fast_points_selection(
+        fast_layer.id,
+        [fid for layer_id, fid in keys if layer_id == fast_layer.id],
+    )
+)
 ```
 
 **Capabilities:**
