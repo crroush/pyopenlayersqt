@@ -28,6 +28,7 @@ const state = {
     qtBridge: null,
     selectInteraction: null,
     dragBox: null,
+    dragZoom: null,
     base_layer: null,
     viewInteracting: false,
     // Measurement mode state
@@ -905,7 +906,7 @@ function cmd_fast_geopoints_set_colors(msg) {
 function fp_install_interactions() {
   state.map.on("singleclick", function(evt) {
     const orig = evt.originalEvent;
-    const mod = orig && (orig.ctrlKey || orig.metaKey);
+    const mod = orig && orig.ctrlKey;
     const coord = evt.coordinate;
     const ll_coord = p3857_to_lonlat(coord);
     fp_emit_singleclick(
@@ -934,7 +935,7 @@ function fp_install_interactions() {
   const dragBox = new ol.interaction.DragBox({
     condition: function(evt) {
       const oe = evt.originalEvent;
-      return oe && (oe.ctrlKey || oe.metaKey);
+      return oe && oe.ctrlKey;
     }
   });
   state.map.addInteraction(dragBox);
@@ -1550,11 +1551,17 @@ function cmd_coordinates_set_visible(msg) {
       }
     });
 
-    // DragBox: Ctrl/Cmd + drag selects intersecting features.
+    // DragBox: Ctrl + drag selects intersecting features.
     state.dragBox = new ol.interaction.DragBox({
-      condition: (evt) => ol.events.condition.platformModifierKeyOnly(evt) && ol.events.condition.primaryAction(evt),
+      condition: (evt) => ol.events.condition.ctrlKeyOnly(evt) && ol.events.condition.primaryAction(evt),
     });
     state.map.addInteraction(state.dragBox);
+
+    // DragZoom: Shift + drag zoom box.
+    state.dragZoom = new ol.interaction.DragZoom({
+      condition: (evt) => ol.events.condition.shiftKeyOnly(evt) && ol.events.condition.primaryAction(evt),
+    });
+    state.map.addInteraction(state.dragZoom);
 
     state.dragBox.on("boxend", function () {
       const extent = state.dragBox.getGeometry().getExtent();

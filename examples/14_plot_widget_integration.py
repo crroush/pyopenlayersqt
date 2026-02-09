@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication,
@@ -80,7 +80,7 @@ class MainWindow(QMainWindow):
             "Select on plot, map, or table. All views stay synchronized."
         )
 
-        self._suppress_map_to_plot = False
+        self._ignore_next_map_selection_event = False
         self._build_data()
 
         root = QWidget()
@@ -93,19 +93,20 @@ class MainWindow(QMainWindow):
         layout.addWidget(controls)
         layout.addWidget(self.info)
 
-        left_split = QSplitter(Qt.Vertical)
-        left_split.addWidget(self.plot)
-        left_split.addWidget(self.table)
-        left_split.setStretchFactor(0, 3)
-        left_split.setStretchFactor(1, 2)
+        top_split = QSplitter(Qt.Horizontal)
+        top_split.addWidget(self.plot)
+        top_split.addWidget(self.map_widget)
+        top_split.setStretchFactor(0, 3)
+        top_split.setStretchFactor(1, 4)
+        top_split.setSizes([760, 900])
 
-        main_split = QSplitter(Qt.Horizontal)
-        main_split.addWidget(left_split)
-        main_split.addWidget(self.map_widget)
-        main_split.setStretchFactor(0, 3)
-        main_split.setStretchFactor(1, 4)
-        main_split.setSizes([700, 900])
-        layout.addWidget(main_split)
+        vertical = QSplitter(Qt.Vertical)
+        vertical.addWidget(top_split)
+        vertical.addWidget(self.table)
+        vertical.setStretchFactor(0, 4)
+        vertical.setStretchFactor(1, 2)
+        vertical.setSizes([620, 240])
+        layout.addWidget(vertical)
 
         self.plot.highlightFeatureKeys.connect(self._on_plot_highlight)
         self.map_widget.selectionChanged.connect(self._on_map_selection)
@@ -131,6 +132,7 @@ class MainWindow(QMainWindow):
             "HH:mm:ss",
         ])
         self.time_label_combo.setCurrentText("yyyy-MM-dd\nHH:mm:ss")
+        self.time_label_combo.setMinimumWidth(210)
         self.time_label_combo.currentTextChanged.connect(self.plot.set_datetime_axis_format)
         row.addWidget(self.time_label_combo)
 
@@ -199,14 +201,14 @@ class MainWindow(QMainWindow):
 
     def _on_plot_highlight(self, keys: list[tuple[str, str]]) -> None:
         selected_ids = [feature_id for layer_id, feature_id in keys if layer_id == self.fast_points.id]
-        self._suppress_map_to_plot = True
+        self._ignore_next_map_selection_event = True
         self.map_widget.set_fast_points_selection(self.fast_points.id, selected_ids)
-        QTimer.singleShot(120, self._release_map_sync_suppression)
         self.table.select_keys([(self.fast_points.id, fid) for fid in selected_ids])
         self.info.setText(f"Selected points: {len(selected_ids)}")
 
     def _on_map_selection(self, selection) -> None:
-        if self._suppress_map_to_plot:
+        if self._ignore_next_map_selection_event:
+            self._ignore_next_map_selection_event = False
             return
         layer_id = getattr(selection, "layer_id", "")
         feature_ids = list(getattr(selection, "feature_ids", []))
@@ -220,12 +222,8 @@ class MainWindow(QMainWindow):
     def _on_table_selection(self, keys: list[tuple[str, str]]) -> None:
         filtered = [k for k in keys if k[0] == self.fast_points.id]
         self.plot.set_selected_feature_keys(filtered)
-        self._suppress_map_to_plot = True
+        self._ignore_next_map_selection_event = True
         self.map_widget.set_fast_points_selection(self.fast_points.id, [fid for _, fid in filtered])
-        QTimer.singleShot(120, self._release_map_sync_suppression)
-
-    def _release_map_sync_suppression(self) -> None:
-        self._suppress_map_to_plot = False
 
     def _clear_selection(self) -> None:
         self.map_widget.set_fast_points_selection(self.fast_points.id, [])
