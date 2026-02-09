@@ -26,6 +26,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
   - [Distance Measurement Mode](#distance-measurement-mode)
   - [FeatureTableWidget](#featuretablewidget)
   - [RangeSliderWidget](#rangesliderwidget)
+  - [PlotWidget](#plotwidget)
 - [Complete Example](#complete-example)
 - [View Extent Tracking](#view-extent-tracking)
 - [Advanced: Direct JavaScript Communication](#advanced-direct-javascript-communication)
@@ -51,6 +52,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
 - **🔄 Bidirectional Sync**: Seamless selection synchronization between map and table
 - **📏 Distance Measurement**: Interactive measurement mode with geodesic distance calculations and great-circle path visualization
 - **🎚️ Range Slider Widget**: Dual-handle range slider for filtering features by numeric or timestamp ranges
+- **📈 PlotWidget**: Native PySide6 Qt Charts plotting with box selection, recoloring, deletion, and map highlight signals
 
 ## Installation
 
@@ -109,6 +111,7 @@ See the [examples directory](examples/) for more working examples:
 - `11_measurement_tool.py` - Distance measurement tool
 - `12_coordinate_display.py` - Coordinate display toggle
 - `13_dual_table_linking.py` - Two-table parent/child map-table selection workflow
+- `14_plot_widget_integration.py` - Plot + map linking with box selection and highlight sync
 
 ## Core Components
 
@@ -880,6 +883,39 @@ table.show_all_rows()  # Show all in table
 ```
 
 See [examples/10_range_slider_filtering.py](examples/10_range_slider_filtering.py) for a complete working example with map and table filtering.
+
+### PlotWidget
+
+`PlotWidget` is a reusable plotting component built on native **PySide6 Qt Charts** for high-volume workflows where tables, plots, and maps must stay synchronized.
+
+```python
+from PySide6.QtGui import QColor
+from pyopenlayersqt import PlotWidget, TraceStyle
+
+plot = PlotWidget()
+plot.add_trace(
+    "signal",
+    x=timestamps,
+    y=values,
+    mode="both",
+    style=TraceStyle(color=QColor("dodgerblue"), selected_color=QColor("orange")),
+    timestamps=timestamps,
+    feature_keys=[("layer", fid) for fid in feature_ids],
+)
+
+plot.highlightFeatureKeys.connect(map_widget.set_selection)
+```
+
+**Capabilities:**
+
+- Multiple trace modes (`scatter`, `line`, `both`)
+- Rectangle box selection (Shift/Ctrl additive selection)
+- Programmatic selection for table/map-driven workflows
+- QColor-first styling (QColor objects or color name strings)
+- Recolor/delete selected points
+- Time-series rendering with native `QDateTimeAxis` when traces include timestamps
+- Fast timestamp filtering with `set_time_window(start, end)`
+- `highlightFeatureKeys` signal for direct map highlighting
 
 ## Complete Example
 
