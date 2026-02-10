@@ -67,6 +67,8 @@ class RenderRequest:
     width_px: int
     height_px: int
     quality: int
+    q_lon: float
+    q_lat: float
 
 
 def _generate_expensive_masked_heatmap(request: RenderRequest):
@@ -85,8 +87,16 @@ def _generate_expensive_masked_heatmap(request: RenderRequest):
     lat_axis = np.linspace(lat_max, lat_min, height, dtype=np.float32)
     lon_grid, lat_grid = np.meshgrid(lon_axis, lat_axis)
 
-    # Fixed world-space field (same phenomenon every time).
-    field = _fixed_heat_value(lon_grid, lat_grid)
+    # Quantize geo coordinates based on current view pixel size so low zoom is
+    # intentionally coarser, and zoom-in reveals finer structure.
+    q_lon = max(1e-12, float(request.q_lon))
+    q_lat = max(1e-12, float(request.q_lat))
+    lon_q = np.round(lon_grid / q_lon) * q_lon
+    lat_q = np.round(lat_grid / q_lat) * q_lat
+
+    # Fixed world-space field (same phenomenon every time), sampled at
+    # quantized coords to make resolution change visually obvious.
+    field = _fixed_heat_value(lon_q, lat_q)
 
     # Add tiny deterministic "sensor texture" to make detail gain visible at high res.
     field += 0.02 * np.sin(lon_grid * 180.0) * np.cos(lat_grid * 220.0)
@@ -145,6 +155,8 @@ def _render_worker(request: RenderRequest, out_queue):
                 "width_px": request.width_px,
                 "height_px": request.height_px,
                 "quality": request.quality,
+                "q_lon": request.q_lon,
+                "q_lat": request.q_lat,
             }
         )
     except Exception as exc:
@@ -273,6 +285,14 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         width_px = int(np.clip((polygon_lon_span / view_lon_span) * view_width_px, 180, 1600))
         height_px = int(np.clip((polygon_lat_span / view_lat_span) * view_height_px, 180, 1600))
 
+        # Geographic degrees per screen pixel (viewport).
+        lon_per_view_px = view_lon_span / view_width_px
+        lat_per_view_px = view_lat_span / view_height_px
+
+        # Coarser at low zoom, finer at high zoom. 6px bin makes effect obvious.
+        q_lon = max(1e-12, lon_per_view_px * 6.0)
+        q_lat = max(1e-12, lat_per_view_px * 6.0)
+
         self._next_request_id += 1
         request_id = self._next_request_id
         self._active_request_id = request_id
@@ -284,6 +304,8 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
             width_px=width_px,
             height_px=height_px,
             quality=int(self.quality_spin.value()),
+            q_lon=q_lon,
+            q_lat=q_lat,
         )
 
         if self._active_process is not None and self._active_process.is_alive():
@@ -303,7 +325,7 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         self.status_label.setText(
             f"⏳ recomputing req#{request_id} | target={width_px}x{height_px}px "
             f"| view={int(view_width_px)}x{int(view_height_px)}px "
-            f"| interrupts={self._interrupt_count}"
+            f"| bin≈{q_lon:.6f}°, {q_lat:.6f}° | interrupts={self._interrupt_count}"
         )
 
     def _poll_results(self):
@@ -338,7 +360,9 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
             self.status_label.setText(
                 f"✅ updated req#{self._active_request_id} in {elapsed:.2f}s "
                 f"| raster={msg.get('width_px')}x{msg.get('height_px')}px "
-                f"| quality={msg.get('quality')} | interrupts={self._interrupt_count}"
+                f"| quality={msg.get('quality')} "
+                f"| bin≈{float(msg.get('q_lon', 0.0)):.6f}°, {float(msg.get('q_lat', 0.0)):.6f}° "
+                f"| interrupts={self._interrupt_count}"
             )
             self._poll_timer.stop()
             return
