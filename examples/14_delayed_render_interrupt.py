@@ -194,6 +194,7 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         self._result_queue = None
         self._interrupt_count = 0
         self._ctx = mp.get_context("spawn")
+        self._last_render_key = None
 
         self._debounce_timer = QtCore.QTimer(self)
         self._debounce_timer.setSingleShot(True)
@@ -292,6 +293,22 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         # Coarser at low zoom, finer at high zoom. 6px bin makes effect obvious.
         q_lon = max(1e-12, lon_per_view_px * 6.0)
         q_lat = max(1e-12, lat_per_view_px * 6.0)
+
+        # Pan should not force recompute if effective sampling/resolution is unchanged.
+        render_key = (
+            int(width_px),
+            int(height_px),
+            round(q_lon, 10),
+            round(q_lat, 10),
+            int(self.quality_spin.value()),
+        )
+        if render_key == self._last_render_key:
+            self.status_label.setText(
+                f"⏸ skipped (pan/no resolution change) | raster={width_px}x{height_px}px "
+                f"| bin≈{q_lon:.6f}°, {q_lat:.6f}° | interrupts={self._interrupt_count}"
+            )
+            return
+        self._last_render_key = render_key
 
         self._next_request_id += 1
         request_id = self._next_request_id
