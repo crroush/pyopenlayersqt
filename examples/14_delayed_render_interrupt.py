@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """Delayed raster rendering with debounce + hard interrupt.
 
-This example demonstrates a robust pattern for expensive, zoom-dependent
-heatmap rendering while keeping the GUI responsive:
-
-- Watch extent changes with debounce.
-- Run expensive raster generation in a child process (never in Qt event thread).
-- Interrupt in-flight work with Process.terminate() (last-request-wins).
-- Keep one fixed arbitrary polygon in geographic coordinates.
-- Recompute raster size from current map extent pixel width/height, so zooming in
-  reveals more heatmap detail over the same polygon footprint.
+Key ideas demonstrated:
+- Fixed geographic polygon footprint (does not change with zoom).
+- Raster resolution derived from current viewport pixel size.
+- Expensive render executed in a child process.
+- In-flight render interrupted when a newer request arrives.
+- Clear UI feedback showing when recompute happens and at what resolution.
 """
 
 import io
@@ -32,21 +29,34 @@ def _polygon_bounds_latlon(polygon_latlon):
 
 
 def _polygon_latlon_to_pixel_polygon(polygon_latlon, width, height, bounds):
-    """Map a lat/lon polygon to pixel coordinates within raster bounds.
-
-    bounds = ((lat_min, lon_min), (lat_max, lon_max))
-    """
+    """Map a lat/lon polygon to pixel coordinates within raster bounds."""
     (lat_min, lon_min), (lat_max, lon_max) = bounds
     lon_span = max(1e-12, lon_max - lon_min)
     lat_span = max(1e-12, lat_max - lat_min)
 
-    pts = []
+    points = []
     for lat, lon in polygon_latlon:
         x = (lon - lon_min) / lon_span * (width - 1)
-        # y-down image coordinates
         y = (lat_max - lat) / lat_span * (height - 1)
-        pts.append((x, y))
-    return pts
+        points.append((x, y))
+    return points
+
+
+def _fixed_heat_value(lon, lat):
+    """Deterministic heat field over geography (fixed function in world coords)."""
+    # coordinates around SF Bay (~[-122.6,-122.3], [37.65,37.9])
+    x = (lon + 122.45) * 70.0
+    y = (lat - 37.77) * 70.0
+
+    # Smooth base structure + medium/high frequency texture
+    v = (
+        0.45 * np.exp(-((x + 2.0) ** 2 + (y - 1.5) ** 2) / 8.0)
+        + 0.35 * np.exp(-((x - 1.0) ** 2 + (y + 2.2) ** 2) / 5.5)
+        + 0.20 * np.sin(2.3 * x) * np.cos(1.9 * y)
+        + 0.10 * np.sin(7.0 * x + 1.2 * y)
+        + 0.08 * np.cos(6.3 * y - 1.5 * x)
+    )
+    return v
 
 
 @dataclass
@@ -60,39 +70,32 @@ class RenderRequest:
 
 
 def _generate_expensive_masked_heatmap(request: RenderRequest):
-    """Generate a computationally expensive masked heatmap PNG bytes."""
+    """Generate expensive PNG for a fixed geographic heatmap sampled at given resolution."""
     width = request.width_px
     height = request.height_px
-    quality = request.quality
-    rng = np.random.default_rng(1000 + width + height + quality)
 
-    # Simulate heavy, effectively uninterruptible native call.
-    matrix_n = max(250, 220 + quality * 90)
+    # Simulate heavy non-cooperative native compute.
+    rng = np.random.default_rng(10_000 + width + height + request.quality)
+    matrix_n = max(220, 180 + request.quality * 100)
     heavy = rng.normal(size=(matrix_n, matrix_n)).astype(np.float32)
     _ = heavy @ heavy.T
 
-    # Heatmap field.
-    n_points = 160 + quality * 80
-    point_x = rng.random(n_points) * width
-    point_y = rng.random(n_points) * height
-    point_values = rng.random(n_points)
+    (lat_min, lon_min), (lat_max, lon_max) = request.raster_bounds
+    lon_axis = np.linspace(lon_min, lon_max, width, dtype=np.float32)
+    lat_axis = np.linspace(lat_max, lat_min, height, dtype=np.float32)
+    lon_grid, lat_grid = np.meshgrid(lon_axis, lat_axis)
 
-    x = np.arange(width, dtype=np.float32)
-    y = np.arange(height, dtype=np.float32)
-    grid_x, grid_y = np.meshgrid(x, y)
+    # Fixed world-space field (same phenomenon every time).
+    field = _fixed_heat_value(lon_grid, lat_grid)
 
-    grid_values = np.zeros((height, width), dtype=np.float32)
-    for i in range(n_points):
-        dx = grid_x - point_x[i]
-        dy = grid_y - point_y[i]
-        dist = np.sqrt(dx * dx + dy * dy)
-        dist = np.maximum(dist, 1.0)
-        grid_values += point_values[i] / (dist + 14.0)
+    # Add tiny deterministic "sensor texture" to make detail gain visible at high res.
+    field += 0.02 * np.sin(lon_grid * 180.0) * np.cos(lat_grid * 220.0)
 
-    grid_min = float(grid_values.min())
-    grid_max = float(grid_values.max())
-    if grid_max > grid_min:
-        grid_values = (grid_values - grid_min) / (grid_max - grid_min)
+    # Normalize
+    vmin = float(field.min())
+    vmax = float(field.max())
+    if vmax > vmin:
+        field = (field - vmin) / (vmax - vmin)
 
     colors = np.array(
         [
@@ -104,32 +107,31 @@ def _generate_expensive_masked_heatmap(request: RenderRequest):
         ],
         dtype=np.uint8,
     )
-
-    indices = (grid_values * (len(colors) - 1)).astype(np.int32)
-    indices = np.clip(indices, 0, len(colors) - 1)
-    rgba = colors[indices]
+    idx = np.clip((field * (len(colors) - 1)).astype(np.int32), 0, len(colors) - 1)
+    rgba = colors[idx]
 
     img = Image.fromarray(rgba, mode="RGBA")
 
-    # Mask to ONE fixed arbitrary geographic polygon.
+    # Mask to fixed polygon.
     mask = Image.new("L", (width, height), 0)
-    draw = ImageDraw.Draw(mask)
+    draw_mask = ImageDraw.Draw(mask)
     polygon_px = _polygon_latlon_to_pixel_polygon(
-        request.polygon_latlon,
-        width,
-        height,
-        request.raster_bounds,
+        request.polygon_latlon, width, height, request.raster_bounds
     )
-    draw.polygon(polygon_px, fill=255)
+    draw_mask.polygon(polygon_px, fill=255)
     img.putalpha(mask)
 
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+    # Visual debugging: stamp effective raster resolution on image.
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([(6, 6), (230, 38)], fill=(0, 0, 0, 170))
+    draw.text((12, 12), f"{width} x {height} px", fill=(255, 255, 255, 255))
+
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
 
 
 def _render_worker(request: RenderRequest, out_queue):
-    """Child-process entry point."""
     try:
         t0 = time.perf_counter()
         png = _generate_expensive_masked_heatmap(request)
@@ -142,6 +144,7 @@ def _render_worker(request: RenderRequest, out_queue):
                 "elapsed_s": elapsed,
                 "width_px": request.width_px,
                 "height_px": request.height_px,
+                "quality": request.quality,
             }
         )
     except Exception as exc:
@@ -152,11 +155,10 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Delayed Raster Render with Debounce + Interrupt")
-        self.resize(1200, 840)
+        self.resize(1200, 860)
 
         self.map_widget = OLMapWidget(center=(37.7749, -122.4194), zoom=10)
 
-        # One fixed arbitrary polygon in lat/lon (SF Bay area region).
         self.polygon_latlon = [
             (37.700, -122.545),
             (37.735, -122.515),
@@ -186,11 +188,10 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         self._debounce_timer.timeout.connect(self._start_render_for_latest_extent)
 
         self._poll_timer = QtCore.QTimer(self)
-        self._poll_timer.setInterval(60)
+        self._poll_timer.setInterval(50)
         self._poll_timer.timeout.connect(self._poll_results)
 
         controls = self._create_controls()
-
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
         layout.addWidget(controls)
@@ -211,26 +212,25 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         layout = QtWidgets.QHBoxLayout(panel)
 
         info = QtWidgets.QLabel(
-            "Zoom or pan. The polygon footprint stays fixed; only raster sampling "
-            "changes from current extent pixel width/height. In-flight renders are "
-            "terminated to keep UI responsive."
+            "Fixed geographic heatmap footprint. Zooming changes computed raster "
+            "pixel dimensions (shown in status + image stamp)."
         )
         info.setWordWrap(True)
         layout.addWidget(info, stretch=3)
 
-        quality_box = QtWidgets.QGroupBox("Compute Load")
-        quality_layout = QtWidgets.QHBoxLayout(quality_box)
-        quality_layout.addWidget(QtWidgets.QLabel("Quality:"))
+        compute_box = QtWidgets.QGroupBox("Compute")
+        compute_layout = QtWidgets.QHBoxLayout(compute_box)
+        compute_layout.addWidget(QtWidgets.QLabel("Quality:"))
         self.quality_spin = QtWidgets.QSpinBox()
         self.quality_spin.setRange(1, 5)
         self.quality_spin.setValue(3)
         self.quality_spin.valueChanged.connect(self._schedule_render)
-        quality_layout.addWidget(self.quality_spin)
-        layout.addWidget(quality_box, stretch=1)
+        compute_layout.addWidget(self.quality_spin)
+        layout.addWidget(compute_box, stretch=1)
 
         self.status_label = QtWidgets.QLabel("Waiting for first extent...")
-        self.status_label.setMinimumWidth(500)
-        layout.addWidget(self.status_label, stretch=2)
+        self.status_label.setMinimumWidth(640)
+        layout.addWidget(self.status_label, stretch=3)
 
         return panel
 
@@ -255,8 +255,6 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
 
         ext = self._latest_extent
 
-        # Keep polygon geographic size fixed; derive raster pixel size from current
-        # viewport pixel dimensions and geographic coverage.
         view_lon_min = float(ext["lon_min"])
         view_lon_max = float(ext["lon_max"])
         view_lat_min = float(ext["lat_min"])
@@ -271,8 +269,9 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         polygon_lon_span = max(1e-12, lon_max - lon_min)
         polygon_lat_span = max(1e-12, lat_max - lat_min)
 
-        width_px = int(np.clip((polygon_lon_span / view_lon_span) * view_width_px, 220, 1300))
-        height_px = int(np.clip((polygon_lat_span / view_lat_span) * view_height_px, 220, 1300))
+        # Fraction of viewport covered by polygon * viewport pixel dimensions.
+        width_px = int(np.clip((polygon_lon_span / view_lon_span) * view_width_px, 180, 1600))
+        height_px = int(np.clip((polygon_lat_span / view_lat_span) * view_height_px, 180, 1600))
 
         self._next_request_id += 1
         request_id = self._next_request_id
@@ -302,8 +301,9 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         self._poll_timer.start()
 
         self.status_label.setText(
-            f"Rendering #{request_id} at {width_px}x{height_px} px over fixed polygon "
-            f"(interrupts={self._interrupt_count})..."
+            f"⏳ recomputing req#{request_id} | target={width_px}x{height_px}px "
+            f"| view={int(view_width_px)}x{int(view_height_px)}px "
+            f"| interrupts={self._interrupt_count}"
         )
 
     def _poll_results(self):
@@ -319,7 +319,7 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
 
             if "error" in msg:
                 self.status_label.setText(
-                    f"Render #{self._active_request_id} failed: {msg['error']}"
+                    f"❌ render #{self._active_request_id} failed: {msg['error']}"
                 )
                 self._poll_timer.stop()
                 return
@@ -330,15 +330,15 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
             self.raster_layer = self.map_widget.add_raster_image(
                 msg["png"],
                 bounds=[tuple(msg["bounds"][0]), tuple(msg["bounds"][1])],
-                style=RasterStyle(opacity=0.72),
+                style=RasterStyle(opacity=0.74),
                 name=f"dynamic_heatmap_{self._active_request_id}",
             )
 
             elapsed = float(msg.get("elapsed_s", 0.0))
             self.status_label.setText(
-                f"Rendered #{self._active_request_id} in {elapsed:.2f}s at "
-                f"{msg.get('width_px')}x{msg.get('height_px')} px "
-                f"(interrupts={self._interrupt_count})."
+                f"✅ updated req#{self._active_request_id} in {elapsed:.2f}s "
+                f"| raster={msg.get('width_px')}x{msg.get('height_px')}px "
+                f"| quality={msg.get('quality')} | interrupts={self._interrupt_count}"
             )
             self._poll_timer.stop()
             return
