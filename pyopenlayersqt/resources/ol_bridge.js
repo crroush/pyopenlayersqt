@@ -55,7 +55,8 @@ function _pyolqt_view_extent_obj() {
   if (!st || !st.map) return null;
   const map = st.map;
   const view = map.getView();
-  const extent3857 = view.calculateExtent(map.getSize());
+  const mapSize = map.getSize() || [0, 0];
+  const extent3857 = view.calculateExtent(mapSize);
   const bl = ol.proj.toLonLat([extent3857[0], extent3857[1]]);
   const tr = ol.proj.toLonLat([extent3857[2], extent3857[3]]);
   return {
@@ -65,6 +66,8 @@ function _pyolqt_view_extent_obj() {
     lat_max: tr[1],
     zoom: view.getZoom(),
     resolution: view.getResolution(),
+    width_px: mapSize[0],
+    height_px: mapSize[1],
   };
 }
 

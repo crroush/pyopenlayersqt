@@ -8,12 +8,11 @@ heatmap rendering while keeping the GUI responsive:
 - Run expensive raster generation in a child process (never in Qt event thread).
 - Interrupt in-flight work with Process.terminate() (last-request-wins).
 - Keep one fixed arbitrary polygon in geographic coordinates.
-- Recompute only raster RESOLUTION from current view pixel size, so zooming in
+- Recompute raster size from current map extent pixel width/height, so zooming in
   reveals more heatmap detail over the same polygon footprint.
 """
 
 import io
-import math
 import multiprocessing as mp
 import sys
 import time
@@ -24,17 +23,6 @@ from PIL import Image, ImageDraw
 from PySide6 import QtCore, QtWidgets
 
 from pyopenlayersqt import OLMapWidget, RasterStyle
-
-
-def _haversine_m(lat1, lon1, lat2, lon2):
-    """Great-circle distance in meters between two lon/lat points."""
-    r = 6_371_000.0
-    p1 = math.radians(lat1)
-    p2 = math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
-    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return 2 * r * math.asin(math.sqrt(a))
 
 
 def _polygon_bounds_latlon(polygon_latlon):
@@ -223,8 +211,8 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         layout = QtWidgets.QHBoxLayout(panel)
 
         info = QtWidgets.QLabel(
-            "Zoom or pan. The polygon footprint stays fixed; only raster resolution "
-            "changes from current extent pixel size. In-flight renders are "
+            "Zoom or pan. The polygon footprint stays fixed; only raster sampling "
+            "changes from current extent pixel width/height. In-flight renders are "
             "terminated to keep UI responsive."
         )
         info.setWordWrap(True)
@@ -266,18 +254,25 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
             return
 
         ext = self._latest_extent
-        resolution_m_per_px = max(1e-3, float(ext.get("resolution", 100.0)))
 
-        # Keep polygon geographic size fixed; derive raster size from view resolution.
+        # Keep polygon geographic size fixed; derive raster pixel size from current
+        # viewport pixel dimensions and geographic coverage.
+        view_lon_min = float(ext["lon_min"])
+        view_lon_max = float(ext["lon_max"])
+        view_lat_min = float(ext["lat_min"])
+        view_lat_max = float(ext["lat_max"])
+        view_width_px = max(1.0, float(ext.get("width_px", 1024.0)))
+        view_height_px = max(1.0, float(ext.get("height_px", 768.0)))
+
+        view_lon_span = max(1e-12, view_lon_max - view_lon_min)
+        view_lat_span = max(1e-12, view_lat_max - view_lat_min)
+
         (lat_min, lon_min), (lat_max, lon_max) = self.polygon_bounds
-        mid_lat = (lat_min + lat_max) / 2.0
-        mid_lon = (lon_min + lon_max) / 2.0
+        polygon_lon_span = max(1e-12, lon_max - lon_min)
+        polygon_lat_span = max(1e-12, lat_max - lat_min)
 
-        polygon_width_m = _haversine_m(mid_lat, lon_min, mid_lat, lon_max)
-        polygon_height_m = _haversine_m(lat_min, mid_lon, lat_max, mid_lon)
-
-        width_px = int(np.clip(polygon_width_m / resolution_m_per_px, 220, 1300))
-        height_px = int(np.clip(polygon_height_m / resolution_m_per_px, 220, 1300))
+        width_px = int(np.clip((polygon_lon_span / view_lon_span) * view_width_px, 220, 1300))
+        height_px = int(np.clip((polygon_lat_span / view_lat_span) * view_height_px, 220, 1300))
 
         self._next_request_id += 1
         request_id = self._next_request_id

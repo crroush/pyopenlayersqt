@@ -464,7 +464,7 @@ class OLMapWidget(QWebEngineView):
         """Request the current visible map extent.
 
         Async: callback(extent_dict) is called exactly once.
-        extent_dict contains lon_min, lat_min, lon_max, lat_max, zoom, resolution.
+        extent_dict contains lon_min, lat_min, lon_max, lat_max, zoom, resolution, width_px, height_px.
 
         Note: The extent keys use lon/lat naming but values represent the actual
         geographic bounds regardless of coordinate ordering used elsewhere in the API.
