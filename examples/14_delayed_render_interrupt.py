@@ -10,6 +10,7 @@ Key ideas demonstrated:
 """
 
 import io
+import math
 import multiprocessing as mp
 import sys
 import time
@@ -20,6 +21,15 @@ from PIL import Image, ImageDraw
 from PySide6 import QtCore, QtWidgets
 
 from pyopenlayersqt import OLMapWidget, RasterStyle
+
+def _haversine_m(lat1, lon1, lat2, lon2):
+    r = 6_371_000.0
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
 
 
 def _polygon_bounds_latlon(polygon_latlon):
@@ -184,6 +194,11 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
             (37.682, -122.490),
         ]
         self.polygon_bounds = _polygon_bounds_latlon(self.polygon_latlon)
+        (pb_lat_min, pb_lon_min), (pb_lat_max, pb_lon_max) = self.polygon_bounds
+        pb_lat_mid = (pb_lat_min + pb_lat_max) * 0.5
+        pb_lon_mid = (pb_lon_min + pb_lon_max) * 0.5
+        self._polygon_width_m = _haversine_m(pb_lat_mid, pb_lon_min, pb_lat_mid, pb_lon_max)
+        self._polygon_height_m = _haversine_m(pb_lat_min, pb_lon_mid, pb_lat_max, pb_lon_mid)
 
         self.raster_layer = None
         self._watch_handle = None
@@ -268,44 +283,36 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
 
         ext = self._latest_extent
 
-        view_lon_min = float(ext["lon_min"])
-        view_lon_max = float(ext["lon_max"])
-        view_lat_min = float(ext["lat_min"])
-        view_lat_max = float(ext["lat_max"])
         view_width_px = max(1.0, float(ext.get("width_px", 1024.0)))
         view_height_px = max(1.0, float(ext.get("height_px", 768.0)))
+        resolution_m_per_px = max(1e-9, float(ext.get("resolution", 1.0)))
 
-        view_lon_span = max(1e-12, view_lon_max - view_lon_min)
-        view_lat_span = max(1e-12, view_lat_max - view_lat_min)
+        # Use view resolution so panning (same zoom/resolution) does not change target.
+        width_px = int(np.clip(self._polygon_width_m / resolution_m_per_px, 180, 1600))
+        height_px = int(np.clip(self._polygon_height_m / resolution_m_per_px, 180, 1600))
 
+        # Quantization follows view resolution; higher zoom -> smaller bins -> sharper.
+        # Approximate deg/px at polygon centroid latitude.
         (lat_min, lon_min), (lat_max, lon_max) = self.polygon_bounds
-        polygon_lon_span = max(1e-12, lon_max - lon_min)
-        polygon_lat_span = max(1e-12, lat_max - lat_min)
-
-        # Fraction of viewport covered by polygon * viewport pixel dimensions.
-        width_px = int(np.clip((polygon_lon_span / view_lon_span) * view_width_px, 180, 1600))
-        height_px = int(np.clip((polygon_lat_span / view_lat_span) * view_height_px, 180, 1600))
-
-        # Geographic degrees per screen pixel (viewport).
-        lon_per_view_px = view_lon_span / view_width_px
-        lat_per_view_px = view_lat_span / view_height_px
-
-        # Coarser at low zoom, finer at high zoom. 6px bin makes effect obvious.
-        q_lon = max(1e-12, lon_per_view_px * 6.0)
-        q_lat = max(1e-12, lat_per_view_px * 6.0)
+        centroid_lat = (lat_min + lat_max) * 0.5
+        meters_per_deg_lon = max(1.0, 111_320.0 * np.cos(np.radians(centroid_lat)))
+        meters_per_deg_lat = 110_540.0
+        q_lon = max(1e-12, (resolution_m_per_px * 6.0) / meters_per_deg_lon)
+        q_lat = max(1e-12, (resolution_m_per_px * 6.0) / meters_per_deg_lat)
 
         # Pan should not force recompute if effective sampling/resolution is unchanged.
         render_key = (
             int(width_px),
             int(height_px),
-            round(q_lon, 10),
-            round(q_lat, 10),
+            round(resolution_m_per_px, 6),
+            int(view_width_px),
+            int(view_height_px),
             int(self.quality_spin.value()),
         )
         if render_key == self._last_render_key:
             self.status_label.setText(
                 f"⏸ skipped (pan/no resolution change) | raster={width_px}x{height_px}px "
-                f"| bin≈{q_lon:.6f}°, {q_lat:.6f}° | interrupts={self._interrupt_count}"
+                f"| res≈{resolution_m_per_px:.3f} m/px | bin≈{q_lon:.6f}°, {q_lat:.6f}° | interrupts={self._interrupt_count}"
             )
             return
         self._last_render_key = render_key
@@ -342,7 +349,7 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         self.status_label.setText(
             f"⏳ recomputing req#{request_id} | target={width_px}x{height_px}px "
             f"| view={int(view_width_px)}x{int(view_height_px)}px "
-            f"| bin≈{q_lon:.6f}°, {q_lat:.6f}° | interrupts={self._interrupt_count}"
+            f"| res≈{resolution_m_per_px:.3f} m/px | bin≈{q_lon:.6f}°, {q_lat:.6f}° | interrupts={self._interrupt_count}"
         )
 
     def _poll_results(self):
