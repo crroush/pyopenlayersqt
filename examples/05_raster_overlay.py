@@ -6,6 +6,7 @@ This example demonstrates:
 - Different masking techniques (circle, triangle, hexagon, star, irregular)
 - How to use polygon masks for non-rectangular raster data
 - Adding raster overlays to the map with geographic bounds
+- Updating raster overlays directly from in-memory PNG bytes (no temp files)
 - Adjusting raster opacity
 - Generating heatmaps from scattered point data
 
@@ -275,18 +276,17 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
         # Generate masked heatmap
         heatmap_png = generate_masked_heatmap(512, 512, polygon=polygon)
 
-        # Remove old raster layer if exists
-        if self.raster_layer:
-            self.raster_layer.remove()
-
-        # Add new raster overlay
-        # First parameter is the image data (PNG bytes), not a keyword argument
-        self.raster_layer = self.map_widget.add_raster_image(
-            heatmap_png,
-            bounds=self.bounds,
-            style=RasterStyle(opacity=self.opacity_slider.value() / 100.0),
-            name=f"heatmap_{shape_name.lower()}"
-        )
+        # Demonstrate in-memory raster updates using PNG bytes directly.
+        # No file paths are needed for generated overlays.
+        if self.raster_layer is None:
+            self.raster_layer = self.map_widget.add_raster_image(
+                heatmap_png,
+                bounds=self.bounds,
+                style=RasterStyle(opacity=self.opacity_slider.value() / 100.0),
+                name="heatmap_bytes",
+            )
+        else:
+            self.raster_layer.set_image(heatmap_png, bounds=self.bounds)
 
     def _on_update_mask(self):
         """Handle mask shape update."""
