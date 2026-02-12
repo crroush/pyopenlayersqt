@@ -1779,17 +1779,28 @@ function cmd_coordinates_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "raster") return;
 
-    // ImageStatic doesn't reliably expose setUrl/setImageExtent across OL builds.
-    // Recreate source and swap it.
+    // Avoid flicker: preload the new image first, then swap source atomically.
+    e._swapSeq = (e._swapSeq || 0) + 1;
+    const seq = e._swapSeq;
     const extent = extent_from_bounds(msg.bounds);
-    const source = new ol.source.ImageStatic({
-      url: msg.url,
-      imageExtent: extent,
-      projection: state.map.getView().getProjection(),
-    });
-    e.source = source;
-    e.layer.setSource(source);
-    e.layer.changed();
+    const projection = state.map.getView().getProjection();
+
+    const swapToNewSource = function() {
+      if ((e._swapSeq || 0) !== seq) return; // stale request
+      const source = new ol.source.ImageStatic({
+        url: msg.url,
+        imageExtent: extent,
+        projection: projection,
+      });
+      e.source = source;
+      e.layer.setSource(source);
+      e.layer.changed();
+    };
+
+    const img = new Image();
+    img.onload = swapToNewSource;
+    img.onerror = swapToNewSource; // still swap so failures are visible
+    img.src = msg.url;
   }
 
   function cmd_select_set(msg) {
