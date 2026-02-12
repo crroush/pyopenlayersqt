@@ -141,11 +141,6 @@ def _generate_expensive_masked_heatmap(request: RenderRequest):
     draw_mask.polygon(polygon_px, fill=255)
     img.putalpha(mask)
 
-    # Visual debugging: stamp effective raster resolution on image.
-    draw = ImageDraw.Draw(img)
-    draw.rectangle([(6, 6), (230, 38)], fill=(0, 0, 0, 170))
-    draw.text((12, 12), f"{width} x {height} px", fill=(255, 255, 255, 255))
-
     out = io.BytesIO()
     img.save(out, format="PNG")
     return out.getvalue()
