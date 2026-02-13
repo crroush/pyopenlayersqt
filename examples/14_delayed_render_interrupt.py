@@ -295,7 +295,7 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
 
         # Quantization follows view resolution; higher zoom -> smaller bins -> sharper.
         # Approximate deg/px at polygon centroid latitude.
-        (lat_min, lon_min), (lat_max, lon_max) = self.polygon_bounds
+        (lat_min, _), (lat_max, _) = self.polygon_bounds
         centroid_lat = (lat_min + lat_max) * 0.5
         meters_per_deg_lon = max(1.0, 111_320.0 * np.cos(np.radians(centroid_lat)))
         meters_per_deg_lat = 110_540.0
@@ -314,7 +314,8 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         if render_key == self._last_render_key:
             self.status_label.setText(
                 f"⏸ skipped (pan/no resolution change) | raster={width_px}x{height_px}px "
-                f"| res≈{resolution_m_per_px:.3f} m/px | bin≈{q_lon:.6f}°, {q_lat:.6f}° | interrupts={self._interrupt_count}"
+                f"| res≈{resolution_m_per_px:.3f} m/px | bin≈{q_lon:.6f}°, {q_lat:.6f}° "
+                f"| interrupts={self._interrupt_count}"
             )
             return
         self._last_render_key = render_key
@@ -351,7 +352,8 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         self.status_label.setText(
             f"⏳ recomputing req#{request_id} | target={width_px}x{height_px}px "
             f"| view={int(view_width_px)}x{int(view_height_px)}px "
-            f"| res≈{resolution_m_per_px:.3f} m/px | bin≈{q_lon:.6f}°, {q_lat:.6f}° | interrupts={self._interrupt_count}"
+            f"| res≈{resolution_m_per_px:.3f} m/px | bin≈{q_lon:.6f}°,"
+            f" {q_lat:.6f}° | interrupts={self._interrupt_count}"
         )
 
     def _poll_results(self):
