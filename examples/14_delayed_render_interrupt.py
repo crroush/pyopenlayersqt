@@ -15,6 +15,7 @@ import multiprocessing as mp
 import sys
 import time
 from dataclasses import dataclass
+from typing import Tuple, List
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -73,8 +74,8 @@ def _fixed_heat_value(lon, lat):
 @dataclass
 class RenderRequest:
     request_id: int
-    polygon_latlon: list[tuple[float, float]]
-    raster_bounds: tuple[tuple[float, float], tuple[float, float]]
+    polygon_latlon: List[Tuple[float, float]]
+    raster_bounds: Tuple[Tuple[float, float], Tuple[float, float]]
     width_px: int
     height_px: int
     quality: int
