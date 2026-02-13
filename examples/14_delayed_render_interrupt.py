@@ -22,6 +22,7 @@ from PySide6 import QtCore, QtWidgets
 
 from pyopenlayersqt import OLMapWidget, RasterStyle
 
+
 def _haversine_m(lat1, lon1, lat2, lon2):
     r = 6_371_000.0
     p1 = math.radians(lat1)
@@ -192,8 +193,12 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
         (pb_lat_min, pb_lon_min), (pb_lat_max, pb_lon_max) = self.polygon_bounds
         pb_lat_mid = (pb_lat_min + pb_lat_max) * 0.5
         pb_lon_mid = (pb_lon_min + pb_lon_max) * 0.5
-        self._polygon_width_m = _haversine_m(pb_lat_mid, pb_lon_min, pb_lat_mid, pb_lon_max)
-        self._polygon_height_m = _haversine_m(pb_lat_min, pb_lon_mid, pb_lat_max, pb_lon_mid)
+        self._polygon_width_m = _haversine_m(
+            pb_lat_mid, pb_lon_min, pb_lat_mid, pb_lon_max
+        )
+        self._polygon_height_m = _haversine_m(
+            pb_lat_min, pb_lon_mid, pb_lat_max, pb_lon_mid
+        )
 
         self.raster_layer = None
         self._watch_handle = None
@@ -284,7 +289,9 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
 
         # Use view resolution so panning (same zoom/resolution) does not change target.
         width_px = int(np.clip(self._polygon_width_m / resolution_m_per_px, 180, 1600))
-        height_px = int(np.clip(self._polygon_height_m / resolution_m_per_px, 180, 1600))
+        height_px = int(
+            np.clip(self._polygon_height_m / resolution_m_per_px, 180, 1600)
+        )
 
         # Quantization follows view resolution; higher zoom -> smaller bins -> sharper.
         # Approximate deg/px at polygon centroid latitude.
