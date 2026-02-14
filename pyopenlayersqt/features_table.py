@@ -49,6 +49,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
+    QMenu,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -61,6 +62,7 @@ ValueGetter = Callable[[Any], Any]
 ValueSetter = Callable[[Any, Any], Any]
 ValueFormatter = Callable[[Any], str]
 KeyFn = Callable[[Any], FeatureKey]
+ContextMenuCallback = Callable[["TableContextMenuEvent"], None]
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,26 @@ class ColumnSpec:
     sort_key: Optional[Callable[[Any], Any]] = None
     editable: bool = False
     setter: ValueSetter = None
+
+
+@dataclass(frozen=True)
+class TableContextMenuEvent:
+    """Right-click context for the feature table."""
+
+    keys: List[FeatureKey]
+    row_indices: List[int]
+    rows: List[Any]
+    local_pos: QtCore.QPoint
+    global_pos: QtCore.QPoint
+
+
+@dataclass(frozen=True)
+class ContextMenuActionSpec:
+    """Defines one menu action and how it maps back to GUI code."""
+
+    label: str
+    callback: ContextMenuCallback
+    enabled_without_selection: bool = False
 
 class ConfigurableTableModel(QtCore.QAbstractTableModel):
     """A configurable table model for arbitrary row objects."""
@@ -345,6 +367,7 @@ class FeatureTableWidget(QWidget):
     """A reusable, configurable table widget."""
 
     selectionKeysChanged = QtCore.Signal(list)
+    contextMenuRequested = QtCore.Signal(object)
 
     def __init__(
         self,
@@ -400,6 +423,7 @@ class FeatureTableWidget(QWidget):
 
         self._building_selection = False
         self._pending_emit = False
+        self._context_menu_actions: List[ContextMenuActionSpec] = []
 
         self._debounce_timer = QtCore.QTimer(self)
         self._debounce_timer.setSingleShot(True)
@@ -416,8 +440,10 @@ class FeatureTableWidget(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.verticalHeader().setVisible(True)
         self.table.verticalHeader().setDefaultSectionSize(18)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
 
         self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        self.table.customContextMenuRequested.connect(self._on_custom_context_menu)
         self.dataChanged = self.model.dataChanged
 
         layout = QVBoxLayout(self)
@@ -470,6 +496,25 @@ class FeatureTableWidget(QWidget):
             if key is not None:
                 keys.append(key)
         return keys
+
+    def selected_rows_data(self) -> List[Any]:
+        """Return underlying row objects for all selected rows."""
+        sm = self.table.selectionModel()
+        if sm is None:
+            return []
+
+        rows: List[Any] = []
+        for idx in sm.selectedRows(0):
+            row_data = self.model.row_data(idx.row())
+            if row_data is not None:
+                rows.append(row_data)
+        return rows
+
+    def set_context_menu_actions(
+        self, actions: Sequence[ContextMenuActionSpec]
+    ) -> None:
+        """Set right-click actions shown by the built-in context menu."""
+        self._context_menu_actions = list(actions)
 
     def clear_selection(self) -> None:
         sm = self.table.selectionModel()
@@ -539,3 +584,48 @@ class FeatureTableWidget(QWidget):
     def is_row_hidden(self, row_index: int) -> bool:
         """Check if a row is hidden."""
         return self.table.isRowHidden(row_index)
+
+    def _on_custom_context_menu(self, pos: QtCore.QPoint) -> None:
+        index = self.table.indexAt(pos)
+        if index.isValid() and not self.table.selectionModel().isRowSelected(
+            index.row(), QtCore.QModelIndex()
+        ):
+            self.table.selectRow(index.row())
+
+        sm = self.table.selectionModel()
+        if sm is None:
+            return
+
+        selected_row_indices = [idx.row() for idx in sm.selectedRows(0)]
+        keys = [
+            key
+            for row_idx in selected_row_indices
+            if (key := self.model.key_for_row(row_idx)) is not None
+        ]
+        rows = [
+            row
+            for row_idx in selected_row_indices
+            if (row := self.model.row_data(row_idx)) is not None
+        ]
+
+        event = TableContextMenuEvent(
+            keys=keys,
+            row_indices=selected_row_indices,
+            rows=rows,
+            local_pos=QtCore.QPoint(pos),
+            global_pos=self.table.viewport().mapToGlobal(pos),
+        )
+        self.contextMenuRequested.emit(event)
+
+        if not self._context_menu_actions:
+            return
+
+        menu = QMenu(self)
+        has_selection = bool(event.keys)
+        for action_spec in self._context_menu_actions:
+            action = menu.addAction(action_spec.label)
+            action.setEnabled(has_selection or action_spec.enabled_without_selection)
+            action.triggered.connect(
+                lambda _checked=False, callback=action_spec.callback: callback(event)
+            )
+        menu.exec(event.global_pos)

@@ -22,7 +22,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 
 from pyopenlayersqt import OLMapWidget, PointStyle, FastPointsStyle, FastGeoPointsStyle
-from pyopenlayersqt.features_table import FeatureTableWidget, ColumnSpec
+from pyopenlayersqt.features_table import (
+    ColumnSpec,
+    ContextMenuActionSpec,
+    FeatureTableWidget,
+    TableContextMenuEvent,
+)
 
 
 class TableIntegrationExample(QtWidgets.QMainWindow):
@@ -83,6 +88,9 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         # Connect signals for bidirectional sync
         self.map_widget.selectionChanged.connect(self._on_map_selection)
         self.table.selectionKeysChanged.connect(self._on_table_selection)
+
+        # Optional hook if GUI wants to observe context-menu requests directly.
+        self.table.contextMenuRequested.connect(self._on_table_context_menu_requested)
 
         # Add initial data after map is ready
         self.map_widget.ready.connect(self._add_initial_data)
@@ -221,11 +229,22 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
             ColumnSpec("Value", lambda r: r.get("value", "")),
         ]
 
-        return FeatureTableWidget(
+        table = FeatureTableWidget(
             columns=columns,
             key_fn=lambda r: (str(r.get("layer_id")), str(r.get("feature_id"))),
             sorting_enabled=True
         )
+
+        table.set_context_menu_actions([
+            ContextMenuActionSpec("View Metadata", self._view_selected_metadata),
+            ContextMenuActionSpec("Delete Selected", self._delete_from_context_menu),
+            ContextMenuActionSpec(
+                "Clear Table Selection",
+                self._clear_selection_from_context_menu,
+                enabled_without_selection=True,
+            ),
+        ])
+        return table
 
     def _add_initial_data(self):
         """Add initial sample data to map and table."""
@@ -376,6 +395,36 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
 
         self._update_stats()
         print(f"Added {count} geo points with uncertainty ellipses")
+
+    def _on_table_context_menu_requested(self, event: TableContextMenuEvent):
+        """Optional observer for context-menu events from FeatureTableWidget."""
+        # This callback demonstrates how the calling GUI can inspect context
+        # (keys, row objects, cursor position) before actions are triggered.
+        print(
+            "Context menu requested for "
+            f"{len(event.keys)} selected row(s) at {event.global_pos.x()}, {event.global_pos.y()}"
+        )
+
+    def _view_selected_metadata(self, event: TableContextMenuEvent):
+        """Show metadata for selected table rows."""
+        if not event.rows:
+            QtWidgets.QMessageBox.information(self, "Metadata", "No rows selected.")
+            return
+
+        lines = []
+        for i, row in enumerate(event.rows, start=1):
+            lines.append(f"Row {i}: {row}")
+        QtWidgets.QMessageBox.information(self, "Selected Row Metadata", "\n\n".join(lines))
+
+    def _delete_from_context_menu(self, event: TableContextMenuEvent):
+        """Delete selected rows from a context-menu action."""
+        if not event.keys:
+            return
+        self._delete_selected()
+
+    def _clear_selection_from_context_menu(self, _event: TableContextMenuEvent):
+        """Clear table selection from a context-menu action."""
+        self.table.clear_selection()
 
     def _delete_selected(self):
         """Delete currently selected features from map and table."""
