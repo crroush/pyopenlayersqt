@@ -10,6 +10,26 @@ Color = Union[str, Tuple[int, int, int], Tuple[int, int, int, int], Any]
 LatLon = Tuple[float, float]  # (lat, lon) - Public API uses latitude first
 
 
+@dataclass(frozen=True)
+class MeasurementUpdate:
+    """Structured payload for distance measurement clicks.
+
+    Attributes:
+        point_index: Zero-based index of the clicked measurement point.
+        lat: Latitude of the clicked point.
+        lon: Longitude of the clicked point.
+        segment_distance_m: Distance from previous point to this point in meters.
+            ``None`` for the first point.
+        cumulative_distance_m: Total path distance up to this point in meters.
+    """
+
+    point_index: int
+    lat: float
+    lon: float
+    segment_distance_m: Optional[float]
+    cumulative_distance_m: float
+
+
 def _qcolor_to_rgba(color: Any) -> tuple[int, int, int, int]:
     """Convert a QColor object to an RGBA tuple.
     

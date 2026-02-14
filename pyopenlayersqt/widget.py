@@ -25,6 +25,7 @@ from .layers import (
 )
 from .models import (
     FeatureSelection,
+    MeasurementUpdate,
     RasterStyle,
     WMSOptions,
     FastPointsStyle,
@@ -145,6 +146,7 @@ class OLMapWidget(QWebEngineView):
     viewExtentReceived = Signal(object)
     viewExtentChanged = Signal(object)
     jsEvent = Signal(str, str)
+    measurementUpdated = Signal(object)
     ready = Signal()
     perfReceived = Signal(object)
 
@@ -199,6 +201,7 @@ class OLMapWidget(QWebEngineView):
         # queue until JS is ready (prevents "pyolqt_send is not a function")
         self._js_ready = False
         self._pending: list[Dict[str, Any]] = []
+        self._measurement_callbacks: list[Any] = []
 
         # load
         self.loadFinished.connect(self._on_load_finished)
@@ -399,6 +402,32 @@ class OLMapWidget(QWebEngineView):
             self.viewExtentReceived.emit(obj)
             return
 
+        if event_type == "measurement":
+            try:
+                obj = json.loads(payload_json) if payload_json else {}
+            except Exception:
+                obj = {}
+
+            update = MeasurementUpdate(
+                point_index=int(obj.get("point_index", 0)),
+                lat=float(obj.get("lat", 0.0)),
+                lon=float(obj.get("lon", 0.0)),
+                segment_distance_m=(
+                    float(obj["segment_distance_m"])
+                    if obj.get("segment_distance_m") is not None
+                    else None
+                ),
+                cumulative_distance_m=float(obj.get("cumulative_distance_m", 0.0)),
+            )
+
+            self.measurementUpdated.emit(update)
+            for cb in list(self._measurement_callbacks):
+                try:
+                    cb(update)
+                except Exception:
+                    pass
+            return
+
         if event_type == "perf":
             try:
                 obj = json.loads(payload_json) if payload_json else {}
@@ -587,8 +616,8 @@ class OLMapWidget(QWebEngineView):
         """Enable or disable measurement mode.
 
         When enabled, clicking on the map creates anchor points for distance measurement.
-        Each click emits a 'measurement' event via jsEvent signal with segment and
-        cumulative distances.
+        Each click emits a :class:`MeasurementUpdate` on ``measurementUpdated`` and to
+        callbacks registered via :meth:`on_measurement_updated`.
         Press Escape to exit measurement mode.
 
         Args:
@@ -599,6 +628,29 @@ class OLMapWidget(QWebEngineView):
     def clear_measurements(self) -> None:
         """Clear all measurement points and lines from the map."""
         self._send({"type": "measure.clear"})
+
+    def on_measurement_updated(self, callback):
+        """Register a callback for structured measurement click updates.
+
+        The callback receives one :class:`MeasurementUpdate` argument each time
+        the user adds a measurement point while measurement mode is enabled.
+
+        Args:
+            callback: Callable that accepts a ``MeasurementUpdate`` instance.
+
+        Returns:
+            A handle with ``cancel()`` to unregister the callback.
+        """
+        self._measurement_callbacks.append(callback)
+
+        class Handle:
+            def cancel(inner_self):
+                try:
+                    self._measurement_callbacks.remove(callback)
+                except ValueError:
+                    pass
+
+        return Handle()
 
     @property
     def base_url(self) -> str:
