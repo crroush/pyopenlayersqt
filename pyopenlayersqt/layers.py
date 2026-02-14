@@ -446,13 +446,14 @@ class RasterLayer(BaseLayer):
         self.bounds = bounds  # [(lat, lon), (lat, lon)] - SW and NE corners
         self.style = style
 
-    def set_image(self, url: str, bounds: List[LatLon]) -> None:
+    def set_image(self, image: Union[str, bytes, bytearray], bounds: List[LatLon]) -> None:
         """Update the raster image.
 
         Args:
-            url: URL or path to the image.
+            image: URL/path/server path ("/_overlays/...") or raw PNG bytes.
             bounds: Two (lat, lon) tuples defining SW and NE corners.
         """
+        url = self._map_widget._ensure_overlay_url(image)
         self.url = url
         self.bounds = bounds
         # Swap lat,lon (public API) to lon,lat (internal format)

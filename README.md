@@ -100,7 +100,7 @@ See the [examples directory](examples/) for more working examples:
 - `02_layer_types_and_styling.py` - All geometry types with QColor
 - `03_fast_points_performance.py` - High-performance rendering (10,000+ points)
 - `04_wms_and_base_layers.py` - WMS integration and opacity control
-- `05_raster_overlay.py` - Raster/heatmap visualization
+- `05_raster_overlay.py` - Raster/heatmap visualization with in-memory PNG bytes
 - `06_geo_uncertainty_ellipses.py` - Geolocation uncertainty with ellipses
 - `07_feature_selection.py` - Interactive selection across layers
 - `08_table_integration.py` - Bidirectional map-table sync (CORE)
@@ -109,6 +109,7 @@ See the [examples directory](examples/) for more working examples:
 - `11_measurement_tool.py` - Distance measurement tool
 - `12_coordinate_display.py` - Coordinate display toggle
 - `13_dual_table_linking.py` - Two-table parent/child map-table selection workflow
+- `14_delayed_render_interrupt.py` - Debounced, interruptible process-based heatmap rendering
 
 ## Core Components
 
