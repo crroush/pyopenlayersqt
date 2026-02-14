@@ -11,6 +11,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
+
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import QObject, Signal, Slot, QUrl, QStandardPaths, QTimer
 from PySide6.QtWebChannel import QWebChannel
@@ -23,6 +24,7 @@ from .layers import (
     FastPointsLayer,
     FastGeoPointsLayer,
 )
+from .utils import clamp
 from .models import (
     FeatureSelection,
     MeasurementUpdate,
@@ -63,6 +65,8 @@ def _default_overlays_dir(app_name: str = "pyopenlayersqt") -> Path:
 def _is_http_url(s: str) -> bool:
     s = s.strip()
     return s.startswith("http://") or s.startswith("https://")
+
+
 
 
 class _Bridge(QObject):
@@ -271,7 +275,7 @@ class OLMapWidget(QWebEngineView):
 
     def set_base_opacity(self, opacity: float) -> None:
         """Set opacity of the base OSM layer (0..1)."""
-        self.send({"type": "base.set_opacity", "opacity": float(opacity)})
+        self.send({"type": "base.set_opacity", "opacity": clamp(opacity)})
 
     def _flush_pending(self) -> None:
         if not self._pending:
