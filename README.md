@@ -144,6 +144,7 @@ map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 - `add_raster_image(image, bounds, style, name)` - Add a raster image overlay
 - `set_base_opacity(opacity)` - Set OSM base layer opacity (0.0-1.0)
 - `set_measure_mode(enabled)` - Enable/disable interactive distance measurement mode
+- `on_measurement_updated(callback)` - Register a typed callback for measurement click updates
 - `clear_measurements()` - Clear all measurement points and lines
 - `get_view_extent(callback)` - Get current map extent asynchronously
 - `watch_view_extent(callback, debounce_ms)` - Subscribe to extent changes
@@ -153,7 +154,8 @@ map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 - `ready` - Emitted when the map is ready
 - `selectionChanged` - Emitted when feature selection changes
 - `viewExtentChanged` - Emitted when map extent changes
-- `jsEvent` - Emitted for JavaScript events (e.g., measurement mode). Signal(str, str) with event type and JSON payload.
+- `measurementUpdated` - Emitted when a measurement point is added. Signal(object) carrying a `MeasurementUpdate` instance.
+- `jsEvent` - Emitted for low-level JavaScript events. Signal(str, str) with event type and JSON payload.
 
 ### Layer Types
 
@@ -695,28 +697,30 @@ geo_layer.remove()
 
 ### Distance Measurement Mode
 
-Interactive distance measurement with geodesic calculations:
+Interactive distance measurement with geodesic calculations and a clean callback API:
 
 ```python
-import json
+from pyopenlayersqt import MeasurementUpdate
 
 # Enable measurement mode
 map_widget.set_measure_mode(True)
 
-# Listen for measurement events
-def on_js_event(event_type, payload_json):
-    if event_type == 'measurement':
-        data = json.loads(payload_json)
-        segment_m = data['segment_distance_m']      # Distance from previous point
-        cumulative_m = data['cumulative_distance_m']  # Total distance from start
-        lon, lat = data['lon'], data['lat']
-        print(f"Point at ({lat:.5f}, {lon:.5f})")
-        print(f"Segment: {segment_m:.1f} m, Total: {cumulative_m:.1f} m")
+# Listen for typed measurement updates
+def on_measurement(update: MeasurementUpdate):
+    if update.segment_distance_m is not None:
+        print(f"Segment: {update.segment_distance_m:.1f} m")
+    print(f"Total: {update.cumulative_distance_m:.1f} m")
+    print(f"Point at ({update.lat:.5f}, {update.lon:.5f})")
 
-map_widget.jsEvent.connect(on_js_event)
+handle = map_widget.on_measurement_updated(on_measurement)
+# (Optional) also available as a Qt signal:
+# map_widget.measurementUpdated.connect(on_measurement)
 
 # Clear all measurements
 map_widget.clear_measurements()
+
+# Stop callback if needed
+handle.cancel()
 
 # Disable measurement mode
 map_widget.set_measure_mode(False)
@@ -730,7 +734,7 @@ map_widget.set_measure_mode(False)
 - **Lines follow great-circle paths** - measurement lines curve to represent the true shortest path on Earth's surface
 - Curved paths are especially visible for long distances (e.g., New York to London)
 - Press `Escape` to exit measurement mode
-- Measurement events emitted to Python with distances and coordinates
+- Measurement updates emitted to Python as `MeasurementUpdate` objects with distances and coordinates
 
 See [examples/11_measurement_tool.py](examples/11_measurement_tool.py) for a complete working example.
 

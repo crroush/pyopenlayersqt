@@ -7,6 +7,7 @@ from .models import (
     RasterStyle,
     WMSOptions,
     FeatureSelection,
+    MeasurementUpdate,
     LatLon,
     # Fast layers styles
     FastPointsStyle,
@@ -30,6 +31,7 @@ __all__ = [
     "RasterStyle",
     "WMSOptions",
     "FeatureSelection",
+    "MeasurementUpdate",
     "LatLon",
     # Fast layers styles + layers
     "FastPointsStyle",

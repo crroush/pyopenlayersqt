@@ -25,6 +25,7 @@ from .layers import (
 )
 from .models import (
     FeatureSelection,
+    MeasurementUpdate,
     RasterStyle,
     WMSOptions,
     FastPointsStyle,
@@ -145,6 +146,7 @@ class OLMapWidget(QWebEngineView):
     viewExtentReceived = Signal(object)
     viewExtentChanged = Signal(object)
     jsEvent = Signal(str, str)
+    measurementUpdated = Signal(object)
     ready = Signal()
     perfReceived = Signal(object)
 
@@ -199,6 +201,7 @@ class OLMapWidget(QWebEngineView):
         # queue until JS is ready (prevents "pyolqt_send is not a function")
         self._js_ready = False
         self._pending: list[Dict[str, Any]] = []
+        self._measurement_callbacks: list[Any] = []
 
         # load
         self.loadFinished.connect(self._on_load_finished)
@@ -340,77 +343,92 @@ class OLMapWidget(QWebEngineView):
         return s
 
     # ---------- JS -> Python events ----------
+    def _parse_event_payload(self, payload_json: str, default: Optional[dict] = None) -> dict:
+        try:
+            return json.loads(payload_json) if payload_json else {}
+        except Exception:
+            return {} if default is None else default
+
+    def _handle_ready_event(self) -> None:
+        self._js_ready = True
+        if self._initial_center != self.DEFAULT_CENTER or self._initial_zoom != self.DEFAULT_ZOOM:
+            # Swap lat,lon (public API) to lon,lat (internal format)
+            lat, lon = self._initial_center
+            self._send_now(
+                {
+                    "type": "map.set_view",
+                    "center": [float(lon), float(lat)],
+                    "zoom": int(self._initial_zoom),
+                }
+            )
+        self._send_now({"type": "coordinates.set_visible", "visible": self._show_coordinates})
+        self._flush_pending()
+        self.ready.emit()
+
+    def _handle_selection_event(self, payload_json: str) -> None:
+        obj = self._parse_event_payload(payload_json)
+        sel = FeatureSelection(
+            layer_id=str(obj.get("layer_id", "")),
+            feature_ids=[str(x) for x in obj.get("feature_ids", [])],
+            count=int(obj.get("count", len(obj.get("feature_ids", []) or []))),
+            raw=obj,
+        )
+        self.selectionChanged.emit(sel)
+
+    def _handle_view_extent_changed_event(self, payload_json: str) -> None:
+        self.viewExtentChanged.emit(self._parse_event_payload(payload_json))
+
+    def _handle_view_extent_event(self, payload_json: str) -> None:
+        self.viewExtentReceived.emit(self._parse_event_payload(payload_json))
+
+    def _handle_measurement_event(self, payload_json: str) -> None:
+        obj = self._parse_event_payload(payload_json)
+        update = MeasurementUpdate(
+            point_index=int(obj.get("point_index", 0)),
+            lat=float(obj.get("lat", 0.0)),
+            lon=float(obj.get("lon", 0.0)),
+            segment_distance_m=(
+                float(obj["segment_distance_m"])
+                if obj.get("segment_distance_m") is not None
+                else None
+            ),
+            cumulative_distance_m=float(obj.get("cumulative_distance_m", 0.0)),
+        )
+
+        self.measurementUpdated.emit(update)
+        for cb in list(self._measurement_callbacks):
+            try:
+                cb(update)
+            except Exception:
+                pass
+
+    def _handle_perf_event(self, payload_json: str) -> None:
+        obj = self._parse_event_payload(payload_json, default={"raw": payload_json})
+        if self._perf_logging_enabled:
+            try:
+                print("PERF:", obj, flush=True)
+            except Exception:
+                pass
+        self.perfReceived.emit(obj)
+
     @Slot(str, str)
     def _on_js_event(self, event_type: str, payload_json: str) -> None:
         self.jsEvent.emit(event_type, payload_json)
 
+        payload_handlers = {
+            "selection": self._handle_selection_event,
+            "view_extent_changed": self._handle_view_extent_changed_event,
+            "view_extent": self._handle_view_extent_event,
+            "measurement": self._handle_measurement_event,
+            "perf": self._handle_perf_event,
+        }
         if event_type == "ready":
-            self._js_ready = True
-            # Set initial view if different from defaults
-            if (
-                self._initial_center != self.DEFAULT_CENTER
-                or self._initial_zoom != self.DEFAULT_ZOOM
-            ):
-                # Swap lat,lon (public API) to lon,lat (internal format)
-                lat, lon = self._initial_center
-                self._send_now(
-                    {
-                        "type": "map.set_view",
-                        "center": [float(lon), float(lat)],
-                        "zoom": int(self._initial_zoom),
-                    }
-                )
-            # Set coordinate display visibility
-            self._send_now(
-                {"type": "coordinates.set_visible", "visible": self._show_coordinates}
-            )
-            self._flush_pending()
-            self.ready.emit()
+            self._handle_ready_event()
             return
 
-        if event_type == "selection":
-            try:
-                obj = json.loads(payload_json) if payload_json else {}
-            except Exception:
-                obj = {}
-            sel = FeatureSelection(
-                layer_id=str(obj.get("layer_id", "")),
-                feature_ids=[str(x) for x in obj.get("feature_ids", [])],
-                count=int(obj.get("count", len(obj.get("feature_ids", []) or []))),
-                raw=obj,
-            )
-            self.selectionChanged.emit(sel)
-
-            return
-
-        if event_type == "view_extent_changed":
-            try:
-                obj = json.loads(payload_json) if payload_json else {}
-            except Exception:
-                obj = {}
-            self.viewExtentChanged.emit(obj)
-            return
-
-        if event_type == "view_extent":
-            try:
-                obj = json.loads(payload_json) if payload_json else {}
-            except Exception:
-                obj = {}
-            self.viewExtentReceived.emit(obj)
-            return
-
-        if event_type == "perf":
-            try:
-                obj = json.loads(payload_json) if payload_json else {}
-            except Exception:
-                obj = {"raw": payload_json}
-            if self._perf_logging_enabled:
-                try:
-                    print("PERF:", obj, flush=True)
-                except Exception:
-                    pass
-            self.perfReceived.emit(obj)
-            return
+        handler = payload_handlers.get(event_type)
+        if handler is not None:
+            handler(payload_json)
 
     # ---------- public layer API ----------
     def add_fast_points_layer(
@@ -587,8 +605,8 @@ class OLMapWidget(QWebEngineView):
         """Enable or disable measurement mode.
 
         When enabled, clicking on the map creates anchor points for distance measurement.
-        Each click emits a 'measurement' event via jsEvent signal with segment and
-        cumulative distances.
+        Each click emits a :class:`MeasurementUpdate` on ``measurementUpdated`` and to
+        callbacks registered via :meth:`on_measurement_updated`.
         Press Escape to exit measurement mode.
 
         Args:
@@ -599,6 +617,29 @@ class OLMapWidget(QWebEngineView):
     def clear_measurements(self) -> None:
         """Clear all measurement points and lines from the map."""
         self._send({"type": "measure.clear"})
+
+    def on_measurement_updated(self, callback):
+        """Register a callback for structured measurement click updates.
+
+        The callback receives one :class:`MeasurementUpdate` argument each time
+        the user adds a measurement point while measurement mode is enabled.
+
+        Args:
+            callback: Callable that accepts a ``MeasurementUpdate`` instance.
+
+        Returns:
+            A handle with ``cancel()`` to unregister the callback.
+        """
+        self._measurement_callbacks.append(callback)
+
+        class Handle:
+            def cancel(inner_self):
+                try:
+                    self._measurement_callbacks.remove(callback)
+                except ValueError:
+                    pass
+
+        return Handle()
 
     @property
     def base_url(self) -> str:
