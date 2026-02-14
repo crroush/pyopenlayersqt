@@ -66,7 +66,8 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
                 selected_point_radius=7.0,
                 selected_color=QColor("#d81b60"),
                 ellipse_stroke_color=QColor("#1e88e5"),
-                selected_ellipse_stroke_color=QColor("#d81b60")
+                selected_ellipse_stroke_color=QColor("#d81b60"),
+                skip_ellipses_while_interacting=False
             )
         )
 
