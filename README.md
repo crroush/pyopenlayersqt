@@ -803,6 +803,29 @@ def on_map_selection(selection):
     table.select_keys(keys, clear_first=True)
 
 map_widget.selectionChanged.connect(on_map_selection)
+
+# Optional: built-in right-click menu actions
+from pyopenlayersqt.features_table import ContextMenuActionSpec
+
+
+def view_metadata(event):
+    # event.keys -> [(layer_id, feature_id), ...]
+    # event.rows -> underlying row objects for selected rows
+    print("Metadata:", event.rows)
+
+
+def delete_selected(event):
+    if event.keys:
+        table.remove_keys(event.keys)
+
+
+table.set_context_menu_actions([
+    ContextMenuActionSpec("View Metadata", view_metadata),
+    ContextMenuActionSpec("Delete Selected", delete_selected),
+])
+
+# Optional hook for custom menus owned by your GUI code
+# table.contextMenuRequested.connect(on_context_menu_requested)
 ```
 
 #### Row removal APIs: `remove_keys` vs `remove_where`

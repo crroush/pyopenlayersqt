@@ -19,7 +19,11 @@ from .layers import (
     FastGeoPointsLayer,
 )
 
-from .features_table import FeatureTableWidget
+from .features_table import (
+    ContextMenuActionSpec,
+    FeatureTableWidget,
+    TableContextMenuEvent,
+)
 from .range_slider import RangeSliderWidget
 
 __all__ = [
@@ -40,5 +44,7 @@ __all__ = [
     "FastGeoPointsLayer",
     # Reusable Qt widgets
     "FeatureTableWidget",
+    "ContextMenuActionSpec",
+    "TableContextMenuEvent",
     "RangeSliderWidget",
 ]
