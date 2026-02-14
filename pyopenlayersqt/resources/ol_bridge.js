@@ -36,6 +36,7 @@ const state = {
     measureLayer: null,      // Vector layer for measurement features
     measureSource: null,     // Vector source for measurement features
     measureOverlay: null,    // Tooltip overlay
+    measureTempFeature: null, // Temporary preview line while moving mouse
     measurePointerMoveKey: null,  // Event listener key for map event
     measureClickKey: null,   // Event listener key for map event
     measureKeyDownKey: null, // Flag for keydown event listener (true/false)
@@ -1167,13 +1168,12 @@ function calculateMeasurementDistances(mouseCoord) {
 
 function updateMeasurementGeometry(mouseCoord3857) {
   if (!state.measureSource) return;
-  
-  // Clear previous temp geometry
-  state.measureSource.getFeatures().forEach(feature => {
-    if (feature.get('_temp')) {
-      state.measureSource.removeFeature(feature);
-    }
-  });
+
+  // Clear previous temp geometry without scanning all features.
+  if (state.measureTempFeature) {
+    state.measureSource.removeFeature(state.measureTempFeature);
+    state.measureTempFeature = null;
+  }
   
   if (state.measurePoints.length === 0) return;
   
@@ -1194,7 +1194,8 @@ function updateMeasurementGeometry(mouseCoord3857) {
     geometry: new ol.geom.LineString(coords3857),
     _temp: true
   });
-  
+
+  state.measureTempFeature = lineFeature;
   state.measureSource.addFeature(lineFeature);
 }
 
@@ -1295,6 +1296,7 @@ function setMeasureMode(enabled) {
   if (enabled) {
     // Reset measurement state
     state.measurePoints = [];
+    state.measureTempFeature = null;
     
     // Hide tooltip initially
     if (state.measureOverlay) {
@@ -1353,19 +1355,17 @@ function setMeasureMode(enabled) {
       state.measureOverlay.setPosition(undefined);
     }
     
-    // Remove temp features
-    if (state.measureSource) {
-      state.measureSource.getFeatures().forEach(feature => {
-        if (feature.get('_temp')) {
-          state.measureSource.removeFeature(feature);
-        }
-      });
+    // Remove temp feature
+    if (state.measureSource && state.measureTempFeature) {
+      state.measureSource.removeFeature(state.measureTempFeature);
+      state.measureTempFeature = null;
     }
   }
 }
 
 function clearMeasurements() {
   state.measurePoints = [];
+  state.measureTempFeature = null;
   
   if (state.measureSource) {
     state.measureSource.clear();
@@ -1697,8 +1697,8 @@ function cmd_coordinates_set_visible(msg) {
 
   function cmd_map_base_opacity(msg) {
     if (!state.base_layer) return;
-    const op = Math.max(0, Math.min(1, Number(msg.opacity)));
-    state.base_layer.setOpacity(op);
+    const op = Number(msg.opacity);
+    if (Number.isFinite(op)) state.base_layer.setOpacity(op);
   }
 
   function cmd_vector_clear(msg) {
