@@ -24,7 +24,7 @@ class FitToDataExample(QtWidgets.QMainWindow):
         self.setWindowTitle("Load Data and Zoom Example")
         self.resize(1200, 800)
 
-        self.map_widget = OLMapWidget(center=(20.0, 0.0), zoom=2)
+        self.map_widget = OLMapWidget(center=(36.8, -119.4), zoom=5)
         self.vector_layer = self.map_widget.add_vector_layer("loaded_features", selectable=True)
 
         self._loaded = False
@@ -44,8 +44,8 @@ class FitToDataExample(QtWidgets.QMainWindow):
         zoom_btn.clicked.connect(self._zoom_to_data)
         controls.addWidget(zoom_btn)
 
-        reset_btn = QtWidgets.QPushButton("Reset to World View")
-        reset_btn.clicked.connect(lambda: self.map_widget.set_view(center=(20.0, 0.0), zoom=2))
+        reset_btn = QtWidgets.QPushButton("Reset to California View")
+        reset_btn.clicked.connect(lambda: self.map_widget.set_view(center=(36.8, -119.4), zoom=5))
         controls.addWidget(reset_btn)
 
         controls.addStretch()
@@ -58,26 +58,26 @@ class FitToDataExample(QtWidgets.QMainWindow):
         self.setCentralWidget(container)
 
     def _load_data(self) -> None:
-        """Load two distant clusters so fit behavior is obvious."""
+        """Load California-only points so fit behavior is easy to verify."""
         self.vector_layer.clear()
 
-        # US West cluster
-        west_points = [
+        # Northern/Central California
+        north_central_points = [
             (37.7749, -122.4194),  # San Francisco
-            (34.0522, -118.2437),  # Los Angeles
-            (47.6062, -122.3321),  # Seattle
+            (38.5816, -121.4944),  # Sacramento
+            (36.7378, -119.7871),  # Fresno
         ]
 
-        # Europe cluster
-        europe_points = [
-            (51.5074, -0.1278),    # London
-            (48.8566, 2.3522),     # Paris
-            (52.5200, 13.4050),    # Berlin
+        # Southern California
+        south_points = [
+            (34.0522, -118.2437),  # Los Angeles
+            (32.7157, -117.1611),  # San Diego
+            (33.7455, -117.8677),  # Anaheim
         ]
 
         self.vector_layer.add_points(
-            west_points,
-            ids=["sf", "la", "sea"],
+            north_central_points,
+            ids=["sf", "sac", "fre"],
             style=PointStyle(
                 radius=8.0,
                 fill_color=QColor("tomato"),
@@ -87,8 +87,8 @@ class FitToDataExample(QtWidgets.QMainWindow):
         )
 
         self.vector_layer.add_points(
-            europe_points,
-            ids=["lon", "par", "ber"],
+            south_points,
+            ids=["la", "sd", "ana"],
             style=PointStyle(
                 radius=8.0,
                 fill_color=QColor("royalblue"),
@@ -98,7 +98,7 @@ class FitToDataExample(QtWidgets.QMainWindow):
         )
 
         self._loaded = True
-        self.status.setText("Data loaded: 6 points across two regions.")
+        self.status.setText("Data loaded: 6 points across California.")
 
     def _zoom_to_data(self) -> None:
         """Fit map to all loaded layer data."""
