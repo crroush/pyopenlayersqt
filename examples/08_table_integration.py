@@ -62,11 +62,15 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
             selectable=True,
             style=FastGeoPointsStyle(
                 point_radius=4.0,
-                default_color=QColor("blue"),
+                default_color=QColor("#1e88e5"),
                 selected_point_radius=7.0,
-                selected_color=QColor("orange")
+                selected_color=QColor("#d81b60"),
+                ellipse_stroke_color=QColor("#1e88e5"),
+                selected_ellipse_stroke_color=QColor("#d81b60")
             )
         )
+
+        self._selected_ellipses_visible = True
 
         # Create feature table
         self.table = self._create_table()
@@ -158,6 +162,11 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         layout.addWidget(self.geo_count)
         layout.addWidget(geo_btn)
 
+        self.selected_ellipse_toggle = QtWidgets.QPushButton("Hide Selected Ellipses")
+        self.selected_ellipse_toggle.setCheckable(True)
+        self.selected_ellipse_toggle.clicked.connect(self._toggle_selected_ellipses)
+        layout.addWidget(self.selected_ellipse_toggle)
+
         layout.addWidget(QtWidgets.QLabel(""))  # Spacer
 
         # Delete button
@@ -172,6 +181,15 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
 
         layout.addStretch()
         return widget
+
+    def _toggle_selected_ellipses(self, checked):
+        """Toggle visibility of selected uncertainty ellipses only."""
+        self._selected_ellipses_visible = not checked
+        self.geo_layer.set_selected_ellipses_visible(self._selected_ellipses_visible)
+        if checked:
+            self.selected_ellipse_toggle.setText("Show Selected Ellipses")
+        else:
+            self.selected_ellipse_toggle.setText("Hide Selected Ellipses")
 
     def _create_table(self):
         """Create the feature table widget."""
