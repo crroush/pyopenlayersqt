@@ -145,6 +145,7 @@ class OLMapWidget(QWebEngineView):
     # Default initial view settings
     DEFAULT_CENTER = (0.0, 0.0)  # (lat, lon) - centered at equator and prime meridian
     DEFAULT_ZOOM = 2
+    WEB_MERCATOR_INITIAL_RESOLUTION_M_PER_PX = 156543.03392804097
 
     selectionChanged = Signal(object)  # FeatureSelection
     viewExtentReceived = Signal(object)
@@ -276,6 +277,151 @@ class OLMapWidget(QWebEngineView):
     def set_base_opacity(self, opacity: float) -> None:
         """Set opacity of the base OSM layer (0..1)."""
         self.send({"type": "base.set_opacity", "opacity": clamp(opacity)})
+
+    def set_view(
+        self,
+        center: Optional[Tuple[float, float]] = None,
+        zoom: Optional[int] = None,
+    ) -> None:
+        """Set map center and/or zoom level programmatically.
+
+        Args:
+            center: Optional map center as (lat, lon).
+            zoom: Optional zoom level as an integer.
+        """
+        if center is None and zoom is None:
+            return
+
+        msg: Dict[str, Any] = {"type": "map.set_view"}
+        if center is not None:
+            lat, lon = center
+            msg["center"] = [float(lon), float(lat)]
+        if zoom is not None:
+            msg["zoom"] = int(zoom)
+        self._send(msg)
+
+    def set_zoom(self, zoom: int) -> None:
+        """Set map zoom level programmatically."""
+        self.set_view(zoom=zoom)
+
+    def set_center(self, center: Tuple[float, float]) -> None:
+        """Set map center programmatically as (lat, lon)."""
+        self.set_view(center=center)
+
+    def fit_bounds(
+        self,
+        bounds: Sequence[Tuple[float, float]],
+        padding_px: Union[int, Tuple[int, int, int, int]] = 24,
+        max_zoom: Optional[int] = None,
+        duration_ms: int = 0,
+    ) -> None:
+        """Auto-zoom and center the map to the given geographic bounds.
+
+        Args:
+            bounds: Two (lat, lon) tuples defining SW and NE corners.
+            padding_px: Pixel padding around the fitted extent. Provide one int
+                for uniform padding or (top, right, bottom, left).
+            max_zoom: Optional maximum zoom level allowed during fit.
+            duration_ms: Optional animation duration in milliseconds.
+        """
+        if len(bounds) != 2:
+            raise ValueError("bounds must contain exactly two (lat, lon) tuples")
+
+        sw, ne = bounds
+        payload: Dict[str, Any] = {
+            "type": "map.fit_bounds",
+            "bounds": [
+                [float(sw[1]), float(sw[0])],
+                [float(ne[1]), float(ne[0])],
+            ],
+            "duration_ms": int(max(0, duration_ms)),
+        }
+
+        if isinstance(padding_px, int):
+            payload["padding_px"] = int(max(0, padding_px))
+        else:
+            if len(padding_px) != 4:
+                raise ValueError("padding_px tuple must be (top, right, bottom, left)")
+            payload["padding_px"] = [int(max(0, v)) for v in padding_px]
+
+        if max_zoom is not None:
+            payload["max_zoom"] = int(max_zoom)
+
+        self._send(payload)
+
+    def auto_zoom_to_points(
+        self,
+        points: Sequence[Tuple[float, float]],
+        padding_px: Union[int, Tuple[int, int, int, int]] = 24,
+        max_zoom: Optional[int] = None,
+        duration_ms: int = 0,
+    ) -> None:
+        """Auto-zoom to the geographic extent of a set of (lat, lon) points."""
+        if not points:
+            return
+
+        lats = [float(lat) for lat, _lon in points]
+        lons = [float(lon) for _lat, lon in points]
+        self.fit_bounds(
+            bounds=[(min(lats), min(lons)), (max(lats), max(lons))],
+            padding_px=padding_px,
+            max_zoom=max_zoom,
+            duration_ms=duration_ms,
+        )
+
+    def fit_to_data(
+        self,
+        padding_px: Union[int, Tuple[int, int, int, int]] = 24,
+        max_zoom: Optional[int] = None,
+        duration_ms: int = 0,
+        only_visible_layers: bool = True,
+        only_visible_features: bool = True,
+        layer_ids: Optional[Sequence[str]] = None,
+    ) -> None:
+        """Auto-fit to data already loaded in map layers.
+
+        Useful when features were added to layers and you want one call to zoom
+        to their combined extent, without manually calculating bounds.
+
+        Args:
+            padding_px: Pixel padding around fitted extent; int or
+                (top, right, bottom, left).
+            max_zoom: Optional maximum zoom level while fitting.
+            duration_ms: Optional animation duration in milliseconds.
+            only_visible_layers: If True, ignore hidden layers.
+            only_visible_features: If True, ignore hidden features in fast layers.
+            layer_ids: Optional subset of layer ids to include.
+        """
+        payload: Dict[str, Any] = {
+            "type": "map.fit_to_data",
+            "duration_ms": int(max(0, duration_ms)),
+            "only_visible_layers": bool(only_visible_layers),
+            "only_visible_features": bool(only_visible_features),
+        }
+
+        if isinstance(padding_px, int):
+            payload["padding_px"] = int(max(0, padding_px))
+        else:
+            if len(padding_px) != 4:
+                raise ValueError("padding_px tuple must be (top, right, bottom, left)")
+            payload["padding_px"] = [int(max(0, v)) for v in padding_px]
+
+        if max_zoom is not None:
+            payload["max_zoom"] = int(max_zoom)
+
+        if layer_ids is not None:
+            payload["layer_ids"] = [str(x) for x in layer_ids]
+
+        self._send(payload)
+
+    @classmethod
+    def zoom_resolution_m_per_px(cls, zoom: int) -> float:
+        """Get Web Mercator resolution (meters/pixel) for a zoom level.
+
+        Uses the standard OpenLayers/Web Mercator relationship at the equator:
+        resolution = 156543.03392804097 / (2**zoom)
+        """
+        return cls.WEB_MERCATOR_INITIAL_RESOLUTION_M_PER_PX / (2 ** int(zoom))
 
     def _flush_pending(self) -> None:
         if not self._pending:

@@ -110,6 +110,7 @@ See the [examples directory](examples/) for more working examples:
 - `12_coordinate_display.py` - Coordinate display toggle
 - `13_dual_table_linking.py` - Two-table parent/child map-table selection workflow
 - `14_delayed_render_interrupt.py` - Debounced, interruptible process-based heatmap rendering
+- `15_load_data_and_zoom.py` - Load features, then click a button to auto-zoom to loaded data
 
 ## Core Components
 
@@ -125,7 +126,64 @@ map_widget = OLMapWidget()
 
 # Or create with custom initial view
 map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
+
+# Programmatically adjust view later (no mouse interaction needed)
+map_widget.set_center((34.0522, -118.2437))
+map_widget.set_zoom(10)
+# or set both at once
+map_widget.set_view(center=(40.7128, -74.0060), zoom=12)
+
+# Auto-zoom to all currently relevant points/features
+feature_points = [
+    (37.7749, -122.4194),
+    (34.0522, -118.2437),
+    (36.1699, -115.1398),
+]
+map_widget.auto_zoom_to_points(feature_points, padding_px=32, max_zoom=12)
+
+# Or simply fit to all data already loaded in map layers
+map_widget.fit_to_data()
 ```
+
+### Programmatic Zoom & Resolution Reference
+
+OpenLayers uses the standard Web Mercator zoom model. This means zoom levels map
+predictably to resolution (meters per pixel at the equator):
+
+`resolution_m_per_px = 156543.03392804097 / (2 ** zoom)`
+
+You can query this directly in Python with:
+
+```python
+resolution = OLMapWidget.zoom_resolution_m_per_px(zoom)
+```
+
+Approximate full-world horizontal extent represented by each zoom level:
+
+| Zoom | Resolution (m/px) | Approx. horizontal extent on a 256 px tile (km) |
+|------|-------------------:|-------------------------------------------------:|
+| 0    | 156543.0339        | 40075.02 |
+| 1    | 78271.5170         | 20037.51 |
+| 2    | 39135.7585         | 10018.75 |
+| 3    | 19567.8792         | 5009.38  |
+| 4    | 9783.9396          | 2504.69  |
+| 5    | 4891.9698          | 1252.34  |
+| 6    | 2445.9849          | 626.17   |
+| 7    | 1222.9925          | 313.09   |
+| 8    | 611.4962           | 156.54   |
+| 9    | 305.7481           | 78.27    |
+| 10   | 152.8741           | 39.14    |
+| 11   | 76.4370            | 19.57    |
+| 12   | 38.2185            | 9.78     |
+| 13   | 19.1093            | 4.89     |
+| 14   | 9.5546             | 2.45     |
+| 15   | 4.7773             | 1.22     |
+| 16   | 2.3887             | 0.61     |
+
+Notes:
+- "Extent" above is an equatorial approximation and varies with viewport size.
+- For the actual current extent of your map widget, use `get_view_extent(callback)`.
+- For feature-driven workflows (e.g., after adding a batch of points), use `fit_to_data()` for a one-call auto-fit across loaded layers, or `auto_zoom_to_points(...)` / `fit_bounds(...)` when you want explicit control.
 <img width="515" height="401" alt="image" src="https://github.com/user-attachments/assets/6dbe1d15-cb28-4b68-a182-ec677a01e651" />
 
 **Constructor Parameters:**
@@ -146,6 +204,13 @@ map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
 - `set_measure_mode(enabled)` - Enable/disable interactive distance measurement mode
 - `on_measurement_updated(callback)` - Register a typed callback for measurement click updates
 - `clear_measurements()` - Clear all measurement points and lines
+- `set_view(center=None, zoom=None)` - Programmatically set map center and/or zoom
+- `set_center((lat, lon))` - Programmatically set map center
+- `set_zoom(zoom)` - Programmatically set map zoom level
+- `fit_bounds(bounds, padding_px, max_zoom, duration_ms)` - Auto-fit map view to SW/NE bounds
+- `auto_zoom_to_points(points, padding_px, max_zoom, duration_ms)` - Auto-fit map view to a list of feature points
+- `fit_to_data(padding_px, max_zoom, duration_ms, ...)` - Auto-fit map view to data already in map layers
+- `zoom_resolution_m_per_px(zoom)` - Return Web Mercator resolution (m/px) for a zoom level
 - `get_view_extent(callback)` - Get current map extent asynchronously
 - `watch_view_extent(callback, debounce_ms)` - Subscribe to extent changes
 

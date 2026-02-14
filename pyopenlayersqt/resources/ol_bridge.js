@@ -139,6 +139,106 @@ function cmd_map_set_view(msg) {
 }
 
 
+function _fit_options_from_msg(msg) {
+  let padding = [24, 24, 24, 24];
+  if (Array.isArray(msg.padding_px) && msg.padding_px.length === 4) {
+    padding = msg.padding_px.map((v) => Math.max(0, v | 0));
+  } else if (msg.padding_px != null) {
+    const p = Math.max(0, msg.padding_px | 0);
+    padding = [p, p, p, p];
+  }
+
+  const options = { padding };
+  if (msg.max_zoom != null) options.maxZoom = msg.max_zoom;
+  if (msg.duration_ms != null) options.duration = Math.max(0, msg.duration_ms | 0);
+  return options;
+}
+
+function _entry_data_extent(entry, onlyVisibleFeatures) {
+  if (!entry) return null;
+
+  if (entry.type === 'vector') {
+    const ext = entry.source.getExtent();
+    return ol.extent.isEmpty(ext) ? null : ext;
+  }
+
+  if (entry.type === 'raster') {
+    if (entry.source && typeof entry.source.getImageExtent === 'function') {
+      const ext = entry.source.getImageExtent();
+      return ext && !ol.extent.isEmpty(ext) ? ext : null;
+    }
+    return null;
+  }
+
+  if (entry.type === 'fast_points' || entry.type === 'fast_geopoints') {
+    if (!entry.x || entry.x.length === 0) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let found = false;
+    for (let i = 0; i < entry.x.length; i++) {
+      if (entry.deleted && entry.deleted[i]) continue;
+      if (onlyVisibleFeatures && entry.hidden && entry.hidden[i]) continue;
+      const x = entry.x[i], y = entry.y[i];
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      found = true;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    if (!found) return null;
+    return [minX, minY, maxX, maxY];
+  }
+
+  return null;
+}
+
+function cmd_map_fit_to_data(msg) {
+  const st = window._pyolqt_state;
+  if (!st || !st.map) return;
+  const map = st.map;
+  const view = map.getView();
+  if (!view) return;
+
+  const onlyVisibleLayers = msg.only_visible_layers !== false;
+  const onlyVisibleFeatures = msg.only_visible_features !== false;
+  const requestedLayerIds = Array.isArray(msg.layer_ids) ? new Set(msg.layer_ids.map(String)) : null;
+
+  const combined = ol.extent.createEmpty();
+  let hasAny = false;
+
+  for (const [layer_id, entry] of st.layers.entries()) {
+    if (requestedLayerIds && !requestedLayerIds.has(String(layer_id))) continue;
+    if (onlyVisibleLayers && entry.layer && typeof entry.layer.getVisible === 'function' && !entry.layer.getVisible()) continue;
+
+    const ext = _entry_data_extent(entry, onlyVisibleFeatures);
+    if (!ext) continue;
+
+    ol.extent.extend(combined, ext);
+    hasAny = true;
+  }
+
+  if (!hasAny || ol.extent.isEmpty(combined)) return;
+
+  view.fit(combined, _fit_options_from_msg(msg));
+}
+
+function cmd_map_fit_bounds(msg) {
+  const st = window._pyolqt_state;
+  if (!st || !st.map) return;
+  const map = st.map;
+  const view = map.getView();
+  if (!view) return;
+
+  const b = msg && msg.bounds;
+  if (!Array.isArray(b) || b.length !== 2) return;
+  const a = b[0], c = b[1];
+  if (!Array.isArray(a) || a.length !== 2 || !Array.isArray(c) || c.length !== 2) return;
+
+  const extent = extent_from_bounds(b);
+  view.fit(extent, _fit_options_from_msg(msg));
+}
+
+
 
   function log(...args) { console.log("JS:", ...args); }
   function jsError(...args) { console.error("JS:", ...args); }
@@ -1877,6 +1977,8 @@ function cmd_coordinates_set_visible(msg) {
       case "select.set": return cmd_select_set(msg);
     case "map.get_view_extent": return cmd_map_get_view_extent(msg);
     case "map.set_view": return cmd_map_set_view(msg);
+    case "map.fit_bounds": return cmd_map_fit_bounds(msg);
+    case "map.fit_to_data": return cmd_map_fit_to_data(msg);
       case "map.base.opacity": return cmd_map_base_opacity(msg);
     case "map.set_extent_watch": return cmd_map_set_extent_watch(msg);
 
