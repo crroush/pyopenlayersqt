@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import numpy as np
 import os
 import shutil
 import threading
@@ -63,6 +64,16 @@ def _default_overlays_dir(app_name: str = "pyopenlayersqt") -> Path:
 def _is_http_url(s: str) -> bool:
     s = s.strip()
     return s.startswith("http://") or s.startswith("https://")
+
+
+def _clamp01(value: float) -> float:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if not np.isfinite(v):
+        return 1.0
+    return float(np.clip(v, 0.0, 1.0))
 
 
 class _Bridge(QObject):
@@ -271,7 +282,7 @@ class OLMapWidget(QWebEngineView):
 
     def set_base_opacity(self, opacity: float) -> None:
         """Set opacity of the base OSM layer (0..1)."""
-        self.send({"type": "base.set_opacity", "opacity": float(opacity)})
+        self.send({"type": "base.set_opacity", "opacity": _clamp01(opacity)})
 
     def _flush_pending(self) -> None:
         if not self._pending:

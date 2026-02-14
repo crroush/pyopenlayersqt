@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+import numpy as np
+
 from .models import (
     CircleStyle,
     EllipseStyle,
@@ -89,6 +91,22 @@ def _normalize_color(
     )
 
 
+def _clamp01(value: float) -> float:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if not np.isfinite(v):
+        return 1.0
+    return float(np.clip(v, 0.0, 1.0))
+
+
+def _latlon_chunk_to_lonlat_list(coords: Sequence[LatLon]) -> list[list[float]]:
+    arr = np.asarray(coords, dtype=float)
+    if arr.ndim != 2 or arr.shape[1] != 2:
+        raise ValueError("coords must be a sequence of (lat, lon) pairs")
+    return arr[:, [1, 0]].tolist()
+
 def _pack_rgba_colors(colors: List[Union[tuple[int, int, int, int], str, Any]]) -> List[int]:
     """Convert list of colors to packed 32-bit integers.
     
@@ -150,7 +168,7 @@ class BaseLayer:
             else "layer.opacity"
         )
         self._map_widget._send(
-            {"type": msg_type, "layer_id": self.id, "opacity": float(opacity)}
+            {"type": msg_type, "layer_id": self.id, "opacity": _clamp01(opacity)}
         )
 
     def set_visible(self, visible: bool) -> None:
@@ -492,6 +510,7 @@ class FastPointsLayer(BaseLayer):
         coords: list[tuple[float, float]],
         ids: list[str] | None = None,
         colors_rgba: list[Union[tuple[int, int, int, int], Any]] | None = None,
+        chunk_size: int = 50000,
     ) -> None:
         """Add points to the layer.
 
@@ -501,20 +520,35 @@ class FastPointsLayer(BaseLayer):
             colors_rgba: Optional list of colors. Each color can be either:
                 - RGBA tuple: (r, g, b, a) with values 0-255
                 - QColor object from PySide6.QtGui
+            chunk_size: Number of points per chunk to avoid large JSON payloads.
         """
-        # Swap lat,lon (public API) to lon,lat (internal format)
-        coords_internal = [[lon, lat] for lat, lon in coords]
+        n = len(coords)
+        if n == 0:
+            return
+        if ids is not None and len(ids) != n:
+            raise ValueError("ids must have the same length as coords")
+        if colors_rgba is not None and len(colors_rgba) != n:
+            raise ValueError("colors_rgba must have the same length as coords")
 
-        msg: dict = {
-            "type": "fast_points.add_points",
-            "layer_id": self.id,
-            "coords": coords_internal,
-        }
-        if ids is not None:
-            msg["ids"] = ids
-        if colors_rgba is not None:
-            msg["colors"] = _pack_rgba_colors(colors_rgba)
-        self._map_widget._send(msg)
+        # Chunking avoids huge JSON payloads that can stall the JS thread.
+        if chunk_size <= 0:
+            chunk_size = n
+
+        for start in range(0, n, chunk_size):
+            end = min(n, start + chunk_size)
+            # Swap lat,lon (public API) to lon,lat (internal format)
+            coords_chunk = _latlon_chunk_to_lonlat_list(coords[start:end])
+
+            msg: dict = {
+                "type": "fast_points.add_points",
+                "layer_id": self.id,
+                "coords": coords_chunk,
+            }
+            if ids is not None:
+                msg["ids"] = ids[start:end]
+            if colors_rgba is not None:
+                msg["colors"] = _pack_rgba_colors(colors_rgba[start:end])
+            self._map_widget._send(msg)
 
     def remove_points(self, feature_ids: Sequence[str]) -> None:
         """Remove fast points by id (marks deleted in JS)."""
@@ -638,6 +672,10 @@ class FastGeoPointsLayer(BaseLayer):
             raise ValueError("coords/sma_m/smi_m/tilt_deg must have the same length")
 
         n = len(coords)
+        if ids is not None and len(ids) != n:
+            raise ValueError("ids must have the same length as coords")
+        if colors_rgba is not None and len(colors_rgba) != n:
+            raise ValueError("colors_rgba must have the same length as coords")
         if n == 0:
             return
 
@@ -648,15 +686,15 @@ class FastGeoPointsLayer(BaseLayer):
         for start in range(0, n, chunk_size):
             end = min(n, start + chunk_size)
             # Swap lat,lon (public API) to lon,lat (internal format)
-            coords_chunk = [[lon, lat] for lat, lon in coords[start:end]]
+            coords_chunk = _latlon_chunk_to_lonlat_list(coords[start:end])
 
             msg: dict = {
                 "type": "fast_geopoints.add_points",
                 "layer_id": self.id,
                 "coords": coords_chunk,
-                "sma_m": [float(x) for x in sma_m[start:end]],
-                "smi_m": [float(x) for x in smi_m[start:end]],
-                "tilt_deg": [float(x) for x in tilt_deg[start:end]],
+                "sma_m": np.asarray(sma_m[start:end], dtype=float).tolist(),
+                "smi_m": np.asarray(smi_m[start:end], dtype=float).tolist(),
+                "tilt_deg": np.asarray(tilt_deg[start:end], dtype=float).tolist(),
             }
             if ids is not None:
                 msg["ids"] = ids[start:end]
