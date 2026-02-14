@@ -16,6 +16,7 @@ Features demonstrated:
 """
 
 import sys
+from typing import List
 
 from PySide6 import QtWidgets
 from PySide6.QtGui import QColor
@@ -31,7 +32,7 @@ class MeasurementExample(QtWidgets.QMainWindow):
         self.setWindowTitle("Interactive Distance Measurement Tool")
         self.resize(1300, 800)
 
-        self._segments_m: list[float] = []
+        self._segments_m: List[float] = []
 
         # Create map
         self.map_widget = OLMapWidget(center=(37.7749, -122.4194), zoom=11)

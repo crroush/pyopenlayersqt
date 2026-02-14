@@ -39,8 +39,7 @@ disable=import-error,
         consider-using-min-builtin,
         too-many-instance-attributes,
         too-many-statements,
-        import-outside-toplevel,
-        too-many-positional-arguments
+        import-outside-toplevel
 
 [BASIC]
 # Allow module names that start with numbers (for example files)
