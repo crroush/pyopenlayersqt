@@ -13,7 +13,7 @@ Useful for exploring large datasets by filtering on continuous variables.
 """
 
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from PySide6 import QtWidgets
@@ -81,18 +81,22 @@ class RangeSliderExample(QtWidgets.QMainWindow):
             min_val=0.0,
             max_val=100.0,
             step=1.0,
-            label="Filter by Value"
+            label="Filter by Value",
+            show_value_tooltips=True
         )
         value_slider.rangeChanged.connect(self._on_value_range_changed)
 
-        # Time slider (30-day range)
-        start_date = datetime(2024, 1, 1)
-        end_date = start_date + timedelta(days=30)
+        # Time slider (30-day range with hourly ISO8601 values)
+        start_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        total_hours = 30 * 24
+        timestamp_values = [
+            (start_date + timedelta(hours=hour)).isoformat().replace("+00:00", "Z")
+            for hour in range(total_hours + 1)
+        ]
         time_slider = RangeSliderWidget(
-            min_val=start_date.timestamp(),
-            max_val=end_date.timestamp(),
-            step=3600,  # 1 hour steps
-            label="Filter by Timestamp"
+            values=timestamp_values,
+            label="Filter by Timestamp",
+            show_value_tooltips=True
         )
         time_slider.rangeChanged.connect(self._on_time_range_changed)
 
@@ -144,9 +148,9 @@ class RangeSliderExample(QtWidgets.QMainWindow):
 
         # Generate values and timestamps
         values = (rng.random(n_points) * 100).tolist()
-        start_ts = datetime(2024, 1, 1).timestamp()
-        end_ts = (datetime(2024, 1, 1) + timedelta(days=30)).timestamp()
-        timestamps = (start_ts + rng.random(n_points) * (end_ts - start_ts)).tolist()
+        start_ts = datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+        end_ts = (datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(days=30)).timestamp()
+        timestamp_seconds = (start_ts + rng.random(n_points) * (end_ts - start_ts)).tolist()
 
         # Generate IDs and store data
         self.data = []
@@ -156,7 +160,11 @@ class RangeSliderExample(QtWidgets.QMainWindow):
                 "id": feature_id,
                 "coord": coords[i],
                 "value": values[i],
-                "timestamp": timestamps[i],
+                "timestamp": (
+                    datetime.fromtimestamp(timestamp_seconds[i], tz=timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z")
+                ),
             })
 
         ids = [d["id"] for d in self.data]
@@ -183,7 +191,7 @@ class RangeSliderExample(QtWidgets.QMainWindow):
                 "layer_id": self.fast_layer.id,
                 "feature_id": d["id"],
                 "value": d["value"],
-                "timestamp": datetime.fromtimestamp(d["timestamp"]).strftime("%Y-%m-%d %H:%M"),
+                "timestamp": d["timestamp"],
             }
             for d in self.data
         ]
