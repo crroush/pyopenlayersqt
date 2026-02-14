@@ -42,10 +42,11 @@ class EllipseExample(QtWidgets.QMainWindow):
                 point_radius=4.0,
                 default_color=QColor("steelblue"),
                 selected_point_radius=7.0,
-                selected_color=QColor("orange"),
+                selected_color=QColor("#d81b60"),
 
                 # Ellipse styling
                 ellipse_stroke_color=QColor("steelblue"),
+                selected_ellipse_stroke_color=QColor("#d81b60"),
                 ellipse_stroke_width=1.5,
                 fill_ellipses=True,
                 ellipse_fill_color=QColor(70, 130, 180, 60),  # Semi-transparent blue

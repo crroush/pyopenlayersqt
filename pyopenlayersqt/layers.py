@@ -675,10 +675,20 @@ class FastGeoPointsLayer(BaseLayer):
         )
 
     def set_ellipses_visible(self, visible: bool) -> None:
-        """Toggle ellipse drawing while leaving points visible."""
+        """Toggle unselected ellipse drawing while leaving points visible."""
         self._map_widget._send(
             {
                 "type": "fast_geopoints.set_ellipses_visible",
+                "layer_id": self.id,
+                "visible": bool(visible),
+            }
+        )
+
+    def set_selected_ellipses_visible(self, visible: bool) -> None:
+        """Toggle selected ellipse drawing while keeping point selection visible."""
+        self._map_widget._send(
+            {
+                "type": "fast_geopoints.set_selected_ellipses_visible",
                 "layer_id": self.id,
                 "visible": bool(visible),
             }

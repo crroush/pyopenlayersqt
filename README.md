@@ -350,6 +350,7 @@ fast_geo = map_widget.add_fast_geopoints_layer(
         ellipse_fill_color=QColor(40, 80, 255, 40),
         # Behavior
         ellipses_visible=True,
+        selected_ellipses_visible=True,  # Independent toggle for selected ellipses
         min_ellipse_px=0.0,  # Cull tiny ellipses
         max_ellipses_per_path=2000,
         skip_ellipses_while_interacting=True
@@ -374,6 +375,9 @@ fast_geo.add_points_with_ellipses(
 
 # Toggle ellipse visibility
 fast_geo.set_ellipses_visible(False)
+
+# Toggle selected-ellipse visibility independently
+fast_geo.set_selected_ellipses_visible(False)
 
 # Update colors of specific points (e.g., selected points)
 feature_ids = ["geo5", "geo12", "geo20"]
@@ -534,7 +538,8 @@ geo_style = FastGeoPointsStyle(
     ellipse_fill_color=QColor(0, 100, 0, 40),    # Ellipse fill color (with alpha)
     selected_ellipse_stroke_color="red",          # Selected ellipse stroke color
     fill_ellipses=True,
-    ellipses_visible=True
+    ellipses_visible=True,
+    selected_ellipses_visible=True            # Hide/show selected ellipses independently
 )
 ```
 
@@ -570,6 +575,7 @@ For updating styles of selected features, see the layer-specific methods documen
 - `VectorLayer.update_feature_styles()` - Update styles for vector features
 - `FastPointsLayer.set_colors()` - Update colors for fast points
 - `FastGeoPointsLayer.set_colors()` - Update colors for fast geo-points
+- `FastGeoPointsLayer.set_selected_ellipses_visible()` - Toggle selected ellipse outlines independently from unselected ellipses
 
 **Multi-layer selection workflow example:**
 ```python

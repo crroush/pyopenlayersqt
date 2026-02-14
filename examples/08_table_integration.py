@@ -62,11 +62,17 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
             selectable=True,
             style=FastGeoPointsStyle(
                 point_radius=4.0,
-                default_color=QColor("blue"),
+                default_color=QColor("#1e88e5"),
                 selected_point_radius=7.0,
-                selected_color=QColor("orange")
+                selected_color=QColor("#d81b60"),
+                ellipse_stroke_color=QColor("#1e88e5"),
+                selected_ellipse_stroke_color=QColor("#d81b60"),
+                skip_ellipses_while_interacting=False
             )
         )
+
+        self._all_ellipses_visible = True
+        self._selected_ellipses_visible = False
 
         # Create feature table
         self.table = self._create_table()
@@ -99,6 +105,7 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         info = QtWidgets.QLabel(
             "Add points to any layer type, select them on map or table, "
             "and delete with button or Delete key. "
+            "Use ellipse checkboxes to hide all ellipses or show only selected ellipses. "
             "Demonstrates full CRUD operations with bidirectional sync."
         )
         info.setWordWrap(True)
@@ -158,6 +165,18 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         layout.addWidget(self.geo_count)
         layout.addWidget(geo_btn)
 
+        self.show_all_ellipses_checkbox = QtWidgets.QCheckBox("Show All Ellipses")
+        self.show_all_ellipses_checkbox.setChecked(True)
+        self.show_all_ellipses_checkbox.toggled.connect(self._on_show_all_ellipses_toggled)
+        layout.addWidget(self.show_all_ellipses_checkbox)
+
+        self.show_selected_ellipses_checkbox = QtWidgets.QCheckBox("Show Selected Ellipses")
+        self.show_selected_ellipses_checkbox.setChecked(False)
+        self.show_selected_ellipses_checkbox.toggled.connect(
+            self._on_show_selected_ellipses_toggled
+        )
+        layout.addWidget(self.show_selected_ellipses_checkbox)
+
         layout.addWidget(QtWidgets.QLabel(""))  # Spacer
 
         # Delete button
@@ -172,6 +191,26 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
 
         layout.addStretch()
         return widget
+
+    def _on_show_all_ellipses_toggled(self, checked):
+        """Toggle visibility of all ellipses globally."""
+        self._all_ellipses_visible = bool(checked)
+        self._apply_ellipse_visibility()
+
+    def _on_show_selected_ellipses_toggled(self, checked):
+        """Toggle visibility of selected ellipses."""
+        self._selected_ellipses_visible = bool(checked)
+        self._apply_ellipse_visibility()
+
+    def _apply_ellipse_visibility(self):
+        """Apply current ellipse visibility settings to the geo layer."""
+        # "Show All Ellipses" controls unselected ellipses.
+        self.geo_layer.set_ellipses_visible(self._all_ellipses_visible)
+
+        # Selected ellipses are visible when either all ellipses are shown,
+        # or when the selected-ellipse checkbox is explicitly enabled.
+        show_selected = self._all_ellipses_visible or self._selected_ellipses_visible
+        self.geo_layer.set_selected_ellipses_visible(show_selected)
 
     def _create_table(self):
         """Create the feature table widget."""
@@ -304,9 +343,9 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         lons = -125.0 + rng.random(count) * 15.0
         coords = list(zip(lats.tolist(), lons.tolist()))
 
-        # Generate uncertainty ellipse parameters
-        sma_m = (100.0 + rng.random(count) * 900.0).tolist()  # 100-1000m
-        smi_m = (50.0 + rng.random(count) * 450.0).tolist()   # 50-500m
+        # Generate uncertainty ellipse parameters (larger for easier visibility)
+        sma_m = (500.0 + rng.random(count) * 3500.0).tolist()  # 500-4000m
+        smi_m = (250.0 + rng.random(count) * 1750.0).tolist()  # 250-2000m
         tilt_deg = (rng.random(count) * 360.0).tolist()       # 0-360 degrees
 
         # Generate IDs

@@ -42,6 +42,7 @@ const state = {
     // Coordinate display state
     coordinateOverlay: null,      // Overlay element for coordinates
     coordinatePointerMoveKey: null, // Event listener key for coordinate display
+    readyEmitted: false,
   };
 
 
@@ -151,6 +152,15 @@ function cmd_map_set_view(msg) {
     }
   }
 
+
+
+
+  function emitReadyIfNeeded() {
+    if (state.readyEmitted) return;
+    if (!state.qtBridge || typeof state.qtBridge.emitEvent !== "function") return;
+    state.readyEmitted = true;
+    emitToPython("ready", { ok: true });
+  }
 
   function ensureMap() {
     if (state.map) return;
@@ -586,9 +596,10 @@ function fgp_make_canvas_layer(entry) {
 
       // ---- Ellipses (batched) ----
       const st = entry.style || {};
-      const ellipsesVisible = entry.ellipsesVisible && st.ellipses_visible !== false;
+      const unselectedEllipsesVisible = entry.ellipsesVisible && st.ellipses_visible !== false;
+      const selectedEllipsesVisible = entry.selectedEllipsesVisible && st.selected_ellipses_visible !== false;
       const skipWhileInteracting = (st.skip_ellipses_while_interacting !== false);
-      const canDrawEllipses = ellipsesVisible && !(skipWhileInteracting && state.viewInteracting);
+      const canDrawEllipses = (unselectedEllipsesVisible || selectedEllipsesVisible) && !(skipWhileInteracting && state.viewInteracting);
 
       if (canDrawEllipses) {
         const minPx = Math.max(0.0, Number(st.min_ellipse_px || 0.0));
@@ -598,68 +609,72 @@ function fgp_make_canvas_layer(entry) {
         const fillEll = !!st.fill_ellipses;
         const fillCss = rgba_to_css(st.ellipse_fill_rgba || [255,204,0,40]);
 
-        // Unselected first
-        ctx.lineWidth = strokeW;
-        ctx.strokeStyle = strokeCss;
-        if (fillEll) ctx.fillStyle = fillCss;
-        let nInPath = 0;
-        ctx.beginPath();
-        for (let k = 0; k < cand.length; k++) {
-          const i = cand[k];
-          if (entry.deleted[i] || entry.hidden[i]) continue;
-          const fid = entry.ids[i];
-          if (entry.selectedIds.has(fid)) continue;
-          const rx = (entry.a[i] / resolution) * pixelRatio;
-          const ry = (entry.b[i] / resolution) * pixelRatio;
-          if (rx < minPx && ry < minPx) continue;
-          const x = (entry.x[i] - extent[0]) * scaleX;
-          const y = (extent[3] - entry.y[i]) * scaleY;
-          // IMPORTANT: moveTo prevents stray connecting lines between ellipses
-          const rot = entry.rot[i];
-          ctx.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
-          ctx.ellipse(x, y, rx, ry, rot, 0, TAU);
+        if (unselectedEllipsesVisible) {
+          // Unselected first
+          ctx.lineWidth = strokeW;
+          ctx.strokeStyle = strokeCss;
+          if (fillEll) ctx.fillStyle = fillCss;
+          let nInPath = 0;
+          ctx.beginPath();
+          for (let k = 0; k < cand.length; k++) {
+            const i = cand[k];
+            if (entry.deleted[i] || entry.hidden[i]) continue;
+            const fid = entry.ids[i];
+            if (entry.selectedIds.has(fid)) continue;
+            const rx = (entry.a[i] / resolution) * pixelRatio;
+            const ry = (entry.b[i] / resolution) * pixelRatio;
+            if (rx < minPx && ry < minPx) continue;
+            const x = (entry.x[i] - extent[0]) * scaleX;
+            const y = (extent[3] - entry.y[i]) * scaleY;
+            // IMPORTANT: moveTo prevents stray connecting lines between ellipses
+            const rot = entry.rot[i];
+            ctx.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
+            ctx.ellipse(x, y, rx, ry, rot, 0, TAU);
 
-          nInPath++;
-          if (nInPath >= maxPerPath) {
+            nInPath++;
+            if (nInPath >= maxPerPath) {
+              if (fillEll) ctx.fill();
+              ctx.stroke();
+              ctx.beginPath();
+              nInPath = 0;
+            }
+          }
+          if (nInPath > 0) {
             if (fillEll) ctx.fill();
             ctx.stroke();
-            ctx.beginPath();
-            nInPath = 0;
           }
-        }
-        if (nInPath > 0) {
-          if (fillEll) ctx.fill();
-          ctx.stroke();
         }
 
-        // Selected ellipses on top
-        const selStrokeCss = rgba_to_css(st.selected_ellipse_stroke_rgba || [0,255,255,255]);
-        const selStrokeW = (Number(st.selected_ellipse_stroke_width || (st.ellipse_stroke_width || 1.5) * 1.8) * pixelRatio);
-        ctx.lineWidth = selStrokeW;
-        ctx.strokeStyle = selStrokeCss;
-        nInPath = 0;
-        ctx.beginPath();
-        for (let k = 0; k < cand.length; k++) {
-          const i = cand[k];
-          if (entry.deleted[i] || entry.hidden[i]) continue;
-          const fid = entry.ids[i];
-          if (!entry.selectedIds.has(fid)) continue;
-          const rx = (entry.a[i] / resolution) * pixelRatio;
-          const ry = (entry.b[i] / resolution) * pixelRatio;
-          if (rx < minPx && ry < minPx) continue;
-          const x = (entry.x[i] - extent[0]) * scaleX;
-          const y = (extent[3] - entry.y[i]) * scaleY;
-          const rot = entry.rot[i];
-          ctx.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
-          ctx.ellipse(x, y, rx, ry, rot, 0, TAU);
-          nInPath++;
-          if (nInPath >= maxPerPath) {
-            ctx.stroke();
-            ctx.beginPath();
-            nInPath = 0;
+        if (selectedEllipsesVisible) {
+          // Selected ellipses on top
+          const selStrokeCss = rgba_to_css(st.selected_ellipse_stroke_rgba || [0,255,255,255]);
+          const selStrokeW = (Number(st.selected_ellipse_stroke_width || (st.ellipse_stroke_width || 1.5) * 1.8) * pixelRatio);
+          ctx.lineWidth = selStrokeW;
+          ctx.strokeStyle = selStrokeCss;
+          let nInPath = 0;
+          ctx.beginPath();
+          for (let k = 0; k < cand.length; k++) {
+            const i = cand[k];
+            if (entry.deleted[i] || entry.hidden[i]) continue;
+            const fid = entry.ids[i];
+            if (!entry.selectedIds.has(fid)) continue;
+            const rx = (entry.a[i] / resolution) * pixelRatio;
+            const ry = (entry.b[i] / resolution) * pixelRatio;
+            if (rx < minPx && ry < minPx) continue;
+            const x = (entry.x[i] - extent[0]) * scaleX;
+            const y = (extent[3] - entry.y[i]) * scaleY;
+            const rot = entry.rot[i];
+            ctx.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
+            ctx.ellipse(x, y, rx, ry, rot, 0, TAU);
+            nInPath++;
+            if (nInPath >= maxPerPath) {
+              ctx.stroke();
+              ctx.beginPath();
+              nInPath = 0;
+            }
           }
+          if (nInPath > 0) ctx.stroke();
         }
-        if (nInPath > 0) ctx.stroke();
       }
 
       // ---- Points ----
@@ -725,6 +740,7 @@ function cmd_fast_geopoints_add_layer(msg) {
     opacity: (msg.opacity == null ? 1.0 : msg.opacity),
     selectable: (msg.selectable === true),
     ellipsesVisible: (msg.ellipses_visible != null ? !!msg.ellipses_visible : (style.ellipses_visible !== false)),
+    selectedEllipsesVisible: (msg.selected_ellipses_visible != null ? !!msg.selected_ellipses_visible : (style.selected_ellipses_visible !== false)),
     x: [],
     y: [],
     ids: [],
@@ -839,6 +855,13 @@ function cmd_fast_geopoints_set_ellipses_visible(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
   entry.ellipsesVisible = !!msg.visible;
+  fgp_redraw(entry);
+}
+
+function cmd_fast_geopoints_set_selected_ellipses_visible(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== 'fast_geopoints') return;
+  entry.selectedEllipsesVisible = !!msg.visible;
   fgp_redraw(entry);
 }
 
@@ -1509,6 +1532,11 @@ function cmd_coordinates_set_visible(msg) {
 
 
   function initMap() {
+    if (state.map) {
+      emitReadyIfNeeded();
+      return;
+    }
+
     // Disable tile transition for better pan/zoom performance
     const base = new ol.layer.Tile({ 
       source: new ol.source.OSM({ transition: 0 })
@@ -1611,7 +1639,7 @@ function cmd_coordinates_set_visible(msg) {
       }
     });
     fp_install_interactions();
-    emitToPython("ready", { ok: true });
+    emitReadyIfNeeded();
   }
 
   function getLayerEntry(layer_id) {
@@ -1885,6 +1913,7 @@ function cmd_coordinates_set_visible(msg) {
     case "fast_geopoints.set_visible": return cmd_fast_geopoints_set_visible(msg);
     case "fast_geopoints.set_selectable": return cmd_fast_geopoints_set_selectable(msg);
     case "fast_geopoints.set_ellipses_visible": return cmd_fast_geopoints_set_ellipses_visible(msg);
+    case "fast_geopoints.set_selected_ellipses_visible": return cmd_fast_geopoints_set_selected_ellipses_visible(msg);
     case "fast_geopoints.select.set": return cmd_fast_geopoints_select_set(msg);
     case "fast_geopoints.hide_ids": return cmd_fast_geopoints_hide_ids(msg);
     case "fast_geopoints.show_ids": return cmd_fast_geopoints_show_ids(msg);
@@ -1912,7 +1941,11 @@ function cmd_coordinates_set_visible(msg) {
 
     new QWebChannel(qt.webChannelTransport, function (channel) {
       state.qtBridge = channel.objects.qtBridge || null;
-      initMap();
+      if (state.map) {
+        emitReadyIfNeeded();
+      } else {
+        initMap();
+      }
     });
     return true;
   }
