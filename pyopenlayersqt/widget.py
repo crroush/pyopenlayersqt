@@ -343,103 +343,89 @@ class OLMapWidget(QWebEngineView):
         return s
 
     # ---------- JS -> Python events ----------
+    def _parse_event_payload(self, payload_json: str, default: Optional[dict] = None) -> dict:
+        try:
+            return json.loads(payload_json) if payload_json else {}
+        except Exception:
+            return {} if default is None else default
+
+    def _handle_ready_event(self) -> None:
+        self._js_ready = True
+        if self._initial_center != self.DEFAULT_CENTER or self._initial_zoom != self.DEFAULT_ZOOM:
+            # Swap lat,lon (public API) to lon,lat (internal format)
+            lat, lon = self._initial_center
+            self._send_now(
+                {
+                    "type": "map.set_view",
+                    "center": [float(lon), float(lat)],
+                    "zoom": int(self._initial_zoom),
+                }
+            )
+        self._send_now({"type": "coordinates.set_visible", "visible": self._show_coordinates})
+        self._flush_pending()
+        self.ready.emit()
+
+    def _handle_selection_event(self, payload_json: str) -> None:
+        obj = self._parse_event_payload(payload_json)
+        sel = FeatureSelection(
+            layer_id=str(obj.get("layer_id", "")),
+            feature_ids=[str(x) for x in obj.get("feature_ids", [])],
+            count=int(obj.get("count", len(obj.get("feature_ids", []) or []))),
+            raw=obj,
+        )
+        self.selectionChanged.emit(sel)
+
+    def _handle_view_extent_changed_event(self, payload_json: str) -> None:
+        self.viewExtentChanged.emit(self._parse_event_payload(payload_json))
+
+    def _handle_view_extent_event(self, payload_json: str) -> None:
+        self.viewExtentReceived.emit(self._parse_event_payload(payload_json))
+
+    def _handle_measurement_event(self, payload_json: str) -> None:
+        obj = self._parse_event_payload(payload_json)
+        update = MeasurementUpdate(
+            point_index=int(obj.get("point_index", 0)),
+            lat=float(obj.get("lat", 0.0)),
+            lon=float(obj.get("lon", 0.0)),
+            segment_distance_m=(
+                float(obj["segment_distance_m"])
+                if obj.get("segment_distance_m") is not None
+                else None
+            ),
+            cumulative_distance_m=float(obj.get("cumulative_distance_m", 0.0)),
+        )
+
+        self.measurementUpdated.emit(update)
+        for cb in list(self._measurement_callbacks):
+            try:
+                cb(update)
+            except Exception:
+                pass
+
+    def _handle_perf_event(self, payload_json: str) -> None:
+        obj = self._parse_event_payload(payload_json, default={"raw": payload_json})
+        if self._perf_logging_enabled:
+            try:
+                print("PERF:", obj, flush=True)
+            except Exception:
+                pass
+        self.perfReceived.emit(obj)
+
     @Slot(str, str)
     def _on_js_event(self, event_type: str, payload_json: str) -> None:
         self.jsEvent.emit(event_type, payload_json)
 
-        if event_type == "ready":
-            self._js_ready = True
-            # Set initial view if different from defaults
-            if (
-                self._initial_center != self.DEFAULT_CENTER
-                or self._initial_zoom != self.DEFAULT_ZOOM
-            ):
-                # Swap lat,lon (public API) to lon,lat (internal format)
-                lat, lon = self._initial_center
-                self._send_now(
-                    {
-                        "type": "map.set_view",
-                        "center": [float(lon), float(lat)],
-                        "zoom": int(self._initial_zoom),
-                    }
-                )
-            # Set coordinate display visibility
-            self._send_now(
-                {"type": "coordinates.set_visible", "visible": self._show_coordinates}
-            )
-            self._flush_pending()
-            self.ready.emit()
-            return
-
-        if event_type == "selection":
-            try:
-                obj = json.loads(payload_json) if payload_json else {}
-            except Exception:
-                obj = {}
-            sel = FeatureSelection(
-                layer_id=str(obj.get("layer_id", "")),
-                feature_ids=[str(x) for x in obj.get("feature_ids", [])],
-                count=int(obj.get("count", len(obj.get("feature_ids", []) or []))),
-                raw=obj,
-            )
-            self.selectionChanged.emit(sel)
-
-            return
-
-        if event_type == "view_extent_changed":
-            try:
-                obj = json.loads(payload_json) if payload_json else {}
-            except Exception:
-                obj = {}
-            self.viewExtentChanged.emit(obj)
-            return
-
-        if event_type == "view_extent":
-            try:
-                obj = json.loads(payload_json) if payload_json else {}
-            except Exception:
-                obj = {}
-            self.viewExtentReceived.emit(obj)
-            return
-
-        if event_type == "measurement":
-            try:
-                obj = json.loads(payload_json) if payload_json else {}
-            except Exception:
-                obj = {}
-
-            update = MeasurementUpdate(
-                point_index=int(obj.get("point_index", 0)),
-                lat=float(obj.get("lat", 0.0)),
-                lon=float(obj.get("lon", 0.0)),
-                segment_distance_m=(
-                    float(obj["segment_distance_m"])
-                    if obj.get("segment_distance_m") is not None
-                    else None
-                ),
-                cumulative_distance_m=float(obj.get("cumulative_distance_m", 0.0)),
-            )
-
-            self.measurementUpdated.emit(update)
-            for cb in list(self._measurement_callbacks):
-                try:
-                    cb(update)
-                except Exception:
-                    pass
-            return
-
-        if event_type == "perf":
-            try:
-                obj = json.loads(payload_json) if payload_json else {}
-            except Exception:
-                obj = {"raw": payload_json}
-            if self._perf_logging_enabled:
-                try:
-                    print("PERF:", obj, flush=True)
-                except Exception:
-                    pass
-            self.perfReceived.emit(obj)
-            return
+        handlers = {
+            "ready": lambda: self._handle_ready_event(),
+            "selection": lambda: self._handle_selection_event(payload_json),
+            "view_extent_changed": lambda: self._handle_view_extent_changed_event(payload_json),
+            "view_extent": lambda: self._handle_view_extent_event(payload_json),
+            "measurement": lambda: self._handle_measurement_event(payload_json),
+            "perf": lambda: self._handle_perf_event(payload_json),
+        }
+        handler = handlers.get(event_type)
+        if handler is not None:
+            handler()
 
     # ---------- public layer API ----------
     def add_fast_points_layer(

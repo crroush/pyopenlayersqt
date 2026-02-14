@@ -106,7 +106,7 @@ See the [examples directory](examples/) for more working examples:
 - `08_table_integration.py` - Bidirectional map-table sync (CORE)
 - `09_selection_and_recoloring.py` - Interactive recoloring (CORE)
 - `10_range_slider_filtering.py` - Range slider filtering
-- `11_measurement_tool.py` - Distance measurement tool with segment list panel + running total
+- `11_measurement_tool.py` - Distance measurement tool
 - `12_coordinate_display.py` - Coordinate display toggle
 - `13_dual_table_linking.py` - Two-table parent/child map-table selection workflow
 - `14_delayed_render_interrupt.py` - Debounced, interruptible process-based heatmap rendering
