@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import numpy as np
 import os
 import shutil
 import threading
@@ -12,25 +11,26 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
+import numpy as np
 from PySide6 import QtCore, QtWidgets
-from PySide6.QtCore import QObject, Signal, Slot, QUrl, QStandardPaths, QTimer
+from PySide6.QtCore import QObject, QStandardPaths, QTimer, QUrl, Signal, Slot
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from .layers import (
+    FastGeoPointsLayer,
+    FastPointsLayer,
     RasterLayer,
     VectorLayer,
     WMSLayer,
-    FastPointsLayer,
-    FastGeoPointsLayer,
 )
 from .models import (
+    FastGeoPointsStyle,
+    FastPointsStyle,
     FeatureSelection,
     MeasurementUpdate,
     RasterStyle,
     WMSOptions,
-    FastPointsStyle,
-    FastGeoPointsStyle,
 )
 
 PKG_DIR = Path(__file__).resolve().parent
@@ -354,7 +354,9 @@ class OLMapWidget(QWebEngineView):
         return s
 
     # ---------- JS -> Python events ----------
-    def _parse_event_payload(self, payload_json: str, default: Optional[dict] = None) -> dict:
+    def _parse_event_payload(
+        self, payload_json: str, default: Optional[dict] = None
+    ) -> dict:
         try:
             return json.loads(payload_json) if payload_json else {}
         except Exception:
@@ -362,7 +364,10 @@ class OLMapWidget(QWebEngineView):
 
     def _handle_ready_event(self) -> None:
         self._js_ready = True
-        if self._initial_center != self.DEFAULT_CENTER or self._initial_zoom != self.DEFAULT_ZOOM:
+        if (
+            self._initial_center != self.DEFAULT_CENTER
+            or self._initial_zoom != self.DEFAULT_ZOOM
+        ):
             # Swap lat,lon (public API) to lon,lat (internal format)
             lat, lon = self._initial_center
             self._send_now(
@@ -372,7 +377,9 @@ class OLMapWidget(QWebEngineView):
                     "zoom": int(self._initial_zoom),
                 }
             )
-        self._send_now({"type": "coordinates.set_visible", "visible": self._show_coordinates})
+        self._send_now(
+            {"type": "coordinates.set_visible", "visible": self._show_coordinates}
+        )
         self._flush_pending()
         self.ready.emit()
 
