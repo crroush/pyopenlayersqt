@@ -28,11 +28,11 @@ Google-style docstrings + PEP8.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple, Union
 
-from PySide6.QtCore import Qt, Signal, QRect
+from PySide6.QtCore import Qt, QEvent, Signal, QRect
 from PySide6.QtGui import QPainter, QPen, QColor, QPaintEvent, QMouseEvent
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolTip, QVBoxLayout, QWidget
 
 class DualHandleSlider(QWidget):
     """A single slider widget with two draggable handles for min/max selection."""
@@ -48,10 +48,40 @@ class DualHandleSlider(QWidget):
         self._handle_radius = 8
         self._track_height = 4
         self._dragging_handle = None  # 'min', 'max', or None
+        self._hovered_handle = None  # 'min', 'max', or None
+        self._tooltip_formatter: Optional[Callable[[int], str]] = None
 
         self.setMinimumHeight(40)
         self.setMouseTracking(True)
         self.setCursor(Qt.ArrowCursor)
+
+    def setTooltipFormatter(self, formatter: Optional[Callable[[int], str]]) -> None:
+        """Set a formatter used to display handle values as tooltips."""
+        self._tooltip_formatter = formatter
+
+    def _show_handle_tooltip(self, handle: str) -> None:
+        """Show a tooltip for the current value of a handle."""
+        if self._tooltip_formatter is None:
+            return
+
+        value = self._min_value if handle == 'min' else self._max_value
+        tooltip = self._tooltip_formatter(value)
+        if not tooltip:
+            return
+
+        global_pos = self.mapToGlobal(self._get_handle_rect(value).center())
+        QToolTip.showText(global_pos, tooltip, self, QRect(), 2500)
+
+    def _handle_at_pos(self, event_pos) -> Optional[str]:
+        """Return which handle is currently under the given position."""
+        min_handle = self._get_handle_rect(self._min_value)
+        max_handle = self._get_handle_rect(self._max_value)
+
+        if min_handle.contains(event_pos):
+            return 'min'
+        if max_handle.contains(event_pos):
+            return 'max'
+        return None
 
     def setMinimum(self, value: int) -> None:
         """Set the minimum value of the slider range."""
@@ -180,13 +210,12 @@ class DualHandleSlider(QWidget):
             pos = event.pos().x()
 
             # Check if clicking on handles
-            min_handle = self._get_handle_rect(self._min_value)
-            max_handle = self._get_handle_rect(self._max_value)
+            hovered_handle = self._handle_at_pos(event.pos())
 
-            if min_handle.contains(event.pos()):
-                self._dragging_handle = 'min'
-            elif max_handle.contains(event.pos()):
-                self._dragging_handle = 'max'
+            if hovered_handle is not None:
+                self._dragging_handle = hovered_handle
+                self._hovered_handle = hovered_handle
+                self._show_handle_tooltip(hovered_handle)
             else:
                 # Click on track - move nearest handle
                 value = self._pos_to_value(pos)
@@ -200,6 +229,8 @@ class DualHandleSlider(QWidget):
                     self.setMaxValue(value)
                     self._dragging_handle = 'max'
 
+                self._show_handle_tooltip(self._dragging_handle)
+
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Handle mouse move events."""
         if self._dragging_handle:
@@ -210,20 +241,32 @@ class DualHandleSlider(QWidget):
                 self.setMinValue(value)
             elif self._dragging_handle == 'max':
                 self.setMaxValue(value)
-        else:
-            # Update cursor when hovering over handles
-            min_handle = self._get_handle_rect(self._min_value)
-            max_handle = self._get_handle_rect(self._max_value)
 
-            if min_handle.contains(event.pos()) or max_handle.contains(event.pos()):
+            self._show_handle_tooltip(self._dragging_handle)
+        else:
+            # Update cursor/tooltip when hovering over handles
+            hovered_handle = self._handle_at_pos(event.pos())
+            self._hovered_handle = hovered_handle
+
+            if hovered_handle is not None:
                 self.setCursor(Qt.PointingHandCursor)
+                self._show_handle_tooltip(hovered_handle)
             else:
                 self.setCursor(Qt.ArrowCursor)
+                QToolTip.hideText()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """Handle mouse release events."""
         if event.button() == Qt.LeftButton:
             self._dragging_handle = None
+            if self._hovered_handle is None:
+                QToolTip.hideText()
+
+    def leaveEvent(self, _event: QEvent) -> None:
+        """Hide tooltip when leaving the slider widget."""
+        self._hovered_handle = None
+        if self._dragging_handle is None:
+            QToolTip.hideText()
 
 
 class RangeSliderWidget(QWidget):
@@ -249,6 +292,7 @@ class RangeSliderWidget(QWidget):
         step: float = 1.0,
         values: Optional[List[str]] = None,
         label: str = "Range",
+        show_value_tooltips: bool = False,
     ) -> None:
         """Initialize the range slider.
 
@@ -260,6 +304,7 @@ class RangeSliderWidget(QWidget):
             values: List of ISO8601 timestamp strings (for timestamp mode).
                    If provided, overrides min_val/max_val/step.
             label: Label text to display above the slider.
+            show_value_tooltips: Whether to show value tooltips while dragging handles.
         """
         super().__init__(parent)
 
@@ -269,6 +314,7 @@ class RangeSliderWidget(QWidget):
         self._min_numeric: float = 0.0
         self._max_numeric: float = 100.0
         self._step: float = step
+        self._show_value_tooltips = show_value_tooltips
 
         if self._is_iso8601:
             # ISO8601 mode: convert timestamps to indices
@@ -308,6 +354,10 @@ class RangeSliderWidget(QWidget):
         self._slider.setMinimum(self._slider_min)
         self._slider.setMaximum(self._slider_max)
         self._slider.rangeChanged.connect(self._on_range_changed)
+        if self._show_value_tooltips:
+            self._slider.setTooltipFormatter(
+                lambda slider_val: self._format_value(self._slider_to_value(slider_val))
+            )
         layout.addWidget(self._slider)
 
         # Value labels
@@ -367,6 +417,13 @@ class RangeSliderWidget(QWidget):
         else:
             # Emit numeric values
             self.rangeChanged.emit(min_val, max_val)
+
+
+    def reset_range(self) -> None:
+        """Reset the slider to its full available range."""
+        self._slider.setMinValue(self._slider_min)
+        self._slider.setMaxValue(self._slider_max)
+        self._update_labels()
 
     def get_range(self) -> Tuple[Any, Any]:
         """Get the current range.
