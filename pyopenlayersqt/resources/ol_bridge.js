@@ -42,6 +42,7 @@ const state = {
     // Coordinate display state
     coordinateOverlay: null,      // Overlay element for coordinates
     coordinatePointerMoveKey: null, // Event listener key for coordinate display
+    readyEmitted: false,
   };
 
 
@@ -151,6 +152,15 @@ function cmd_map_set_view(msg) {
     }
   }
 
+
+
+
+  function emitReadyIfNeeded() {
+    if (state.readyEmitted) return;
+    if (!state.qtBridge || typeof state.qtBridge.emitEvent !== "function") return;
+    state.readyEmitted = true;
+    emitToPython("ready", { ok: true });
+  }
 
   function ensureMap() {
     if (state.map) return;
@@ -1522,6 +1532,11 @@ function cmd_coordinates_set_visible(msg) {
 
 
   function initMap() {
+    if (state.map) {
+      emitReadyIfNeeded();
+      return;
+    }
+
     // Disable tile transition for better pan/zoom performance
     const base = new ol.layer.Tile({ 
       source: new ol.source.OSM({ transition: 0 })
@@ -1624,7 +1639,7 @@ function cmd_coordinates_set_visible(msg) {
       }
     });
     fp_install_interactions();
-    emitToPython("ready", { ok: true });
+    emitReadyIfNeeded();
   }
 
   function getLayerEntry(layer_id) {
@@ -1926,7 +1941,11 @@ function cmd_coordinates_set_visible(msg) {
 
     new QWebChannel(qt.webChannelTransport, function (channel) {
       state.qtBridge = channel.objects.qtBridge || null;
-      initMap();
+      if (state.map) {
+        emitReadyIfNeeded();
+      } else {
+        initMap();
+      }
     });
     return true;
   }
