@@ -415,17 +415,20 @@ class OLMapWidget(QWebEngineView):
     def _on_js_event(self, event_type: str, payload_json: str) -> None:
         self.jsEvent.emit(event_type, payload_json)
 
-        handlers = {
-            "ready": lambda: self._handle_ready_event(),
-            "selection": lambda: self._handle_selection_event(payload_json),
-            "view_extent_changed": lambda: self._handle_view_extent_changed_event(payload_json),
-            "view_extent": lambda: self._handle_view_extent_event(payload_json),
-            "measurement": lambda: self._handle_measurement_event(payload_json),
-            "perf": lambda: self._handle_perf_event(payload_json),
+        payload_handlers = {
+            "selection": self._handle_selection_event,
+            "view_extent_changed": self._handle_view_extent_changed_event,
+            "view_extent": self._handle_view_extent_event,
+            "measurement": self._handle_measurement_event,
+            "perf": self._handle_perf_event,
         }
-        handler = handlers.get(event_type)
+        if event_type == "ready":
+            self._handle_ready_event()
+            return
+
+        handler = payload_handlers.get(event_type)
         if handler is not None:
-            handler()
+            handler(payload_json)
 
     # ---------- public layer API ----------
     def add_fast_points_layer(
