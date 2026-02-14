@@ -418,6 +418,13 @@ class RangeSliderWidget(QWidget):
             # Emit numeric values
             self.rangeChanged.emit(min_val, max_val)
 
+
+    def reset_range(self) -> None:
+        """Reset the slider to its full available range."""
+        self._slider.setMinValue(self._slider_min)
+        self._slider.setMaxValue(self._slider_max)
+        self._update_labels()
+
     def get_range(self) -> Tuple[Any, Any]:
         """Get the current range.
 
