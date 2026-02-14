@@ -59,6 +59,10 @@ class FitToDataExample(QtWidgets.QMainWindow):
         self.map_widget = OLMapWidget(center=(20.0, 0.0), zoom=2)
         self.vector_layer = self.map_widget.add_vector_layer("loaded_features", selectable=True)
         self.raster_layer = None
+        self.raster_bounds = [
+            (33.0, -122.8),
+            (38.8, -116.8),
+        ]
 
         self._loaded = False
         self._build_ui()
@@ -141,21 +145,15 @@ class FitToDataExample(QtWidgets.QMainWindow):
         """Load a simple in-memory raster overlay in California."""
         raster_png = build_demo_raster_png()
 
-        # Central California bounds (SW/NE) for raster placement
-        bounds = [
-            (33.0, -122.8),
-            (38.8, -116.8),
-        ]
-
         if self.raster_layer is None:
             self.raster_layer = self.map_widget.add_raster_image(
                 raster_png,
-                bounds=bounds,
+                bounds=self.raster_bounds,
                 style=RasterStyle(opacity=0.45),
                 name="demo_raster",
             )
         else:
-            self.raster_layer.set_image(raster_png)
+            self.raster_layer.set_image(raster_png, bounds=self.raster_bounds)
 
         self.status.setText("Raster loaded in California extent.")
 
