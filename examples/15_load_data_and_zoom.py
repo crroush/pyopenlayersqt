@@ -24,7 +24,7 @@ class FitToDataExample(QtWidgets.QMainWindow):
         self.setWindowTitle("Load Data and Zoom Example")
         self.resize(1200, 800)
 
-        self.map_widget = OLMapWidget(center=(36.8, -119.4), zoom=5)
+        self.map_widget = OLMapWidget(center=(20.0, 0.0), zoom=2)
         self.vector_layer = self.map_widget.add_vector_layer("loaded_features", selectable=True)
 
         self._loaded = False
@@ -44,8 +44,8 @@ class FitToDataExample(QtWidgets.QMainWindow):
         zoom_btn.clicked.connect(self._zoom_to_data)
         controls.addWidget(zoom_btn)
 
-        reset_btn = QtWidgets.QPushButton("Reset to California View")
-        reset_btn.clicked.connect(lambda: self.map_widget.set_view(center=(36.8, -119.4), zoom=5))
+        reset_btn = QtWidgets.QPushButton("Reset to World View")
+        reset_btn.clicked.connect(lambda: self.map_widget.set_view(center=(20.0, 0.0), zoom=2))
         controls.addWidget(reset_btn)
 
         controls.addStretch()
