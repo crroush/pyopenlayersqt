@@ -152,8 +152,8 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         # FastPointsLayer (Measurements) controls
         layout.addWidget(QtWidgets.QLabel("<b>FastPoints Layer (Measurements)</b>"))
         self.fast_count = QtWidgets.QSpinBox()
-        self.fast_count.setRange(1, 50000)
-        self.fast_count.setValue(100)
+        self.fast_count.setRange(1, 5000000)
+        self.fast_count.setValue(100000)
         fast_btn = QtWidgets.QPushButton("Add Measurements")
         fast_btn.clicked.connect(self._add_fast_points)
         layout.addWidget(QtWidgets.QLabel("Number of measurements:"))
@@ -165,8 +165,8 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         # FastGeoPointsLayer (Geo Uncertainty) controls
         layout.addWidget(QtWidgets.QLabel("<b>FastGeoPoints Layer (Uncertainty)</b>"))
         self.geo_count = QtWidgets.QSpinBox()
-        self.geo_count.setRange(1, 50000)
-        self.geo_count.setValue(50)
+        self.geo_count.setRange(1, 5000000)
+        self.geo_count.setValue(100000)
         geo_btn = QtWidgets.QPushButton("Add Geo Points")
         geo_btn.clicked.connect(self._add_geo_points)
         layout.addWidget(QtWidgets.QLabel("Number of geo points:"))
