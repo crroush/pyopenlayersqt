@@ -808,6 +808,7 @@ map_widget.set_measure_mode(False)
 - Measurement updates emitted to Python as `MeasurementUpdate` objects with distances and coordinates
 
 See [examples/11_measurement_tool.py](examples/11_measurement_tool.py) for a complete working example.
+<img width="653" height="416" alt="image" src="https://github.com/user-attachments/assets/90479971-749a-43e2-8534-58b3cb0ecd6c" />
 
 ### FeatureTableWidget
 
@@ -979,6 +980,7 @@ table.show_all_rows()  # Show all in table
 ```
 
 See [examples/10_range_slider_filtering.py](examples/10_range_slider_filtering.py) for a complete working example with map and table filtering.
+<img width="703" height="467" alt="image" src="https://github.com/user-attachments/assets/e3462ace-cc19-44fc-8200-42a6bcd7ad26" />
 
 ## Complete Example
 
