@@ -95,7 +95,6 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
     """Demonstrate tri-directional selection across map/table/plot."""
 
     POINT_COUNT = 100_000
-    MAX_SYNC_SELECTION = 5_000
 
     def __init__(self) -> None:
         super().__init__()
@@ -103,7 +102,6 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self.resize(1820, 980)
 
         self._selection_guard = False
-        self._last_selection_total = 0
 
         self.map_widget = OLMapWidget(center=(39.8, -98.6), zoom=4)
         self.layer = self.map_widget.add_fast_points_layer(
@@ -345,32 +343,22 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
     def _sync_selection_by_indices(self, indices: np.ndarray, *, source: str) -> None:
         total = int(indices.size)
         if total <= 0:
-            self._sync_selection([], source=source, total_selected=0)
+            self._sync_selection([], source=source)
             return
 
-        if total > self.MAX_SYNC_SELECTION:
-            pick = np.linspace(0, total - 1, self.MAX_SYNC_SELECTION, dtype=int)
-            sampled = indices[pick]
-        else:
-            sampled = indices
+        if total >= len(self.feature_ids):
+            self._sync_select_all(source=source)
+            return
 
-        sampled_ids = [self.feature_ids[int(i)] for i in sampled]
-        self._sync_selection(sampled_ids, source=source, total_selected=total)
+        ids = [self.feature_ids[int(i)] for i in indices]
+        self._sync_selection(ids, source=source)
 
-    def _sync_selection(
-        self,
-        ids: list[str],
-        *,
-        source: str,
-        total_selected: int | None = None,
-    ) -> None:
+    def _sync_selection(self, ids: list[str], *, source: str) -> None:
         if self._selection_guard:
             return
 
         unique_ids = list(dict.fromkeys(str(fid) for fid in ids))
         keys = [(self.layer.id, fid) for fid in unique_ids]
-
-        self._last_selection_total = len(unique_ids) if total_selected is None else total_selected
 
         self._selection_guard = True
         try:
@@ -381,7 +369,27 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
                 self.map_widget.set_fast_points_selection(self.layer.id, unique_ids)
 
             self._update_plot_selection(unique_ids)
-            self._update_status(unique_ids, self._last_selection_total)
+            self._update_status(unique_ids)
+        finally:
+            self._selection_guard = False
+
+    def _sync_select_all(self, *, source: str) -> None:
+        if self._selection_guard:
+            return
+
+        all_ids = list(self.feature_ids)
+        keys = [(self.layer.id, fid) for fid in all_ids]
+
+        self._selection_guard = True
+        try:
+            if source != "table":
+                self.table.select_keys(keys, clear_first=True)
+
+            if source != "map":
+                self.map_widget.set_fast_points_selection(self.layer.id, all_ids)
+
+            self._update_plot_selection(all_ids)
+            self._update_status(all_ids)
         finally:
             self._selection_guard = False
 
@@ -399,12 +407,13 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         y = self.values[idxs]
         self.selected_scatter.setData(x=x, y=y)
 
-    def _update_status(self, synced_ids: list[str], total_selected: int) -> None:
+    def _update_status(self, selected_ids: list[str]) -> None:
+        total_selected = len(selected_ids)
         if total_selected == 0:
             self.status_label.setText("Selected: 0 points")
             return
 
-        idxs = [self.id_to_idx[fid] for fid in synced_ids if fid in self.id_to_idx]
+        idxs = [self.id_to_idx[fid] for fid in selected_ids if fid in self.id_to_idx]
         if not idxs:
             self.status_label.setText("Selected: 0 points")
             return
@@ -413,16 +422,9 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         hi = float(np.max(self.timestamps_s[idxs]))
         lo_txt = datetime.fromtimestamp(lo, timezone.utc).strftime("%H:%M:%S")
         hi_txt = datetime.fromtimestamp(hi, timezone.utc).strftime("%H:%M:%S")
-
-        if total_selected > len(synced_ids):
-            self.status_label.setText(
-                f"Selected: {total_selected:,} total (syncing {len(synced_ids):,} for interactivity)"
-                f" | UTC window: {lo_txt} → {hi_txt}"
-            )
-        else:
-            self.status_label.setText(
-                f"Selected: {total_selected:,} points | UTC window: {lo_txt} → {hi_txt}"
-            )
+        self.status_label.setText(
+            f"Selected: {total_selected:,} points | UTC window: {lo_txt} → {hi_txt}"
+        )
 
 
 def main() -> None:
