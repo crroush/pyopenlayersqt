@@ -23,7 +23,7 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPen
 
 from pyopenlayersqt import FastPointsStyle, OLMapWidget
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
@@ -95,6 +95,19 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
     """Demonstrate tri-directional selection across map/table/plot."""
 
     POINT_COUNT = 100_000
+    LINE_STYLES = {
+        "Solid": Qt.SolidLine,
+        "Dash": Qt.DashLine,
+        "Dot": Qt.DotLine,
+        "DashDot": Qt.DashDotLine,
+    }
+    POINT_STYLES = {
+        "Circle": "o",
+        "Square": "s",
+        "Triangle": "t",
+        "Diamond": "d",
+        "Cross": "+",
+    }
 
     def __init__(self) -> None:
         super().__init__()
@@ -133,6 +146,8 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self.id_to_idx: dict[str, int] = {}
         self.timestamps_s: np.ndarray = np.array([], dtype=float)
         self.values: np.ndarray = np.array([], dtype=float)
+        self._x_bounds: tuple[float, float] = (0.0, 1.0)
+        self._y_bounds: tuple[float, float] = (0.0, 1.0)
 
         self.map_widget.ready.connect(self._load_data)
         self.map_widget.selectionChanged.connect(self._on_map_selection)
@@ -193,6 +208,14 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
             lambda: self._sync_selection_by_indices(np.array([], dtype=np.int64), source="plot")
         )
 
+        self.line_style_combo = QtWidgets.QComboBox()
+        self.line_style_combo.addItems(list(self.LINE_STYLES.keys()))
+        self.line_style_combo.currentTextChanged.connect(self._apply_plot_styles)
+
+        self.point_style_combo = QtWidgets.QComboBox()
+        self.point_style_combo.addItems(list(self.POINT_STYLES.keys()))
+        self.point_style_combo.currentTextChanged.connect(self._apply_plot_styles)
+
         hint = QtWidgets.QLabel(
             "Tip: Ctrl+drag = box select, Shift+drag = zoom box, drag = pan."
         )
@@ -200,8 +223,17 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
 
         layout.addWidget(reset_zoom_btn)
         layout.addWidget(clear_selection_btn)
+        layout.addSpacing(14)
+        layout.addWidget(QtWidgets.QLabel("Line:"))
+        layout.addWidget(self.line_style_combo)
+        layout.addWidget(QtWidgets.QLabel("Selected point:"))
+        layout.addWidget(self.point_style_combo)
         layout.addStretch(1)
         layout.addWidget(hint)
+
+        self.line_style_combo.setCurrentText("Solid")
+        self.point_style_combo.setCurrentText("Circle")
+        self._apply_plot_styles()
         return widget
 
     def _build_layout(self) -> None:
@@ -278,14 +310,58 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self.table.append_rows(rows)
 
         self.series_curve.setData(self.timestamps_s, self.values)
+        self._configure_plot_limits()
         self._reset_chart_zoom()
         self.status_label.setText("Ready: 100,000 points loaded")
 
     def _reset_chart_zoom(self) -> None:
         if self.timestamps_s.size == 0:
             return
-        self.plot_widget.plotItem.enableAutoRange(axis="xy")
-        self.plot_widget.plotItem.autoRange()
+        x_min, x_max = self._x_bounds
+        y_min, y_max = self._y_bounds
+        self.plot_widget.plotItem.setXRange(x_min, x_max, padding=0.0)
+        self.plot_widget.plotItem.setYRange(y_min, y_max, padding=0.0)
+
+    def _configure_plot_limits(self) -> None:
+        if self.timestamps_s.size == 0:
+            return
+
+        x_min = float(self.timestamps_s[0])
+        x_max = float(self.timestamps_s[-1])
+        y_min = float(np.min(self.values))
+        y_max = float(np.max(self.values))
+
+        x_span = max(1.0, x_max - x_min)
+        y_span = max(1.0, y_max - y_min)
+
+        x_pad = 0.02 * x_span
+        y_pad = 0.08 * y_span
+
+        self._x_bounds = (x_min - x_pad, x_max + x_pad)
+        self._y_bounds = (y_min - y_pad, y_max + y_pad)
+
+        vb = self.plot_widget.plotItem.vb
+        vb.setLimits(
+            xMin=self._x_bounds[0],
+            xMax=self._x_bounds[1],
+            yMin=self._y_bounds[0],
+            yMax=self._y_bounds[1],
+            maxXRange=x_span * 1.5,
+            maxYRange=y_span * 1.8,
+        )
+
+    def _apply_plot_styles(self) -> None:
+        line_name = self.line_style_combo.currentText()
+        line_style = self.LINE_STYLES.get(line_name, Qt.SolidLine)
+
+        pen = QPen(QColor(70, 130, 180))
+        pen.setWidth(1)
+        pen.setStyle(line_style)
+        self.series_curve.setPen(pen)
+
+        point_name = self.point_style_combo.currentText()
+        symbol = self.POINT_STYLES.get(point_name, "o")
+        self.selected_scatter.setSymbol(symbol)
 
     def _on_plot_box_selection(
         self,
