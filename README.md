@@ -65,6 +65,7 @@ pip install pyopenlayersqt
 - numpy >= 1.23
 - pillow >= 10.0
 - matplotlib >= 3.7
+- pyqtgraph >= 0.13 *(optional, needed for example 16 only)*
 
 ## Quick Start
 
@@ -111,6 +112,7 @@ See the [examples directory](examples/) for more working examples:
 - `13_dual_table_linking.py` - Two-table parent/child map-table selection workflow
 - `14_delayed_render_interrupt.py` - Debounced, interruptible process-based heatmap rendering
 - `15_load_data_and_zoom.py` - Load features, then click a button to auto-zoom to loaded data
+- `16_time_series_map_table_plot.py` - 100k time-series tri-directional selection sync (map ↔ table ↔ pyqtgraph plot)
 
 ## Core Components
 
