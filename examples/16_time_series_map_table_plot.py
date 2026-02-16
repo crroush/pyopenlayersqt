@@ -96,6 +96,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
 
     POINT_COUNT = 100_000
     LINE_STYLES = {
+        "No line": None,
         "Solid": Qt.SolidLine,
         "Dash": Qt.DashLine,
         "Dot": Qt.DotLine,
@@ -185,6 +186,9 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
             pen=pg.mkPen(color=(70, 130, 180), width=1),
             antialias=False,
         )
+        self.series_curve.setClipToView(True)
+        self.series_curve.setDownsampling(auto=True, mode="peak")
+        self.series_curve.setSkipFiniteCheck(True)
         self.selected_scatter = pg.ScatterPlotItem(
             size=7,
             pen=pg.mkPen(color=(180, 70, 20), width=1),
@@ -231,7 +235,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         layout.addStretch(1)
         layout.addWidget(hint)
 
-        self.line_style_combo.setCurrentText("Solid")
+        self.line_style_combo.setCurrentText("No line")
         self.point_style_combo.setCurrentText("Circle")
         self._apply_plot_styles()
         return widget
@@ -354,10 +358,13 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         line_name = self.line_style_combo.currentText()
         line_style = self.LINE_STYLES.get(line_name, Qt.SolidLine)
 
-        pen = QPen(QColor(70, 130, 180))
-        pen.setWidth(1)
-        pen.setStyle(line_style)
-        self.series_curve.setPen(pen)
+        if line_style is None:
+            self.series_curve.setPen(None)
+        else:
+            pen = QPen(QColor(70, 130, 180))
+            pen.setWidth(1)
+            pen.setStyle(line_style)
+            self.series_curve.setPen(pen)
 
         point_name = self.point_style_combo.currentText()
         symbol = self.POINT_STYLES.get(point_name, "o")
