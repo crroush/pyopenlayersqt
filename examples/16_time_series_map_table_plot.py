@@ -235,7 +235,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         layout.addStretch(1)
         layout.addWidget(hint)
 
-        self.line_style_combo.setCurrentText("No line")
+        self.line_style_combo.setCurrentText("Solid")
         self.point_style_combo.setCurrentText("Circle")
         self._apply_plot_styles()
         return widget
