@@ -378,15 +378,16 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
             return
 
         all_ids = list(self.feature_ids)
-        keys = [(self.layer.id, fid) for fid in all_ids]
 
         self._selection_guard = True
         try:
             if source != "table":
-                self.table.select_keys(keys, clear_first=True)
+                # Fast path: avoid constructing 100k key tuples.
+                self.table.table.selectAll()
 
             if source != "map":
-                self.map_widget.set_fast_points_selection(self.layer.id, all_ids)
+                # Fast path: avoid sending 100k IDs over the Qt->JS bridge.
+                self.map_widget.select_all_fast_points(self.layer.id)
 
             self._update_plot_selection(all_ids)
             self._update_status(all_ids)

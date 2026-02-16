@@ -262,6 +262,13 @@ class OLMapWidget(QWebEngineView):
             }
         )
 
+    def select_all_fast_points(self, layer_id: str) -> None:
+        """Select all features in a fast-points layer.
+
+        Uses a compact JS command to avoid sending very large feature-id lists.
+        """
+        self.send({"type": "fast_points.select_all", "layer_id": layer_id})
+
     def set_fast_geopoints_selection(
         self, layer_id: str, feature_ids: list[str]
     ) -> None:

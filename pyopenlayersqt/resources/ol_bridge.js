@@ -603,6 +603,21 @@ function cmd_fast_points_select_set(msg) {
     fp_emit_selection(entry);
 }
 
+function cmd_fast_points_select_all(msg) {
+    const entry = getLayerEntry(msg.layer_id);
+    if (entry.type !== "fast_points") return;
+
+    const all = [];
+    for (let i = 0; i < entry.ids.length; i++) {
+      if (entry.deleted[i]) continue;
+      if (entry.hidden[i]) continue;
+      all.push(String(entry.ids[i]));
+    }
+    entry.selectedIds = new Set(all);
+    fp_redraw(entry);
+    fp_emit_selection(entry);
+}
+
 function cmd_fast_points_hide_ids(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
@@ -1997,6 +2012,7 @@ function cmd_coordinates_set_visible(msg) {
     case "fast_points.set_visible": return cmd_fast_points_set_visible(msg);
     case "fast_points.set_selectable": return cmd_fast_points_set_selectable(msg);
     case "fast_points.select.set": return cmd_fast_points_select_set(msg);
+    case "fast_points.select_all": return cmd_fast_points_select_all(msg);
     case "fast_points.remove_ids": return cmd_fast_points_remove_ids(msg);
     case "fast_points.hide_ids": return cmd_fast_points_hide_ids(msg);
     case "fast_points.show_ids": return cmd_fast_points_show_ids(msg);
