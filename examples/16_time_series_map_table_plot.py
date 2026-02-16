@@ -180,7 +180,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         plot.showGrid(x=True, y=True, alpha=0.25)
         plot.setLabel("bottom", "Time (UTC)")
         plot.setLabel("left", "Value")
-        plot.setTitle("100k Point Time Series (line) + Selected Points (orange)")
+        plot.setTitle("100k Point Time Series (line or symbols) + selection by color")
 
         self.series_curve = plot.plot(
             pen=pg.mkPen(color=(70, 130, 180), width=1),
@@ -189,10 +189,24 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self.series_curve.setClipToView(True)
         self.series_curve.setDownsampling(auto=True)
         self.series_curve.setSkipFiniteCheck(True)
+
+        self.point_curve = plot.plot(
+            pen=None,
+            symbol="o",
+            symbolSize=4,
+            symbolPen=pg.mkPen(70, 130, 180, 220),
+            symbolBrush=pg.mkBrush(70, 130, 180, 120),
+            antialias=False,
+        )
+        self.point_curve.setClipToView(True)
+        self.point_curve.setDownsampling(auto=True)
+        self.point_curve.setSkipFiniteCheck(True)
+
         self.selected_scatter = pg.ScatterPlotItem(
-            size=7,
-            pen=pg.mkPen(color=(180, 70, 20), width=1),
-            brush=pg.mkBrush(255, 140, 0, 220),
+            size=4,
+            pen=pg.mkPen(color=(250, 170, 20), width=1),
+            brush=pg.mkBrush(255, 220, 60, 220),
+            symbol="o",
         )
         plot.addItem(self.selected_scatter)
 
@@ -230,7 +244,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         layout.addSpacing(14)
         layout.addWidget(QtWidgets.QLabel("Line:"))
         layout.addWidget(self.line_style_combo)
-        layout.addWidget(QtWidgets.QLabel("Selected point:"))
+        layout.addWidget(QtWidgets.QLabel("Point style:"))
         layout.addWidget(self.point_style_combo)
         layout.addStretch(1)
         layout.addWidget(hint)
@@ -314,6 +328,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self.table.append_rows(rows)
 
         self.series_curve.setData(self.timestamps_s, self.values)
+        self.point_curve.setData(self.timestamps_s, self.values)
         self._configure_plot_limits()
         self._reset_chart_zoom()
         self.status_label.setText("Ready: 100,000 points loaded")
@@ -358,6 +373,9 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         line_name = self.line_style_combo.currentText()
         line_style = self.LINE_STYLES.get(line_name, Qt.SolidLine)
 
+        show_points = line_style is None
+        self.point_curve.setVisible(show_points)
+
         if line_style is None:
             self.series_curve.setPen(None)
         else:
@@ -368,6 +386,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
 
         point_name = self.point_style_combo.currentText()
         symbol = self.POINT_STYLES.get(point_name, "o")
+        self.point_curve.setSymbol(symbol)
         self.selected_scatter.setSymbol(symbol)
 
     def _on_plot_box_selection(
