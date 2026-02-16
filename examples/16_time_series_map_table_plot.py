@@ -373,8 +373,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         line_name = self.line_style_combo.currentText()
         line_style = self.LINE_STYLES.get(line_name, Qt.SolidLine)
 
-        show_points = line_style is None
-        self.point_curve.setVisible(show_points)
+        self.point_curve.setVisible(True)
 
         if line_style is None:
             self.series_curve.setPen(None)
