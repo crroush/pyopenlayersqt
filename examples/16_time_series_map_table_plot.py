@@ -20,19 +20,56 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
-try:
-    import pyqtgraph as pg
-except ImportError as exc:  # pragma: no cover - runtime guidance
-    raise SystemExit(
-        "This example requires pyqtgraph. Install with: pip install pyqtgraph"
-    ) from exc
-
 from pyopenlayersqt import FastPointsStyle, OLMapWidget
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
+
+
+class SelectableViewBox(pg.ViewBox):
+    """ViewBox supporting pan, zoom-box, and selection-box drag modes."""
+
+    sigSelectionBoxFinished = QtCore.Signal(float, float, float, float)
+
+    MODE_PAN = "pan"
+    MODE_ZOOM_BOX = "zoom_box"
+    MODE_SELECT_BOX = "select_box"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._interaction_mode = self.MODE_PAN
+        self.setMouseMode(self.PanMode)
+
+    def set_interaction_mode(self, mode: str) -> None:
+        self._interaction_mode = mode
+        if mode == self.MODE_ZOOM_BOX:
+            self.setMouseMode(self.RectMode)
+        else:
+            self.setMouseMode(self.PanMode)
+
+    def mouseDragEvent(self, ev, axis=None):
+        if self._interaction_mode != self.MODE_SELECT_BOX or ev.button() != Qt.LeftButton:
+            super().mouseDragEvent(ev, axis=axis)
+            return
+
+        ev.accept()
+        if ev.isStart():
+            self.updateScaleBox(ev.buttonDownPos(), ev.pos())
+            return
+
+        if ev.isFinish():
+            self.rbScaleBox.hide()
+            start = self.mapToView(ev.buttonDownPos())
+            end = self.mapToView(ev.pos())
+            x_min, x_max = sorted((float(start.x()), float(end.x())))
+            y_min, y_max = sorted((float(start.y()), float(end.y())))
+            self.sigSelectionBoxFinished.emit(x_min, x_max, y_min, y_max)
+            return
+
+        self.updateScaleBox(ev.buttonDownPos(), ev.pos())
 
 
 class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
@@ -46,7 +83,6 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self.resize(1820, 980)
 
         self._selection_guard = False
-        self._updating_region = False
 
         self.map_widget = OLMapWidget(center=(39.8, -98.6), zoom=4)
         self.layer = self.map_widget.add_fast_points_layer(
@@ -62,6 +98,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
 
         self.table = self._create_table()
         self.plot_widget = self._create_plot()
+        self.plot_toolbar = self._create_plot_toolbar()
 
         self.status_label = QtWidgets.QLabel("Loading 100,000 points...")
         self.status_label.setStyleSheet(
@@ -83,7 +120,11 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         columns = [
             ColumnSpec("Feature ID", lambda r: r.get("feature_id", "")),
             ColumnSpec("Timestamp (UTC)", lambda r: r.get("timestamp_iso", "")),
-            ColumnSpec("Value", lambda r: r.get("value", 0.0), fmt=lambda v: f"{float(v):.3f}"),
+            ColumnSpec(
+                "Value",
+                lambda r: r.get("value", 0.0),
+                fmt=lambda v: f"{float(v):.3f}",
+            ),
         ]
         return FeatureTableWidget(
             columns=columns,
@@ -93,7 +134,10 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
 
     def _create_plot(self) -> pg.PlotWidget:
         axis = pg.DateAxisItem(orientation="bottom", utcOffset=0)
-        plot = pg.PlotWidget(axisItems={"bottom": axis})
+        self.plot_view = SelectableViewBox()
+        self.plot_view.sigSelectionBoxFinished.connect(self._on_plot_box_selection)
+
+        plot = pg.PlotWidget(axisItems={"bottom": axis}, viewBox=self.plot_view)
         plot.setBackground("w")
         plot.showGrid(x=True, y=True, alpha=0.25)
         plot.setLabel("bottom", "Time (UTC)")
@@ -111,28 +155,56 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         )
         plot.addItem(self.selected_scatter)
 
-        self.selection_region = pg.LinearRegionItem(movable=True)
-        self.selection_region.setZValue(10)
-        self.selection_region.sigRegionChangeFinished.connect(self._on_plot_region_changed)
-        plot.addItem(self.selection_region)
-
         plot.scene().sigMouseClicked.connect(self._on_plot_clicked)
         return plot
+
+    def _create_plot_toolbar(self) -> QtWidgets.QWidget:
+        widget = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.mode_combo = QtWidgets.QComboBox()
+        self.mode_combo.addItem("Chart Pan", SelectableViewBox.MODE_PAN)
+        self.mode_combo.addItem("Chart Zoom Box", SelectableViewBox.MODE_ZOOM_BOX)
+        self.mode_combo.addItem("Chart Box Select", SelectableViewBox.MODE_SELECT_BOX)
+        self.mode_combo.currentIndexChanged.connect(self._on_plot_mode_changed)
+
+        reset_zoom_btn = QtWidgets.QPushButton("Reset Chart Zoom")
+        reset_zoom_btn.clicked.connect(self._reset_chart_zoom)
+
+        clear_selection_btn = QtWidgets.QPushButton("Clear Selection")
+        clear_selection_btn.clicked.connect(lambda: self._sync_selection([], source="plot"))
+
+        hint = QtWidgets.QLabel("Tip: In Box Select mode, drag a rectangle over the chart.")
+        hint.setStyleSheet("color: #555;")
+
+        layout.addWidget(self.mode_combo)
+        layout.addWidget(reset_zoom_btn)
+        layout.addWidget(clear_selection_btn)
+        layout.addStretch(1)
+        layout.addWidget(hint)
+        return widget
 
     def _build_layout(self) -> None:
         info = QtWidgets.QLabel(
             "<b>Selection workflow:</b> Click map markers, select rows in the table, "
-            "or click the chart near a point. Move the chart's vertical region to select "
-            "a time range. All three views stay synchronized."
+            "or use chart interactions (click nearest point, box zoom, box select). "
+            "All three views stay synchronized."
         )
         info.setWordWrap(True)
         info.setStyleSheet(
             "background-color: #fff6d5; padding: 8px; border-radius: 4px;"
         )
 
+        plot_panel = QtWidgets.QWidget()
+        plot_layout = QtWidgets.QVBoxLayout(plot_panel)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
+        plot_layout.addWidget(self.plot_toolbar)
+        plot_layout.addWidget(self.plot_widget, stretch=1)
+
         left_split = QtWidgets.QSplitter(Qt.Vertical)
         left_split.addWidget(self.table)
-        left_split.addWidget(self.plot_widget)
+        left_split.addWidget(plot_panel)
         left_split.setStretchFactor(0, 3)
         left_split.setStretchFactor(1, 2)
 
@@ -185,11 +257,38 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self.table.append_rows(rows)
 
         self.series_curve.setData(self.timestamps_s, self.values)
+        self._reset_chart_zoom()
+        self.status_label.setText("Ready: 100,000 points loaded")
 
-        initial_start = base_s + duration_s * 0.45
-        initial_end = base_s + duration_s * 0.50
-        self.selection_region.setRegion((initial_start, initial_end))
-        self._on_plot_region_changed()
+    def _on_plot_mode_changed(self) -> None:
+        mode = self.mode_combo.currentData()
+        self.plot_view.set_interaction_mode(str(mode))
+
+    def _reset_chart_zoom(self) -> None:
+        if self.timestamps_s.size == 0:
+            return
+        self.plot_widget.plotItem.enableAutoRange(axis="xy")
+        self.plot_widget.plotItem.autoRange()
+
+    def _on_plot_box_selection(
+        self,
+        x_min: float,
+        x_max: float,
+        y_min: float,
+        y_max: float,
+    ) -> None:
+        if self.timestamps_s.size == 0:
+            return
+
+        mask = (
+            (self.timestamps_s >= x_min)
+            & (self.timestamps_s <= x_max)
+            & (self.values >= y_min)
+            & (self.values <= y_max)
+        )
+        indices = np.flatnonzero(mask)
+        ids = [self.feature_ids[int(i)] for i in indices]
+        self._sync_selection(ids, source="plot")
 
     def _on_map_selection(self, selection) -> None:
         if selection.layer_id != self.layer.id:
@@ -202,6 +301,8 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
 
     def _on_plot_clicked(self, mouse_event) -> None:
         if mouse_event.button() != Qt.LeftButton:
+            return
+        if self.plot_view._interaction_mode == SelectableViewBox.MODE_SELECT_BOX:
             return
 
         scene_pos = mouse_event.scenePos()
@@ -225,19 +326,6 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
             nearest = idx - 1 if prev_diff <= next_diff else idx
 
         self._sync_selection([self.feature_ids[nearest]], source="plot")
-
-    def _on_plot_region_changed(self) -> None:
-        if self._updating_region or self.timestamps_s.size == 0:
-            return
-
-        x0, x1 = self.selection_region.getRegion()
-        lo = min(x0, x1)
-        hi = max(x0, x1)
-
-        start = int(np.searchsorted(self.timestamps_s, lo, side="left"))
-        end = int(np.searchsorted(self.timestamps_s, hi, side="right"))
-        ids = self.feature_ids[start:end]
-        self._sync_selection(ids, source="plot")
 
     def _sync_selection(self, ids: list[str], *, source: str) -> None:
         if self._selection_guard:
@@ -291,13 +379,6 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self.status_label.setText(
             f"Selected: {count:,} points | UTC window: {lo_txt} → {hi_txt}"
         )
-
-        if count > 1:
-            self._updating_region = True
-            try:
-                self.selection_region.setRegion((lo, hi))
-            finally:
-                self._updating_region = False
 
 
 def main() -> None:
