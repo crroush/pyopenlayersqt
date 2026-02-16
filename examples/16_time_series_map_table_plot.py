@@ -30,29 +30,48 @@ from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
 
 
 class SelectableViewBox(pg.ViewBox):
-    """ViewBox supporting pan, zoom-box, and selection-box drag modes."""
+    """ViewBox supporting map-like modifier drags.
+
+    - Ctrl + left-drag: box select
+    - Shift + left-drag: zoom box
+    - plain drag: pan
+    """
 
     sigSelectionBoxFinished = QtCore.Signal(float, float, float, float)
 
-    MODE_PAN = "pan"
-    MODE_ZOOM_BOX = "zoom_box"
-    MODE_SELECT_BOX = "select_box"
-
     def __init__(self) -> None:
         super().__init__()
-        self._interaction_mode = self.MODE_PAN
+        self._active_drag_mode = "pan"
         self.setMouseMode(self.PanMode)
 
-    def set_interaction_mode(self, mode: str) -> None:
-        self._interaction_mode = mode
-        if mode == self.MODE_ZOOM_BOX:
-            self.setMouseMode(self.RectMode)
-        else:
-            self.setMouseMode(self.PanMode)
-
     def mouseDragEvent(self, ev, axis=None):
-        if self._interaction_mode != self.MODE_SELECT_BOX or ev.button() != Qt.LeftButton:
+        if ev.button() != Qt.LeftButton:
             super().mouseDragEvent(ev, axis=axis)
+            return
+
+        if ev.isStart():
+            mods = ev.modifiers()
+            if mods & Qt.ControlModifier:
+                self._active_drag_mode = "select"
+            elif mods & Qt.ShiftModifier:
+                self._active_drag_mode = "zoom"
+            else:
+                self._active_drag_mode = "pan"
+
+        if self._active_drag_mode == "zoom":
+            # Delegate to built-in rubber-band zoom behavior.
+            self.setMouseMode(self.RectMode)
+            super().mouseDragEvent(ev, axis=axis)
+            if ev.isFinish():
+                self.setMouseMode(self.PanMode)
+                self._active_drag_mode = "pan"
+            return
+
+        if self._active_drag_mode != "select":
+            self.setMouseMode(self.PanMode)
+            super().mouseDragEvent(ev, axis=axis)
+            if ev.isFinish():
+                self._active_drag_mode = "pan"
             return
 
         ev.accept()
@@ -67,6 +86,7 @@ class SelectableViewBox(pg.ViewBox):
             x_min, x_max = sorted((float(start.x()), float(end.x())))
             y_min, y_max = sorted((float(start.y()), float(end.y())))
             self.sigSelectionBoxFinished.emit(x_min, x_max, y_min, y_max)
+            self._active_drag_mode = "pan"
             return
 
         self.updateScaleBox(ev.buttonDownPos(), ev.pos())
@@ -163,22 +183,17 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         layout = QtWidgets.QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self.mode_combo = QtWidgets.QComboBox()
-        self.mode_combo.addItem("Chart Pan", SelectableViewBox.MODE_PAN)
-        self.mode_combo.addItem("Chart Zoom Box", SelectableViewBox.MODE_ZOOM_BOX)
-        self.mode_combo.addItem("Chart Box Select", SelectableViewBox.MODE_SELECT_BOX)
-        self.mode_combo.currentIndexChanged.connect(self._on_plot_mode_changed)
-
         reset_zoom_btn = QtWidgets.QPushButton("Reset Chart Zoom")
         reset_zoom_btn.clicked.connect(self._reset_chart_zoom)
 
         clear_selection_btn = QtWidgets.QPushButton("Clear Selection")
         clear_selection_btn.clicked.connect(lambda: self._sync_selection([], source="plot"))
 
-        hint = QtWidgets.QLabel("Tip: In Box Select mode, drag a rectangle over the chart.")
+        hint = QtWidgets.QLabel(
+            "Tip: Ctrl+drag = box select, Shift+drag = zoom box, drag = pan."
+        )
         hint.setStyleSheet("color: #555;")
 
-        layout.addWidget(self.mode_combo)
         layout.addWidget(reset_zoom_btn)
         layout.addWidget(clear_selection_btn)
         layout.addStretch(1)
@@ -188,7 +203,8 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
     def _build_layout(self) -> None:
         info = QtWidgets.QLabel(
             "<b>Selection workflow:</b> Click map markers, select rows in the table, "
-            "or use chart interactions (click nearest point, box zoom, box select). "
+            "or use chart interactions (click nearest point, Ctrl+drag box select, "
+            "Shift+drag zoom box). "
             "All three views stay synchronized."
         )
         info.setWordWrap(True)
@@ -260,10 +276,6 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self._reset_chart_zoom()
         self.status_label.setText("Ready: 100,000 points loaded")
 
-    def _on_plot_mode_changed(self) -> None:
-        mode = self.mode_combo.currentData()
-        self.plot_view.set_interaction_mode(str(mode))
-
     def _reset_chart_zoom(self) -> None:
         if self.timestamps_s.size == 0:
             return
@@ -302,7 +314,10 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
     def _on_plot_clicked(self, mouse_event) -> None:
         if mouse_event.button() != Qt.LeftButton:
             return
-        if self.plot_view._interaction_mode == SelectableViewBox.MODE_SELECT_BOX:
+        if (
+            mouse_event.modifiers() & Qt.ControlModifier
+            or mouse_event.modifiers() & Qt.ShiftModifier
+        ):
             return
 
         scene_pos = mouse_event.scenePos()
