@@ -98,6 +98,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
     """Demonstrate tri-directional selection across map/table/plot."""
 
     POINT_COUNT = 100_000
+    MAX_VISIBLE_POINT_SYMBOLS = 4_000
     LINE_STYLES = {
         "No line": None,
         "Solid": Qt.SolidLine,
@@ -121,6 +122,9 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self._selection_guard = False
         self._ignore_next_map_selection = False
         self._current_selection_indices = np.array([], dtype=np.int64)
+        self._point_refresh_timer = QtCore.QTimer(self)
+        self._point_refresh_timer.setSingleShot(True)
+        self._point_refresh_timer.timeout.connect(self._refresh_visible_point_curve)
 
         self.map_widget = OLMapWidget(center=(39.8, -98.6), zoom=4)
         self.layer = self.map_widget.add_fast_points_layer(
@@ -214,6 +218,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         plot.addItem(self.selected_scatter)
 
         plot.scene().sigMouseClicked.connect(self._on_plot_clicked)
+        plot.plotItem.vb.sigRangeChanged.connect(self._schedule_point_curve_refresh)
         return plot
 
     def _create_plot_toolbar(self) -> QtWidgets.QWidget:
@@ -331,9 +336,9 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self.table.append_rows(rows)
 
         self.series_curve.setData(self.timestamps_s, self.values)
-        self.point_curve.setData(self.timestamps_s, self.values)
         self._configure_plot_limits()
         self._reset_chart_zoom()
+        self._schedule_point_curve_refresh()
         self.status_label.setText("Ready: 100,000 points loaded")
 
     def _reset_chart_zoom(self) -> None:
@@ -372,6 +377,37 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
             maxYRange=y_span * 1.8,
         )
 
+
+    def _schedule_point_curve_refresh(self, *_args) -> None:
+        if self.timestamps_s.size == 0:
+            return
+        self._point_refresh_timer.start(20)
+
+    def _refresh_visible_point_curve(self) -> None:
+        if self.timestamps_s.size == 0:
+            self.point_curve.setData([], [])
+            return
+
+        x_min, x_max = self.plot_widget.plotItem.vb.viewRange()[0]
+        start = int(np.searchsorted(self.timestamps_s, x_min, side="left"))
+        end = int(np.searchsorted(self.timestamps_s, x_max, side="right"))
+
+        start = max(0, start)
+        end = min(self.timestamps_s.size, max(start + 1, end))
+
+        visible_count = end - start
+        if visible_count <= 0:
+            self.point_curve.setData([], [])
+            return
+
+        if visible_count > self.MAX_VISIBLE_POINT_SYMBOLS:
+            step = int(np.ceil(visible_count / self.MAX_VISIBLE_POINT_SYMBOLS))
+            indices = np.arange(start, end, step, dtype=np.int64)
+        else:
+            indices = np.arange(start, end, dtype=np.int64)
+
+        self.point_curve.setData(self.timestamps_s[indices], self.values[indices])
+
     def _apply_plot_styles(self) -> None:
         line_name = self.line_style_combo.currentText()
         line_style = self.LINE_STYLES.get(line_name, Qt.SolidLine)
@@ -390,6 +426,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         symbol = self.POINT_STYLES.get(point_name, "o")
         self.point_curve.setSymbol(symbol)
         self.selected_scatter.setSymbol(symbol)
+        self._schedule_point_curve_refresh()
 
     def _on_plot_box_selection(
         self,
