@@ -407,43 +407,78 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
             self._selection_guard = False
 
     def _set_table_selection_by_indices(self, indices: np.ndarray) -> None:
+        table_view = self.table.table
         sm = self.table.table.selectionModel()
         if sm is None:
             return
 
         blocker = QtCore.QSignalBlocker(sm)
+        table_view.setUpdatesEnabled(False)
+        try:
+            if indices.size == 0:
+                sm.clearSelection()
+                return
+
+            total = self.table.model.rowCount()
+            if int(indices.size) == total:
+                table_view.selectAll()
+                return
+
+            select_ranges = self._contiguous_ranges(indices)
+            use_inverse = False
+            deselect_ranges: list[tuple[int, int]] = []
+
+            if int(indices.size) > (total // 2):
+                unselected = np.setdiff1d(
+                    np.arange(total, dtype=np.int64),
+                    indices,
+                    assume_unique=True,
+                )
+                deselect_ranges = self._contiguous_ranges(unselected)
+                use_inverse = (len(deselect_ranges) + 1) < len(select_ranges)
+
+            last_col = max(0, self.table.model.columnCount() - 1)
+
+            if use_inverse:
+                table_view.selectAll()
+                if deselect_ranges:
+                    deselection = QtCore.QItemSelection()
+                    for start, end in deselect_ranges:
+                        deselection.select(
+                            self.table.model.index(start, 0),
+                            self.table.model.index(end, last_col),
+                        )
+                    sm.select(
+                        deselection,
+                        QtCore.QItemSelectionModel.Deselect
+                        | QtCore.QItemSelectionModel.Rows,
+                    )
+                return
+
+            selection = QtCore.QItemSelection()
+            for start, end in select_ranges:
+                selection.select(
+                    self.table.model.index(start, 0),
+                    self.table.model.index(end, last_col),
+                )
+
+            sm.select(
+                selection,
+                QtCore.QItemSelectionModel.ClearAndSelect
+                | QtCore.QItemSelectionModel.Rows,
+            )
+        finally:
+            table_view.setUpdatesEnabled(True)
+            del blocker
+
+    def _contiguous_ranges(self, indices: np.ndarray) -> list[tuple[int, int]]:
         if indices.size == 0:
-            sm.clearSelection()
-            del blocker
-            return
+            return []
 
-        total = self.table.model.rowCount()
-        if int(indices.size) == total:
-            self.table.table.selectAll()
-            del blocker
-            return
-
-        selection = QtCore.QItemSelection()
-        last_col = max(0, self.table.model.columnCount() - 1)
-
-        start = int(indices[0])
-        prev = start
-        for cur_raw in indices[1:]:
-            cur = int(cur_raw)
-            if cur == prev + 1:
-                prev = cur
-                continue
-            selection.select(self.table.model.index(start, 0), self.table.model.index(prev, last_col))
-            start = cur
-            prev = cur
-        selection.select(self.table.model.index(start, 0), self.table.model.index(prev, last_col))
-
-        sm.clearSelection()
-        sm.select(
-            selection,
-            QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
-        )
-        del blocker
+        breaks = np.flatnonzero(np.diff(indices) != 1) + 1
+        starts = np.r_[indices[0], indices[breaks]]
+        ends = np.r_[indices[breaks - 1], indices[-1]]
+        return list(zip(starts.astype(int).tolist(), ends.astype(int).tolist()))
 
     def _update_plot_selection_by_indices(self, indices: np.ndarray) -> None:
         if indices.size == 0:
