@@ -98,6 +98,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
     """Demonstrate tri-directional selection across map/table/plot."""
 
     POINT_COUNT = 100_000
+    LINE_RENDER_CAP = 12_000
     LINE_STYLES = {
         "No line": None,
         "Solid": Qt.SolidLine,
@@ -150,6 +151,8 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self.id_to_idx: dict[str, int] = {}
         self.timestamps_s: np.ndarray = np.array([], dtype=float)
         self.values: np.ndarray = np.array([], dtype=float)
+        self.line_timestamps_s: np.ndarray = np.array([], dtype=float)
+        self.line_values: np.ndarray = np.array([], dtype=float)
         self._x_bounds: tuple[float, float] = (0.0, 1.0)
         self._y_bounds: tuple[float, float] = (0.0, 1.0)
 
@@ -185,8 +188,16 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         plot.setLabel("left", "Value")
         plot.setTitle("100k Point Time Series (line or symbols) + selection by color")
 
-        self.series_curve = plot.plot(
+        self.line_curve = plot.plot(
             pen=pg.mkPen(color=(70, 130, 180), width=1),
+            antialias=False,
+        )
+        self.line_curve.setClipToView(True)
+        self.line_curve.setDownsampling(auto=True)
+        self.line_curve.setSkipFiniteCheck(True)
+
+        self.series_curve = plot.plot(
+            pen=None,
             symbol="o",
             symbolSize=4,
             symbolPen=pg.mkPen(70, 130, 180, 220),
@@ -323,6 +334,16 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self.table.append_rows(rows)
 
         self.series_curve.setData(self.timestamps_s, self.values)
+
+        line_step = max(1, int(np.ceil(self.POINT_COUNT / self.LINE_RENDER_CAP)))
+        if line_step == 1:
+            self.line_timestamps_s = self.timestamps_s
+            self.line_values = self.values
+        else:
+            self.line_timestamps_s = self.timestamps_s[::line_step]
+            self.line_values = self.values[::line_step]
+        self.line_curve.setData(self.line_timestamps_s, self.line_values)
+
         self._configure_plot_limits()
         self._reset_chart_zoom()
         self.status_label.setText("Ready: 100,000 points loaded")
@@ -369,12 +390,13 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         line_style = self.LINE_STYLES.get(line_name, Qt.SolidLine)
 
         if line_style is None:
-            self.series_curve.setPen(None)
+            self.line_curve.setVisible(False)
         else:
+            self.line_curve.setVisible(True)
             pen = QPen(QColor(70, 130, 180))
             pen.setWidth(1)
             pen.setStyle(line_style)
-            self.series_curve.setPen(pen)
+            self.line_curve.setPen(pen)
 
         point_name = self.point_style_combo.currentText()
         symbol = self.POINT_STYLES.get(point_name, "o")
