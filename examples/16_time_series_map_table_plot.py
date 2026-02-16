@@ -102,6 +102,8 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         self.resize(1820, 980)
 
         self._selection_guard = False
+        self._ignore_next_map_selection = False
+        self._current_selection_indices = np.array([], dtype=np.int64)
 
         self.map_widget = OLMapWidget(center=(39.8, -98.6), zoom=4)
         self.layer = self.map_widget.add_fast_points_layer(
@@ -306,6 +308,9 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
     def _on_map_selection(self, selection) -> None:
         if selection.layer_id != self.layer.id:
             return
+        if self._ignore_next_map_selection:
+            self._ignore_next_map_selection = False
+            return
         self._sync_selection(selection.feature_ids, source="map")
 
     def _on_table_selection(self, keys: list[tuple[str, str]]) -> None:
@@ -349,11 +354,25 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
             self._sync_selection_by_indices(np.array([], dtype=np.int64), source=source)
             return
 
-        indices = np.fromiter(
-            (self.id_to_idx[fid] for fid in unique_ids if fid in self.id_to_idx),
-            dtype=np.int64,
-        )
+        indices = self._ids_to_indices(unique_ids)
         self._sync_selection_by_indices(indices, source=source)
+
+    def _ids_to_indices(self, ids: list[str]) -> np.ndarray:
+        parsed: list[int] = []
+        for fid in ids:
+            if fid.startswith("ts_"):
+                suffix = fid[3:]
+                if suffix.isdigit():
+                    idx = int(suffix)
+                    if 0 <= idx < self.POINT_COUNT:
+                        parsed.append(idx)
+                        continue
+
+            idx = self.id_to_idx.get(fid)
+            if idx is not None:
+                parsed.append(idx)
+
+        return np.array(parsed, dtype=np.int64)
 
     def _sync_selection_by_indices(self, indices: np.ndarray, *, source: str) -> None:
         if self._selection_guard:
@@ -364,6 +383,14 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         else:
             indices = np.unique(indices.astype(np.int64, copy=False))
 
+        if (
+            indices.size == self._current_selection_indices.size
+            and np.array_equal(indices, self._current_selection_indices)
+        ):
+            return
+
+        self._current_selection_indices = indices.copy()
+
         self._selection_guard = True
         try:
             if source != "table":
@@ -371,6 +398,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
 
             if source != "map":
                 ids = self.feature_ids_np[indices].tolist() if indices.size else []
+                self._ignore_next_map_selection = True
                 self.map_widget.set_fast_points_selection(self.layer.id, ids)
 
             self._update_plot_selection_by_indices(indices)
