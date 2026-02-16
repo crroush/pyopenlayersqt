@@ -21,6 +21,9 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pyqtgraph as pg
+
+# Keep rendering stable across environments (e.g., WSL) by avoiding OpenGL paths.
+pg.setConfigOptions(useOpenGL=False)
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPen
