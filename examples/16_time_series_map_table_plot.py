@@ -383,13 +383,16 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
         if sm is None:
             return
 
+        blocker = QtCore.QSignalBlocker(sm)
         if indices.size == 0:
             sm.clearSelection()
+            del blocker
             return
 
         total = self.table.model.rowCount()
         if int(indices.size) == total:
             self.table.table.selectAll()
+            del blocker
             return
 
         selection = QtCore.QItemSelection()
@@ -412,6 +415,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
             selection,
             QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
         )
+        del blocker
 
     def _update_plot_selection_by_indices(self, indices: np.ndarray) -> None:
         if indices.size == 0:
