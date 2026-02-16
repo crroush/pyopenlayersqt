@@ -187,7 +187,7 @@ class TimeSeriesMapTablePlotExample(QtWidgets.QMainWindow):
             antialias=False,
         )
         self.series_curve.setClipToView(True)
-        self.series_curve.setDownsampling(auto=True, mode="peak")
+        self.series_curve.setDownsampling(auto=True)
         self.series_curve.setSkipFiniteCheck(True)
         self.selected_scatter = pg.ScatterPlotItem(
             size=7,
