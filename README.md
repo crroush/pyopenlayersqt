@@ -192,6 +192,7 @@ Notes:
 - `center` - Initial map center as `(lat, lon)` tuple. Defaults to `(0, 0)`.
 - `zoom` - Initial zoom level (integer). Defaults to `2` (world view).
 - `show_coordinates` - If True, displays mouse lat/lon coordinates in the lower right corner. Defaults to `True`.
+- `show_country_boundaries` - If True, enables the built-in countries boundary layer at startup. Defaults to `False`.
 
 **Key Methods:**
 

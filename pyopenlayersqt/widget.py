@@ -161,6 +161,7 @@ class OLMapWidget(QWebEngineView):
         center: Optional[Tuple[float, float]] = None,
         zoom: Optional[int] = None,
         show_coordinates: bool = True,
+        show_country_boundaries: bool = False,
     ):
         """Initialize the map widget.
 
@@ -170,6 +171,8 @@ class OLMapWidget(QWebEngineView):
             zoom: Initial zoom level. Defaults to 2.
             show_coordinates: If True, displays mouse lat/lon coordinates in the
                 lower right corner. Defaults to True.
+            show_country_boundaries: If True, shows bundled country boundaries as
+                a built-in vector layer (works offline). Defaults to False.
         """
         super().__init__(parent)
 
@@ -177,6 +180,7 @@ class OLMapWidget(QWebEngineView):
         self._initial_center = center if center is not None else self.DEFAULT_CENTER
         self._initial_zoom = zoom if zoom is not None else self.DEFAULT_ZOOM
         self._show_coordinates = show_coordinates
+        self._show_country_boundaries = show_country_boundaries
         self._perf_logging_enabled = (
             os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
             or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
@@ -277,6 +281,11 @@ class OLMapWidget(QWebEngineView):
     def set_base_opacity(self, opacity: float) -> None:
         """Set opacity of the base OSM layer (0..1)."""
         self.send({"type": "base.set_opacity", "opacity": clamp(opacity)})
+
+    def set_country_boundaries_visible(self, visible: bool) -> None:
+        """Show or hide the built-in country boundaries layer."""
+        self._show_country_boundaries = bool(visible)
+        self.send({"type": "countries.set_visible", "visible": self._show_country_boundaries})
 
     def set_view(
         self,
@@ -512,6 +521,7 @@ class OLMapWidget(QWebEngineView):
                 }
             )
         self._send_now({"type": "coordinates.set_visible", "visible": self._show_coordinates})
+        self._send_now({"type": "countries.set_visible", "visible": self._show_country_boundaries})
         self._flush_pending()
         self.ready.emit()
 
