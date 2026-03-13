@@ -162,6 +162,7 @@ class OLMapWidget(QWebEngineView):
         zoom: Optional[int] = None,
         show_coordinates: bool = True,
         show_country_boundaries: bool = False,
+        country_boundaries_dark_mode: bool = False,
     ):
         """Initialize the map widget.
 
@@ -172,7 +173,9 @@ class OLMapWidget(QWebEngineView):
             show_coordinates: If True, displays mouse lat/lon coordinates in the
                 lower right corner. Defaults to True.
             show_country_boundaries: If True, shows bundled country boundaries as
-                a built-in vector layer (works offline). Defaults to False.
+                a built-in vector layer. Defaults to False.
+            country_boundaries_dark_mode: If True, use light-colored boundary
+                strokes for dark map themes. Defaults to False.
         """
         super().__init__(parent)
 
@@ -181,6 +184,7 @@ class OLMapWidget(QWebEngineView):
         self._initial_zoom = zoom if zoom is not None else self.DEFAULT_ZOOM
         self._show_coordinates = show_coordinates
         self._show_country_boundaries = show_country_boundaries
+        self._country_boundaries_dark_mode = country_boundaries_dark_mode
         self._perf_logging_enabled = (
             os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
             or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
@@ -286,6 +290,14 @@ class OLMapWidget(QWebEngineView):
         """Show or hide the built-in country boundaries layer."""
         self._show_country_boundaries = bool(visible)
         self.send({"type": "countries.set_visible", "visible": self._show_country_boundaries})
+
+    def set_country_boundaries_dark_mode(self, enabled: bool) -> None:
+        """Set dark-mode styling for the country boundaries layer."""
+        self._country_boundaries_dark_mode = bool(enabled)
+        self.send({
+            "type": "countries.set_dark_mode",
+            "dark_mode": self._country_boundaries_dark_mode,
+        })
 
     def set_view(
         self,
@@ -521,6 +533,7 @@ class OLMapWidget(QWebEngineView):
                 }
             )
         self._send_now({"type": "coordinates.set_visible", "visible": self._show_coordinates})
+        self._send_now({"type": "countries.set_dark_mode", "dark_mode": self._country_boundaries_dark_mode})
         self._send_now({"type": "countries.set_visible", "visible": self._show_country_boundaries})
         self._flush_pending()
         self.ready.emit()

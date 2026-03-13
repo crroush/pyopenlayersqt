@@ -43,10 +43,11 @@ const state = {
     // Coordinate display state
     coordinateOverlay: null,      // Overlay element for coordinates
     coordinatePointerMoveKey: null, // Event listener key for coordinate display
-    // Offline fallback world layer
-    offlineFallbackLayer: null,
-    offlineFallbackLoaded: false,
-    offlineFallbackLoadPromise: null,
+    // Country boundaries layer
+    countryBoundariesLayer: null,
+    countryBoundariesLoaded: false,
+    countryBoundariesLoadPromise: null,
+    countryBoundariesDarkMode: false,
     readyEmitted: false,
   };
 
@@ -1634,25 +1635,35 @@ function cmd_coordinates_set_visible(msg) {
   setCoordinateDisplayVisible(!!msg.visible);
 }
 
-function createOfflineFallbackLayer() {
-  if (state.offlineFallbackLayer) return state.offlineFallbackLayer;
+function countryBoundariesStyle(darkMode) {
+  if (darkMode) {
+    return new ol.style.Style({
+      fill: new ol.style.Fill({ color: 'rgba(0, 0, 0, 0.0)' }),
+      stroke: new ol.style.Stroke({ color: '#cbd5e1', width: 1.2 }),
+    });
+  }
+  return new ol.style.Style({
+    fill: new ol.style.Fill({ color: 'rgba(0, 0, 0, 0.0)' }),
+    stroke: new ol.style.Stroke({ color: '#334155', width: 1.0 }),
+  });
+}
+
+function createCountryBoundariesLayer() {
+  if (state.countryBoundariesLayer) return state.countryBoundariesLayer;
 
   const source = new ol.source.Vector();
   const layer = new ol.layer.Vector({
     source,
     visible: false,
-    style: new ol.style.Style({
-      fill: new ol.style.Fill({ color: 'rgba(0, 0, 0, 0.0)' }),
-      stroke: new ol.style.Stroke({ color: '#8a97a8', width: 1 }),
-    }),
+    style: countryBoundariesStyle(state.countryBoundariesDarkMode),
   });
-  layer.set('id', '_offline_world');
+  layer.set('id', '_country_boundaries');
   layer.setZIndex(50);
-  state.offlineFallbackLayer = layer;
+  state.countryBoundariesLayer = layer;
   return layer;
 }
 
-async function fetchOfflineCountriesText() {
+async function fetchCountryBoundariesText() {
   const gzResp = await fetch('/resources/countries.geojson.gz');
   if (!gzResp.ok) {
     throw new Error('countries.geojson.gz not available');
@@ -1670,15 +1681,15 @@ async function fetchOfflineCountriesText() {
   return await fallbackResp.text();
 }
 
-function setOfflineFallbackVisible(visible) {
+function setCountryBoundariesVisible(visible) {
   if (!state.map) return;
 
-  const layer = createOfflineFallbackLayer();
+  const layer = createCountryBoundariesLayer();
   layer.setVisible(!!visible);
 
-  if (!visible || state.offlineFallbackLoaded || state.offlineFallbackLoadPromise) return;
+  if (!visible || state.countryBoundariesLoaded || state.countryBoundariesLoadPromise) return;
 
-  state.offlineFallbackLoadPromise = fetchOfflineCountriesText()
+  state.countryBoundariesLoadPromise = fetchCountryBoundariesText()
     .then((geojsonText) => {
       const geojson = JSON.parse(geojsonText);
       const fmt = new ol.format.GeoJSON();
@@ -1688,18 +1699,25 @@ function setOfflineFallbackVisible(visible) {
 
       layer.getSource().clear(true);
       layer.getSource().addFeatures(features);
-      state.offlineFallbackLoaded = true;
+      state.countryBoundariesLoaded = true;
       log('countries layer loaded (' + features.length + ' features)');
     })
     .catch((err) => {
-      console.warn('[pyopenlayersqt]', 'unable to load offline fallback countries', err);
+      console.warn('[pyopenlayersqt]', 'unable to load country boundaries', err);
     })
     .finally(() => {
-      state.offlineFallbackLoadPromise = null;
+      state.countryBoundariesLoadPromise = null;
     });
 }
 function cmd_countries_set_visible(msg) {
-  setOfflineFallbackVisible(!!msg.visible);
+  setCountryBoundariesVisible(!!msg.visible);
+}
+
+function cmd_countries_set_dark_mode(msg) {
+  const darkMode = !!msg.dark_mode;
+  state.countryBoundariesDarkMode = darkMode;
+  const layer = createCountryBoundariesLayer();
+  layer.setStyle(countryBoundariesStyle(darkMode));
 }
 
 
@@ -1711,7 +1729,7 @@ function cmd_countries_set_visible(msg) {
     }
 
     // Disable tile transition for better pan/zoom performance
-    const offlineFallback = createOfflineFallbackLayer();
+    const countryBoundaries = createCountryBoundariesLayer();
     const base = new ol.layer.Tile({ 
       source: new ol.source.OSM({ transition: 0 })
     });
@@ -1722,7 +1740,7 @@ function cmd_countries_set_visible(msg) {
 
     state.map = new ol.Map({
       target: "map",
-      layers: [offlineFallback, base],
+      layers: [countryBoundaries, base],
       view: new ol.View({
         center: lonlat_to_3857(0, 0),
         zoom: 2,
@@ -2063,6 +2081,7 @@ function cmd_countries_set_visible(msg) {
     // --- Coordinate Display ---
     case "coordinates.set_visible": return cmd_coordinates_set_visible(msg);
     case "countries.set_visible": return cmd_countries_set_visible(msg);
+    case "countries.set_dark_mode": return cmd_countries_set_dark_mode(msg);
 
     // --- Measurement Mode ---
     case "measure.set_mode": return cmd_measure_set_mode(msg);

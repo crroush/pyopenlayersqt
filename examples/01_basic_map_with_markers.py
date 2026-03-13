@@ -6,6 +6,7 @@ This example demonstrates the most basic usage of pyopenlayersqt:
 - Adding a vector layer
 - Adding markers (points) with QColor styling
 - Toggling built-in country boundaries on/off
+- Switching country boundaries between light/dark styles
 
 This is the recommended starting point for new users.
 """
@@ -66,6 +67,14 @@ class BasicMapExample(QtWidgets.QMainWindow):
             self.map_widget.set_country_boundaries_visible
         )
         controls_layout.addWidget(self.countries_checkbox)
+
+        self.countries_dark_checkbox = QtWidgets.QCheckBox("Dark mode boundaries")
+        self.countries_dark_checkbox.setChecked(False)
+        self.countries_dark_checkbox.toggled.connect(
+            self.map_widget.set_country_boundaries_dark_mode
+        )
+        controls_layout.addWidget(self.countries_dark_checkbox)
+
         controls_layout.addStretch(1)
 
         # Main layout

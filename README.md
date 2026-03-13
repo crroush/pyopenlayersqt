@@ -193,6 +193,7 @@ Notes:
 - `zoom` - Initial zoom level (integer). Defaults to `2` (world view).
 - `show_coordinates` - If True, displays mouse lat/lon coordinates in the lower right corner. Defaults to `True`.
 - `show_country_boundaries` - If True, enables the built-in countries boundary layer at startup. Defaults to `False`.
+- `country_boundaries_dark_mode` - If True, uses light boundary strokes suitable for dark map themes. Defaults to `False`.
 
 **Key Methods:**
 
@@ -202,6 +203,8 @@ Notes:
 - `add_wms(options, name)` - Add a WMS (Web Map Service) layer
 - `add_raster_image(image, bounds, style, name)` - Add a raster image overlay
 - `set_base_opacity(opacity)` - Set OSM base layer opacity (0.0-1.0)
+- `set_country_boundaries_visible(visible)` - Show/hide the built-in countries boundary layer
+- `set_country_boundaries_dark_mode(enabled)` - Switch countries boundary styling between light/dark themes
 - `set_measure_mode(enabled)` - Enable/disable interactive distance measurement mode
 - `on_measurement_updated(callback)` - Register a typed callback for measurement click updates
 - `clear_measurements()` - Clear all measurement points and lines
