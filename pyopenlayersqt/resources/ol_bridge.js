@@ -48,6 +48,7 @@ const state = {
     countryBoundariesLoaded: false,
     countryBoundariesLoadPromise: null,
     countryBoundariesDarkMode: false,
+    countryBoundariesStrokeColor: null,
     readyEmitted: false,
   };
 
@@ -584,6 +585,19 @@ function cmd_base_set_opacity(msg) {
   if (!state.base_layer) return;
   const op = (msg.opacity == null) ? 1.0 : msg.opacity;
   state.base_layer.setOpacity(op);
+}
+
+
+function cmd_base_set_visible(msg) {
+  if (!state.base_layer) return;
+  state.base_layer.setVisible(!!msg.visible);
+}
+
+function cmd_map_set_background(msg) {
+  const el = document.getElementById('map');
+  if (!el) return;
+  const color = (msg && msg.color != null) ? String(msg.color) : '#ffffff';
+  el.style.background = color;
 }
 
 
@@ -1635,16 +1649,12 @@ function cmd_coordinates_set_visible(msg) {
   setCoordinateDisplayVisible(!!msg.visible);
 }
 
-function countryBoundariesStyle(darkMode) {
-  if (darkMode) {
-    return new ol.style.Style({
-      fill: new ol.style.Fill({ color: 'rgba(0, 0, 0, 0.0)' }),
-      stroke: new ol.style.Stroke({ color: '#cbd5e1', width: 1.2 }),
-    });
-  }
+function countryBoundariesStyle(darkMode, strokeColorOverride) {
+  const strokeColor = strokeColorOverride || (darkMode ? '#cbd5e1' : '#334155');
+  const strokeWidth = darkMode ? 1.2 : 1.0;
   return new ol.style.Style({
     fill: new ol.style.Fill({ color: 'rgba(0, 0, 0, 0.0)' }),
-    stroke: new ol.style.Stroke({ color: '#334155', width: 1.0 }),
+    stroke: new ol.style.Stroke({ color: strokeColor, width: strokeWidth }),
   });
 }
 
@@ -1655,7 +1665,7 @@ function createCountryBoundariesLayer() {
   const layer = new ol.layer.Vector({
     source,
     visible: false,
-    style: countryBoundariesStyle(state.countryBoundariesDarkMode),
+    style: countryBoundariesStyle(state.countryBoundariesDarkMode, state.countryBoundariesStrokeColor),
   });
   layer.set('id', '_country_boundaries');
   layer.setZIndex(50);
@@ -1710,6 +1720,11 @@ function setCountryBoundariesVisible(visible) {
     });
 }
 function cmd_countries_set_visible(msg) {
+  if (Object.prototype.hasOwnProperty.call(msg, 'stroke_color')) {
+    state.countryBoundariesStrokeColor = msg.stroke_color || null;
+    const layer = createCountryBoundariesLayer();
+    layer.setStyle(countryBoundariesStyle(state.countryBoundariesDarkMode, state.countryBoundariesStrokeColor));
+  }
   setCountryBoundariesVisible(!!msg.visible);
 }
 
@@ -1717,7 +1732,7 @@ function cmd_countries_set_dark_mode(msg) {
   const darkMode = !!msg.dark_mode;
   state.countryBoundariesDarkMode = darkMode;
   const layer = createCountryBoundariesLayer();
-  layer.setStyle(countryBoundariesStyle(darkMode));
+  layer.setStyle(countryBoundariesStyle(darkMode, state.countryBoundariesStrokeColor));
 }
 
 
@@ -2077,6 +2092,7 @@ function cmd_countries_set_dark_mode(msg) {
     case "map.fit_to_data": return cmd_map_fit_to_data(msg);
       case "map.base.opacity": return cmd_map_base_opacity(msg);
     case "map.set_extent_watch": return cmd_map_set_extent_watch(msg);
+    case "map.set_background": return cmd_map_set_background(msg);
 
     // --- Coordinate Display ---
     case "coordinates.set_visible": return cmd_coordinates_set_visible(msg);
@@ -2101,6 +2117,7 @@ function cmd_countries_set_dark_mode(msg) {
     case "fast_points.show_all": return cmd_fast_points_show_all(msg);
     case "fast_points.set_colors": return cmd_fast_points_set_colors(msg);
       case "base.set_opacity": return cmd_base_set_opacity(msg);
+      case "base.set_visible": return cmd_base_set_visible(msg);
       case "vector.remove_features": return cmd_vector_remove_features(msg);
       case "vector.update_styles": return cmd_vector_update_styles(msg);
 

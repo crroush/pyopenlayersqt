@@ -5,8 +5,9 @@ This example demonstrates the most basic usage of pyopenlayersqt:
 - Creating a map widget with custom center and zoom
 - Adding a vector layer
 - Adding markers (points) with QColor styling
-- Toggling built-in country boundaries on/off
+- Toggling built-in country boundaries on/off with optional stroke color
 - Switching country boundaries between light/dark styles
+- Enabling/disabling OSM base layer and setting black map background
 
 This is the recommended starting point for new users.
 """
@@ -63,10 +64,13 @@ class BasicMapExample(QtWidgets.QMainWindow):
 
         self.countries_checkbox = QtWidgets.QCheckBox("Show country boundaries")
         self.countries_checkbox.setChecked(False)
-        self.countries_checkbox.toggled.connect(
-            self.map_widget.set_country_boundaries_visible
-        )
+        self.countries_checkbox.toggled.connect(self._on_country_boundaries_toggled)
         controls_layout.addWidget(self.countries_checkbox)
+
+        controls_layout.addWidget(QtWidgets.QLabel("Stroke:"))
+        self.stroke_color_edit = QtWidgets.QLineEdit("#334155")
+        self.stroke_color_edit.setFixedWidth(90)
+        controls_layout.addWidget(self.stroke_color_edit)
 
         self.countries_dark_checkbox = QtWidgets.QCheckBox("Dark mode boundaries")
         self.countries_dark_checkbox.setChecked(False)
@@ -74,6 +78,16 @@ class BasicMapExample(QtWidgets.QMainWindow):
             self.map_widget.set_country_boundaries_dark_mode
         )
         controls_layout.addWidget(self.countries_dark_checkbox)
+
+        self.osm_checkbox = QtWidgets.QCheckBox("Show OSM")
+        self.osm_checkbox.setChecked(True)
+        self.osm_checkbox.toggled.connect(self.map_widget.set_base_visible)
+        controls_layout.addWidget(self.osm_checkbox)
+
+        self.black_bg_checkbox = QtWidgets.QCheckBox("Black background")
+        self.black_bg_checkbox.setChecked(False)
+        self.black_bg_checkbox.toggled.connect(self._on_black_background_toggled)
+        controls_layout.addWidget(self.black_bg_checkbox)
 
         controls_layout.addStretch(1)
 
@@ -83,6 +97,15 @@ class BasicMapExample(QtWidgets.QMainWindow):
         layout.addWidget(controls)
         layout.addWidget(self.map_widget, stretch=1)
         self.setCentralWidget(container)
+
+    def _on_country_boundaries_toggled(self, enabled: bool) -> None:
+        """Toggle country boundaries and optionally apply stroke color."""
+        stroke = self.stroke_color_edit.text().strip() or None
+        self.map_widget.set_country_boundaries_visible(enabled, stroke_color=stroke)
+
+    def _on_black_background_toggled(self, enabled: bool) -> None:
+        """Toggle black/white map background behind tiles."""
+        self.map_widget.set_map_background_color("#000000" if enabled else "#ffffff")
 
 
 def main():

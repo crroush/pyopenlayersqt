@@ -163,6 +163,9 @@ class OLMapWidget(QWebEngineView):
         show_coordinates: bool = True,
         show_country_boundaries: bool = False,
         country_boundaries_dark_mode: bool = False,
+        country_boundaries_stroke_color: Optional[str] = None,
+        show_osm_layer: bool = True,
+        map_background_color: str = "#ffffff",
     ):
         """Initialize the map widget.
 
@@ -176,6 +179,12 @@ class OLMapWidget(QWebEngineView):
                 a built-in vector layer. Defaults to False.
             country_boundaries_dark_mode: If True, use light-colored boundary
                 strokes for dark map themes. Defaults to False.
+            country_boundaries_stroke_color: Optional CSS stroke color for
+                country boundaries (e.g. "#ffcc00").
+            show_osm_layer: If True, keep the OSM base layer visible.
+                Defaults to True.
+            map_background_color: CSS color shown behind the OSM tiles
+                (e.g. "black" or "#000000"). Defaults to "#ffffff".
         """
         super().__init__(parent)
 
@@ -185,6 +194,9 @@ class OLMapWidget(QWebEngineView):
         self._show_coordinates = show_coordinates
         self._show_country_boundaries = show_country_boundaries
         self._country_boundaries_dark_mode = country_boundaries_dark_mode
+        self._country_boundaries_stroke_color = country_boundaries_stroke_color
+        self._show_osm_layer = show_osm_layer
+        self._map_background_color = str(map_background_color)
         self._perf_logging_enabled = (
             os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
             or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
@@ -286,10 +298,31 @@ class OLMapWidget(QWebEngineView):
         """Set opacity of the base OSM layer (0..1)."""
         self.send({"type": "base.set_opacity", "opacity": clamp(opacity)})
 
-    def set_country_boundaries_visible(self, visible: bool) -> None:
-        """Show or hide the built-in country boundaries layer."""
+    def set_base_visible(self, visible: bool) -> None:
+        """Show or hide the OSM base layer."""
+        self._show_osm_layer = bool(visible)
+        self.send({"type": "base.set_visible", "visible": self._show_osm_layer})
+
+    def set_map_background_color(self, color: str) -> None:
+        """Set the map background color (shown behind OSM tiles)."""
+        self._map_background_color = str(color)
+        self.send({"type": "map.set_background", "color": self._map_background_color})
+
+    def set_country_boundaries_visible(self, visible: bool, stroke_color: Optional[str] = None) -> None:
+        """Show or hide the built-in country boundaries layer.
+
+        Optionally set a custom stroke color when toggling visibility.
+        """
         self._show_country_boundaries = bool(visible)
-        self.send({"type": "countries.set_visible", "visible": self._show_country_boundaries})
+        if stroke_color is not None:
+            self._country_boundaries_stroke_color = str(stroke_color)
+        payload: Dict[str, Any] = {
+            "type": "countries.set_visible",
+            "visible": self._show_country_boundaries,
+        }
+        if self._country_boundaries_stroke_color is not None:
+            payload["stroke_color"] = self._country_boundaries_stroke_color
+        self.send(payload)
 
     def set_country_boundaries_dark_mode(self, enabled: bool) -> None:
         """Set dark-mode styling for the country boundaries layer."""
@@ -533,8 +566,10 @@ class OLMapWidget(QWebEngineView):
                 }
             )
         self._send_now({"type": "coordinates.set_visible", "visible": self._show_coordinates})
+        self._send_now({"type": "map.set_background", "color": self._map_background_color})
+        self._send_now({"type": "base.set_visible", "visible": self._show_osm_layer})
         self._send_now({"type": "countries.set_dark_mode", "dark_mode": self._country_boundaries_dark_mode})
-        self._send_now({"type": "countries.set_visible", "visible": self._show_country_boundaries})
+        self.set_country_boundaries_visible(self._show_country_boundaries)
         self._flush_pending()
         self.ready.emit()
 
