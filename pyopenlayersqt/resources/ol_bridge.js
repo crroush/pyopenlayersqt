@@ -1642,12 +1642,12 @@ function createOfflineFallbackLayer() {
     source,
     visible: false,
     style: new ol.style.Style({
-      fill: new ol.style.Fill({ color: 'rgba(234, 239, 244, 0.85)' }),
+      fill: new ol.style.Fill({ color: 'rgba(0, 0, 0, 0.0)' }),
       stroke: new ol.style.Stroke({ color: '#8a97a8', width: 1 }),
     }),
   });
   layer.set('id', '_offline_world');
-  layer.setZIndex(-999);
+  layer.setZIndex(50);
   state.offlineFallbackLayer = layer;
   return layer;
 }
@@ -1718,6 +1718,7 @@ function cmd_countries_set_visible(msg) {
 
 
     state.base_layer = base;
+    base.setZIndex(0);
 
     state.map = new ol.Map({
       target: "map",
