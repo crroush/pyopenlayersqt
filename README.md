@@ -112,7 +112,7 @@ See the [examples directory](examples/) for more working examples:
 - `13_dual_table_linking.py` - Two-table parent/child map-table selection workflow (both tables have map objects)
 - `14_delayed_render_interrupt.py` - Debounced, interruptible process-based heatmap rendering
 - `15_load_data_and_zoom.py` - Load features, then click a button to auto-zoom to loaded data
-- `16_metadata_only_table_linking.py` - Region map objects linked to metadata-only child table rows
+- `16_metadata_only_table_linking.py` - 100k FastGeo parent map objects linked to metadata-only child rows (3-5 per parent)
 
 ## Core Components
 

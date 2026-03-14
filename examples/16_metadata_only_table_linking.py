@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Region geometry linked to metadata-only child rows.
+"""Fast-geo parent table linked to metadata-only child rows.
 
 This example demonstrates the complementary workflow where parent features
-exist on the map, but child records are metadata-only (no map objects).
+exist on the map (100k FastGeo points), and each parent maps to multiple
+metadata-only child rows (3-5 rows per parent, no child map objects).
 """
 
 from __future__ import annotations
@@ -17,30 +18,46 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QAbstractItemView
 
-from pyopenlayersqt import OLMapWidget, PointStyle
+from pyopenlayersqt import FastGeoPointsStyle, OLMapWidget
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
 from pyopenlayersqt.selection_linking import MultiSelectLink, TableLink
 
 
 class MetadataOnlyChildLinkingExample(QtWidgets.QMainWindow):
-    """Demonstrate region geometry linked to metadata-only child rows."""
+    """Demonstrate FastGeo parent features linked to metadata-only child rows."""
 
-    SITES_PER_REGION = 10_000
+    TOTAL_PARENT_POINTS = 100_000
+    MIN_META_PER_PARENT = 3
+    MAX_META_PER_PARENT = 5
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Dual Table Linking: Region Geometry + Site Metadata")
-        self.resize(1700, 920)
+        self.setWindowTitle("Dual Table Linking: 100k FastGeo parent + metadata child")
+        self.resize(1750, 940)
 
         self.map_widget = OLMapWidget(center=(39.8, -98.6), zoom=4)
 
-        self.region_layer = self.map_widget.add_vector_layer("regions", selectable=True)
-        self.regions_table = self._create_regions_table()
-        self.sites_table = self._create_sites_table(self.region_layer.id)
-        self.regions_table.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.parent_layer = self.map_widget.add_fast_geopoints_layer(
+            "parent_geos",
+            selectable=True,
+            style=FastGeoPointsStyle(
+                point_radius=2.5,
+                default_color=QColor("deepskyblue"),
+                selected_point_radius=5.5,
+                selected_color=QColor("yellow"),
+                ellipse_stroke_color=QColor("orange"),
+                selected_ellipse_stroke_color=QColor("cyan"),
+                fill_ellipses=False,
+                min_ellipse_px=2.0,
+            ),
+        )
 
-        self.region_ids: list[str] = []
-        self.region_by_site: dict[str, str] = {}
+        self.parents_table = self._create_parent_table()
+        self.metadata_table = self._create_metadata_table(self.parent_layer.id)
+        self.parents_table.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+
+        self.parent_ids: list[str] = []
+        self.parent_by_meta: dict[str, str] = {}
         self._benchmark = (
             os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
             or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
@@ -48,14 +65,14 @@ class MetadataOnlyChildLinkingExample(QtWidgets.QMainWindow):
 
         self.link = MultiSelectLink(
             map_widget=self.map_widget,
-            parent=TableLink(table=self.regions_table, layer=self.region_layer),
+            parent=TableLink(table=self.parents_table, layer=self.parent_layer),
             kids={
-                "sites": TableLink(
-                    table=self.sites_table,
-                    key_layer_id=self.region_layer.id,
+                "metadata": TableLink(
+                    table=self.metadata_table,
+                    key_layer_id=self.parent_layer.id,
                 )
             },
-            parent_by_kid={"sites": self.region_by_site},
+            parent_by_kid={"metadata": self.parent_by_meta},
             clear_parent_on_kid_subset=True,
         )
 
@@ -67,12 +84,13 @@ class MetadataOnlyChildLinkingExample(QtWidgets.QMainWindow):
         if self._benchmark:
             print(f"[PERF] {message}")
 
-    def _create_regions_table(self) -> FeatureTableWidget:
+    def _create_parent_table(self) -> FeatureTableWidget:
         columns = [
-            ColumnSpec("Region", lambda r: r.get("name", "")),
-            ColumnSpec("Region ID", lambda r: r.get("feature_id", "")),
-            ColumnSpec("Category", lambda r: r.get("category", "")),
-            ColumnSpec("Sites", lambda r: r.get("site_count", "")),
+            ColumnSpec("Geo ID", lambda r: r.get("feature_id", "")),
+            ColumnSpec("Region", lambda r: r.get("region", "")),
+            ColumnSpec("Lat", lambda r: r.get("lat", "")),
+            ColumnSpec("Lon", lambda r: r.get("lon", "")),
+            ColumnSpec("Meta Rows", lambda r: r.get("meta_count", "")),
         ]
         return FeatureTableWidget(
             columns=columns,
@@ -80,11 +98,12 @@ class MetadataOnlyChildLinkingExample(QtWidgets.QMainWindow):
             sorting_enabled=True,
         )
 
-    def _create_sites_table(self, layer_id: str) -> FeatureTableWidget:
+    def _create_metadata_table(self, layer_id: str) -> FeatureTableWidget:
         columns = [
-            ColumnSpec("Site", lambda r: r.get("site_name", "")),
-            ColumnSpec("Site ID", lambda r: r.get("feature_id", "")),
-            ColumnSpec("Region", lambda r: r.get("region_name", "")),
+            ColumnSpec("Meta ID", lambda r: r.get("feature_id", "")),
+            ColumnSpec("Geo ID", lambda r: r.get("geo_id", "")),
+            ColumnSpec("Type", lambda r: r.get("record_type", "")),
+            ColumnSpec("Status", lambda r: r.get("status", "")),
             ColumnSpec("Score", lambda r: r.get("score", "")),
             ColumnSpec("Owner", lambda r: r.get("owner", "")),
         ]
@@ -96,9 +115,9 @@ class MetadataOnlyChildLinkingExample(QtWidgets.QMainWindow):
 
     def _build_layout(self) -> None:
         info = QtWidgets.QLabel(
-            "<b>Workflow:</b> Table 1 is backed by map geometries (regions). "
-            "Table 2 is metadata-only (no map features). Selecting region(s) in Table 1 "
-            "selects the mapped metadata rows in Table 2."
+            "<b>Workflow:</b> Table 1 is 100k FastGeo map objects. "
+            "Table 2 is metadata-only with 3-5 rows per geo (no map features). "
+            "Selecting parent geos fans out selection to their metadata rows."
         )
         info.setWordWrap(True)
         info.setStyleSheet(
@@ -106,8 +125,8 @@ class MetadataOnlyChildLinkingExample(QtWidgets.QMainWindow):
         )
 
         tabs = QtWidgets.QTabWidget()
-        tabs.addTab(self.regions_table, "Table 1: Regions (multi-select)")
-        tabs.addTab(self.sites_table, "Table 2: Site metadata (no map geometry)")
+        tabs.addTab(self.parents_table, "Table 1: Parent geos (100k)")
+        tabs.addTab(self.metadata_table, "Table 2: Metadata rows (no map geometry)")
 
         vertical_split = QtWidgets.QSplitter(Qt.Vertical)
         vertical_split.addWidget(self.map_widget)
@@ -124,77 +143,93 @@ class MetadataOnlyChildLinkingExample(QtWidgets.QMainWindow):
 
     def _add_data(self) -> None:
         t0 = time.perf_counter()
-        rng = np.random.default_rng(7)
+        rng = np.random.default_rng(17)
 
-        region_seed = [
-            ("West", "Operations", 34.05, -118.24),
-            ("Mountain", "Logistics", 39.74, -104.99),
-            ("Midwest", "Manufacturing", 41.88, -87.63),
-            ("East", "Sales", 40.71, -74.00),
-            ("Pacific NW", "Research", 47.61, -122.33),
-            ("Southwest", "Field", 33.45, -112.07),
-            ("Plains", "Supply", 39.10, -94.58),
-            ("Southeast", "Support", 33.75, -84.39),
-            ("Northeast", "Product", 42.36, -71.06),
-            ("South", "Delivery", 29.76, -95.36),
+        parent_seed = [
+            ("West", 34.05, -118.24),
+            ("Mountain", 39.74, -104.99),
+            ("Midwest", 41.88, -87.63),
+            ("East", 40.71, -74.00),
+            ("Pacific NW", 47.61, -122.33),
+            ("Southwest", 33.45, -112.07),
+            ("Plains", 39.10, -94.58),
+            ("Southeast", 33.75, -84.39),
+            ("Northeast", 42.36, -71.06),
+            ("South", 29.76, -95.36),
         ]
 
-        site_rows = []
+        parent_rows: list[dict[str, str]] = []
+        metadata_rows: list[dict[str, str]] = []
 
-        for idx, (name, category, lat, lon) in enumerate(region_seed):
-            region_id = f"region_{idx}"
-            self.region_ids.append(region_id)
+        base_count = self.TOTAL_PARENT_POINTS // len(parent_seed)
+        remainder = self.TOTAL_PARENT_POINTS % len(parent_seed)
 
-            self.region_layer.add_points(
-                [(lat, lon)],
-                ids=[region_id],
-                style=PointStyle(
-                    radius=12.0,
-                    fill_color=QColor("crimson"),
-                    stroke_color=QColor("darkred"),
-                    stroke_width=2.0,
-                ),
+        global_idx = 0
+        for idx, (region, lat, lon) in enumerate(parent_seed):
+            local_count = base_count + (1 if idx < remainder else 0)
+
+            offsets_lat = (rng.random(local_count) - 0.5) * 2.1
+            offsets_lon = (rng.random(local_count) - 0.5) * 2.5
+            coords = [
+                (lat + float(offsets_lat[i]), lon + float(offsets_lon[i]))
+                for i in range(local_count)
+            ]
+
+            sma_m = rng.uniform(20.0, 180.0, size=local_count).tolist()
+            smi_m = rng.uniform(10.0, 120.0, size=local_count).tolist()
+            tilt_deg = rng.uniform(0.0, 180.0, size=local_count).tolist()
+
+            ids = [f"geo_{global_idx + i}" for i in range(local_count)]
+            self.parent_layer.add_points_with_ellipses(
+                coords=coords,
+                sma_m=sma_m,
+                smi_m=smi_m,
+                tilt_deg=tilt_deg,
+                ids=ids,
             )
-            self.regions_table.append_rows(
-                [
-                    {
-                        "name": name,
-                        "category": category,
-                        "site_count": f"{self.SITES_PER_REGION:,}",
-                        "layer_id": self.region_layer.id,
-                        "feature_id": region_id,
-                    }
-                ]
-            )
 
-            count = self.SITES_PER_REGION
-            site_ids = [f"site_{idx}_{i}" for i in range(count)]
-            scores = rng.integers(50, 100, size=count)
-
-            for i, site_id in enumerate(site_ids):
-                self.region_by_site[site_id] = region_id
-                site_rows.append(
+            for i, geo_id in enumerate(ids):
+                meta_count = int(rng.integers(self.MIN_META_PER_PARENT, self.MAX_META_PER_PARENT + 1))
+                self.parent_ids.append(geo_id)
+                parent_rows.append(
                     {
-                        "site_name": f"{name} Site {i + 1}",
-                        "region_name": name,
-                        "score": str(scores[i]),
-                        "feature_id": site_id,
-                        "owner": f"Team {(idx % 5) + 1}",
+                        "region": region,
+                        "lat": f"{coords[i][0]:.5f}",
+                        "lon": f"{coords[i][1]:.5f}",
+                        "meta_count": str(meta_count),
+                        "layer_id": self.parent_layer.id,
+                        "feature_id": geo_id,
                     }
                 )
 
-        self.sites_table.append_rows(site_rows)
-        self.link.set_links({"sites": self.region_by_site})
+                for j in range(meta_count):
+                    meta_id = f"meta_{geo_id}_{j}"
+                    self.parent_by_meta[meta_id] = geo_id
+                    metadata_rows.append(
+                        {
+                            "feature_id": meta_id,
+                            "geo_id": geo_id,
+                            "record_type": ["inspection", "permit", "ticket", "asset"][j % 4],
+                            "status": ["open", "in_progress", "closed"][(idx + j) % 3],
+                            "score": str(int(rng.integers(50, 100))),
+                            "owner": f"Team {(idx % 6) + 1}",
+                        }
+                    )
 
-        self.link.set_parent([self.region_ids[0]])
+            global_idx += local_count
 
-        if self._benchmark:
-            dt = time.perf_counter() - t0
-            total_sites = self.SITES_PER_REGION * len(region_seed)
-            self._perf_log(
-                f"data load complete: {len(region_seed)} regions"
-                f", {total_sites:,} sites in {dt:.2f} s"
-            )
+        self.parents_table.append_rows(parent_rows)
+        self.metadata_table.append_rows(metadata_rows)
+        self.link.set_links({"metadata": self.parent_by_meta})
+
+        # Start with a small selected subset to show fan-out in metadata table.
+        self.link.set_parent(self.parent_ids[:5])
+
+        dt = time.perf_counter() - t0
+        self._perf_log(
+            f"data load complete: {len(self.parent_ids):,} parent geos"
+            f", {len(metadata_rows):,} metadata rows in {dt:.2f} s"
+        )
 
 
 def main() -> None:
