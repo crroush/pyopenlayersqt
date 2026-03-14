@@ -24,7 +24,7 @@ class WMSExample(QtWidgets.QMainWindow):
     """WMS and base layer opacity example window."""
 
     DEFAULT_OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-    ALT_OSM_URL = "https://tile.openstreetmap.fr/hot/{z}/{x}/{y}.png"
+    ALT_OSM_URL = "https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png"
 
     def __init__(self):
         super().__init__()
@@ -59,7 +59,7 @@ class WMSExample(QtWidgets.QMainWindow):
         self.osm_url_input.setPlaceholderText(self.DEFAULT_OSM_URL)
         osm_layout.addWidget(self.osm_url_input)
 
-        use_alt_btn = QtWidgets.QPushButton("Use Alt OSM URL")
+        use_alt_btn = QtWidgets.QPushButton("Use CORS-Safe Alt URL")
         use_alt_btn.clicked.connect(lambda: self.osm_url_input.setText(self.ALT_OSM_URL))
         osm_layout.addWidget(use_alt_btn)
 
