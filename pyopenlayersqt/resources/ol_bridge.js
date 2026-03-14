@@ -43,6 +43,11 @@ const state = {
     // Coordinate display state
     coordinateOverlay: null,      // Overlay element for coordinates
     coordinatePointerMoveKey: null, // Event listener key for coordinate display
+    // Country boundaries layer
+    countryBoundariesLayer: null,
+    countryBoundariesLoaded: false,
+    countryBoundariesLoadPromise: null,
+    countryBoundariesStrokeColor: null,
     readyEmitted: false,
   };
 
@@ -579,6 +584,19 @@ function cmd_base_set_opacity(msg) {
   if (!state.base_layer) return;
   const op = (msg.opacity == null) ? 1.0 : msg.opacity;
   state.base_layer.setOpacity(op);
+}
+
+
+function cmd_base_set_visible(msg) {
+  if (!state.base_layer) return;
+  state.base_layer.setVisible(!!msg.visible);
+}
+
+function cmd_map_set_background(msg) {
+  const el = document.getElementById('map');
+  if (!el) return;
+  const color = (msg && msg.color != null) ? String(msg.color) : '#ffffff';
+  el.style.background = color;
 }
 
 
@@ -1630,6 +1648,118 @@ function cmd_coordinates_set_visible(msg) {
   setCoordinateDisplayVisible(!!msg.visible);
 }
 
+function countryBoundariesStyle(strokeColorOverride) {
+  const strokeColor = strokeColorOverride || '#1e90ff';
+  const lineStyle = new ol.style.Style({
+    stroke: new ol.style.Stroke({ color: strokeColor, width: 1.2 }),
+  });
+  const polyStyle = new ol.style.Style({
+    fill: new ol.style.Fill({ color: 'rgba(30, 144, 255, 0.35)' }),
+    stroke: new ol.style.Stroke({ color: strokeColor, width: 1.0 }),
+  });
+  const pointStyle = new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 3,
+      fill: new ol.style.Fill({ color: strokeColor }),
+      stroke: new ol.style.Stroke({ color: '#ffffff', width: 1 }),
+    }),
+  });
+
+  return function (feature) {
+    const geom = feature && feature.getGeometry ? feature.getGeometry() : null;
+    const type = geom ? geom.getType() : '';
+    if (type === 'LineString' || type === 'MultiLineString') return lineStyle;
+    if (type === 'Polygon' || type === 'MultiPolygon') return polyStyle;
+    if (type === 'Point' || type === 'MultiPoint') return pointStyle;
+    return lineStyle;
+  };
+}
+
+function createCountryBoundariesLayer() {
+  if (state.countryBoundariesLayer) return state.countryBoundariesLayer;
+
+  const source = new ol.source.Vector();
+  const layer = new ol.layer.Vector({
+    source,
+    visible: false,
+    style: countryBoundariesStyle(state.countryBoundariesStrokeColor),
+  });
+  layer.set('id', '_country_boundaries');
+  layer.setZIndex(50);
+  state.countryBoundariesLayer = layer;
+  return layer;
+}
+
+async function _fetchGeoJSONTextWithOptionalGzip(baseName) {
+  const gzResp = await fetch('/resources/' + baseName + '.geojson.gz');
+  if (gzResp.ok) {
+    if (typeof DecompressionStream !== 'undefined' && gzResp.body) {
+      const stream = gzResp.body.pipeThrough(new DecompressionStream('gzip'));
+      return await new Response(stream).text();
+    }
+    // Browser/runtime without DecompressionStream support.
+    const plainResp = await fetch('/resources/' + baseName + '.geojson');
+    if (!plainResp.ok) {
+      throw new Error(baseName + '.geojson fallback not available');
+    }
+    return await plainResp.text();
+  }
+
+  const plainResp = await fetch('/resources/' + baseName + '.geojson');
+  if (!plainResp.ok) {
+    throw new Error(baseName + '.geojson not available');
+  }
+  return await plainResp.text();
+}
+
+async function fetchCountryBoundariesText() {
+  try {
+    return await _fetchGeoJSONTextWithOptionalGzip('lakes');
+  } catch (e) {
+    // Fallback to countries data if lakes file is unavailable.
+    return await _fetchGeoJSONTextWithOptionalGzip('countries');
+  }
+}
+
+function setCountryBoundariesVisible(visible) {
+  if (!state.map) return;
+
+  const layer = createCountryBoundariesLayer();
+  layer.setVisible(!!visible);
+
+  if (!visible || state.countryBoundariesLoaded || state.countryBoundariesLoadPromise) return;
+
+  state.countryBoundariesLoadPromise = fetchCountryBoundariesText()
+    .then((geojsonText) => {
+      const geojson = JSON.parse(geojsonText);
+      const fmt = new ol.format.GeoJSON();
+      const features = fmt.readFeatures(geojson, {
+        featureProjection: 'EPSG:3857',
+      });
+
+      layer.getSource().clear(true);
+      layer.getSource().addFeatures(features);
+      state.countryBoundariesLoaded = true;
+      log('reference layer loaded (' + features.length + ' features)');
+    })
+    .catch((err) => {
+      console.warn('[pyopenlayersqt]', 'unable to load country boundaries', err);
+    })
+    .finally(() => {
+      state.countryBoundariesLoadPromise = null;
+    });
+}
+function cmd_countries_set_visible(msg) {
+  if (Object.prototype.hasOwnProperty.call(msg, 'stroke_color')) {
+    state.countryBoundariesStrokeColor = msg.stroke_color || null;
+    const layer = createCountryBoundariesLayer();
+    layer.setStyle(countryBoundariesStyle(state.countryBoundariesStrokeColor));
+  }
+  setCountryBoundariesVisible(!!msg.visible);
+}
+
+
+
 
   function initMap() {
     if (state.map) {
@@ -1638,19 +1768,24 @@ function cmd_coordinates_set_visible(msg) {
     }
 
     // Disable tile transition for better pan/zoom performance
+    const countryBoundaries = createCountryBoundariesLayer();
     const base = new ol.layer.Tile({ 
       source: new ol.source.OSM({ transition: 0 })
     });
+
+
     state.base_layer = base;
+    base.setZIndex(0);
 
     state.map = new ol.Map({
       target: "map",
-      layers: [base],
+      layers: [countryBoundaries, base],
       view: new ol.View({
         center: lonlat_to_3857(0, 0),
         zoom: 2,
       }),
     });
+
 
     // Select: Ctrl/Cmd toggles; plain click replaces.
     state.selectInteraction = new ol.interaction.Select({
@@ -1981,9 +2116,11 @@ function cmd_coordinates_set_visible(msg) {
     case "map.fit_to_data": return cmd_map_fit_to_data(msg);
       case "map.base.opacity": return cmd_map_base_opacity(msg);
     case "map.set_extent_watch": return cmd_map_set_extent_watch(msg);
+    case "map.set_background": return cmd_map_set_background(msg);
 
     // --- Coordinate Display ---
     case "coordinates.set_visible": return cmd_coordinates_set_visible(msg);
+    case "countries.set_visible": return cmd_countries_set_visible(msg);
 
     // --- Measurement Mode ---
     case "measure.set_mode": return cmd_measure_set_mode(msg);
@@ -2003,6 +2140,7 @@ function cmd_coordinates_set_visible(msg) {
     case "fast_points.show_all": return cmd_fast_points_show_all(msg);
     case "fast_points.set_colors": return cmd_fast_points_set_colors(msg);
       case "base.set_opacity": return cmd_base_set_opacity(msg);
+      case "base.set_visible": return cmd_base_set_visible(msg);
       case "vector.remove_features": return cmd_vector_remove_features(msg);
       case "vector.update_styles": return cmd_vector_update_styles(msg);
 
