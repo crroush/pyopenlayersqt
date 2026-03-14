@@ -950,35 +950,63 @@ link.set_parent(["region_1", "region_5"])
 
 **How to choose the linking field (id/uuid/etc):**
 - `MultiSelectLink` matches on **feature IDs** (the second value in each table key tuple).
-- So your map layer IDs and table keys must use the same identifier string for that entity.
-- If your data uses `uuid` (or any other field), map it into `feature_id` when adding rows and map features.
+- Use the same canonical ID string in 3 places:
+  1. table key (`key_fn`),
+  2. map feature `ids=[...]`,
+  3. mapping dict (`child_id -> parent_id`).
+- Example rule of thumb: **`region_uuid` in your data becomes the map/table `region_id`**.
 
 ```python
-# Example: your source rows use uuid fields
+# 3+ table example with explicit UUID -> ID mapping
+# parent entity = Region
+# canonical parent ID used by linking = str(region["region_uuid"])
+
 regions_table = FeatureTableWidget(
     columns=[...],
     key_fn=lambda r: (region_layer.id, str(r["region_uuid"])),
 )
-
 sites_table = FeatureTableWidget(
     columns=[...],
     key_fn=lambda r: (sites_layer.id, str(r["site_uuid"])),
 )
+assets_table = FeatureTableWidget(
+    columns=[...],
+    key_fn=lambda r: (assets_layer.id, str(r["asset_uuid"])),
+)
+tickets_table = FeatureTableWidget(
+    columns=[...],
+    key_fn=lambda r: (tickets_layer.id, str(r["ticket_uuid"])),
+)
 
-# Map feature IDs should use the same values
+# Map feature IDs must match table key IDs
 region_layer.add_points(region_coords, ids=[str(r["region_uuid"]) for r in region_rows])
 sites_layer.add_points(site_coords, ids=[str(r["site_uuid"]) for r in site_rows])
+assets_layer.add_points(asset_coords, ids=[str(r["asset_uuid"]) for r in asset_rows])
+tickets_layer.add_points(ticket_coords, ids=[str(r["ticket_uuid"]) for r in ticket_rows])
 
-# Child -> parent mapping should use those same IDs
-site_to_region = {
-    str(site["site_uuid"]): str(site["region_uuid"])
-    for site in site_rows
-}
+# Child -> parent mappings (child UUID -> parent Region UUID)
+site_to_region = {str(x["site_uuid"]): str(x["region_uuid"]) for x in site_rows}
+asset_to_region = {str(x["asset_uuid"]): str(x["region_uuid"]) for x in asset_rows}
+ticket_to_region = {str(x["ticket_uuid"]): str(x["region_uuid"]) for x in ticket_rows}
+
+link = MultiSelectLink(
+    map_widget=map_widget,
+    parent=TableLink(table=regions_table, layer=region_layer),
+    kids={
+        "sites": TableLink(table=sites_table, layer=sites_layer),
+        "assets": TableLink(table=assets_table, layer=assets_layer),
+        "tickets": TableLink(table=tickets_table, layer=tickets_layer),
+    },
+    parent_by_kid={
+        "sites": site_to_region,
+        "assets": asset_to_region,
+        "tickets": ticket_to_region,
+    },
+)
 ```
 
-If you keep that ID contract consistent (table key + map feature id + mapping dict),
-selection linking will work regardless of whether the source field is named `id`, `uuid`,
-`pk`, etc.
+As long as that ID contract is consistent, the original field names can be anything
+(`id`, `uuid`, `pk`, etc.).
 
 **About fan-out chains (Table1 -> Table2 -> Table3):**
 - A single `MultiSelectLink` supports **one level** of fan-out (parent -> many children).
