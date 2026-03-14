@@ -595,6 +595,14 @@ function cmd_base_set_visible(msg) {
   state.base_layer.setVisible(!!msg.visible);
 }
 
+function parseOsmUrlOverride() {
+  const params = new URLSearchParams(window.location.search || "");
+  const raw = params.get("pyolqt_osm_url");
+  if (!raw) return null;
+  const url = String(raw).trim();
+  return url || null;
+}
+
 function cmd_map_set_background(msg) {
   const el = document.getElementById('map');
   if (!el) return;
@@ -1808,9 +1816,11 @@ function cmd_countries_set_visible(msg) {
     // Disable tile transition for better pan/zoom performance
     const countryBoundaries = createCountryBoundariesLayer();
     const hydrology = createHydrologyLayer();
-    const base = new ol.layer.Tile({ 
-      source: new ol.source.OSM({ transition: 0 })
-    });
+    const osmUrl = parseOsmUrlOverride();
+    const baseSource = osmUrl
+      ? new ol.source.OSM({ transition: 0, url: osmUrl })
+      : new ol.source.OSM({ transition: 0 });
+    const base = new ol.layer.Tile({ source: baseSource });
 
 
     state.base_layer = base;
