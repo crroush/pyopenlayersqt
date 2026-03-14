@@ -189,7 +189,9 @@ class MetadataOnlyChildLinkingExample(QtWidgets.QMainWindow):
             )
 
             for i, geo_id in enumerate(ids):
-                meta_count = int(rng.integers(self.MIN_META_PER_PARENT, self.MAX_META_PER_PARENT + 1))
+                meta_count = int(
+                    rng.integers(self.MIN_META_PER_PARENT, self.MAX_META_PER_PARENT + 1)
+                )
                 self.parent_ids.append(geo_id)
                 parent_rows.append(
                     {
@@ -209,7 +211,9 @@ class MetadataOnlyChildLinkingExample(QtWidgets.QMainWindow):
                         {
                             "feature_id": meta_id,
                             "geo_id": geo_id,
-                            "record_type": ["inspection", "permit", "ticket", "asset"][j % 4],
+                            "record_type": ["inspection", "permit", "ticket", "asset"][
+                                j % 4
+                            ],
                             "status": ["open", "in_progress", "closed"][(idx + j) % 3],
                             "score": str(int(rng.integers(50, 100))),
                             "owner": f"Team {(idx % 6) + 1}",
