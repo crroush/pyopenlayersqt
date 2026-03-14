@@ -109,9 +109,10 @@ See the [examples directory](examples/) for more working examples:
 - `10_range_slider_filtering.py` - Range slider filtering
 - `11_measurement_tool.py` - Distance measurement tool
 - `12_coordinate_display.py` - Coordinate display toggle
-- `13_dual_table_linking.py` - Two-table parent/child map-table selection workflow
+- `13_dual_table_linking.py` - Two-table parent/child map-table selection workflow (both tables have map objects)
 - `14_delayed_render_interrupt.py` - Debounced, interruptible process-based heatmap rendering
 - `15_load_data_and_zoom.py` - Load features, then click a button to auto-zoom to loaded data
+- `16_metadata_only_table_linking.py` - 100k FastGeo parent map objects linked to metadata-only child rows (3-5 per parent)
 
 ## Core Components
 
@@ -942,6 +943,27 @@ link.set_links(parent_by_kid)
 link.set_parent(["region_1", "region_5"])
 ```
 
+For metadata-only child rows (no map layer), use `key_layer_id`:
+
+```python
+metadata_table = FeatureTableWidget(
+    columns=[...],
+    key_fn=lambda r: (region_layer.id, str(r["site_uuid"])),
+)
+
+link = MultiSelectLink(
+    map_widget=map_widget,
+    parent=TableLink(table=regions_table, layer=region_layer),
+    kids={
+        "site_metadata": TableLink(
+            table=metadata_table,
+            key_layer_id=region_layer.id,
+        )
+    },
+    parent_by_kid={"site_metadata": site_to_region},
+)
+```
+
 **Design pattern:**
 - Keep one authoritative parent entity (e.g., Region).
 - For each child table, maintain a lightweight `child_id -> parent_id` dict.
@@ -1015,7 +1037,7 @@ As long as that ID contract is consistent, the original field names can be anyth
   - Link B: `Table2` parent -> `Table3` children
 - In other words: yes, this pattern supports that workflow by chaining links per level.
 
-See [examples/13_dual_table_linking.py](examples/13_dual_table_linking.py) for a concrete implementation.
+See [examples/13_dual_table_linking.py](examples/13_dual_table_linking.py) for the map-to-map version and [examples/16_metadata_only_table_linking.py](examples/16_metadata_only_table_linking.py) for the map-to-metadata-only version.
 
 #### Row removal APIs: `remove_keys` vs `remove_where`
 
