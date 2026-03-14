@@ -1,18 +1,8 @@
 #!/usr/bin/env python3
-"""Dual-table map integration with multi-region + high-volume child features.
+"""Dual-table map integration with an abstracted parent/child selection linker.
 
-This example extends the table integration pattern by using two tables in tabs below the map:
-- Table 1 (multi-select): parent features (regions)
-- Table 2 (multi-select): all child features (sites) across regions
-
-Selection works in both directions:
-- Table 1 <-> parent layer on the map
-- Table 2 <-> child layer on the map
-- Selecting child features on the map promotes/highlights owning regions in Table 1.
-
-Dataset scale:
-- 10 regions
-- 100,000 total site points (10,000 per region)
+This example demonstrates the reusable ``MultiSelectLink`` helper to avoid
+hand-writing map/table synchronization code for common multi-table workflows.
 """
 
 from __future__ import annotations
@@ -23,12 +13,13 @@ import time
 
 import numpy as np
 from PySide6 import QtWidgets
-from PySide6.QtCore import QSignalBlocker, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QAbstractItemView
 
 from pyopenlayersqt import FastPointsStyle, OLMapWidget, PointStyle
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
+from pyopenlayersqt.selection_linking import MultiSelectLink, TableLink
 
 
 class DualTableLinkingExample(QtWidgets.QMainWindow):
@@ -40,8 +31,6 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("Dual Table Linking: Multi-Region + 100k Sites")
         self.resize(1700, 920)
-
-        self._syncing_from_map = False
 
         self.map_widget = OLMapWidget(center=(39.8, -98.6), zoom=4)
 
@@ -62,18 +51,20 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
         self.regions_table.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
         self.region_ids: list[str] = []
-        self.site_by_region: dict[str, list[str]] = {}
         self.region_by_site: dict[str, str] = {}
-        self._selected_region_ids: set[str] = set()
-        self._selected_site_ids: set[str] = set()
         self._benchmark = (
             os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
             or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
         )
 
-        self.map_widget.selectionChanged.connect(self._on_map_selection)
-        self.regions_table.selectionKeysChanged.connect(self._on_region_table_selection)
-        self.sites_table.selectionKeysChanged.connect(self._on_site_table_selection)
+        self.link = MultiSelectLink(
+            map_widget=self.map_widget,
+            parent=TableLink(table=self.regions_table, layer=self.region_layer),
+            kids={"sites": TableLink(table=self.sites_table, layer=self.site_layer)},
+            parent_by_kid={"sites": self.region_by_site},
+            clear_parent_on_kid_subset=True,
+        )
+
         self.map_widget.ready.connect(self._add_data)
 
         self._build_layout()
@@ -191,7 +182,6 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
             site_ids = [f"site_{idx}_{i}" for i in range(count)]
             self.site_layer.add_points(coords, ids=site_ids)
 
-            self.site_by_region[region_id] = list(site_ids)
             scores = rng.integers(50, 100, size=count)
             for i, site_id in enumerate(site_ids):
                 self.region_by_site[site_id] = region_id
@@ -206,131 +196,18 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
                 )
 
         self.sites_table.append_rows(site_rows)
+        self.link.set_links({"sites": self.region_by_site})
 
-        # Start with one selected region, selecting all corresponding sites.
-        self._apply_region_selection([self.region_ids[0]])
+        # Start with one selected region (which selects all child sites via link).
+        self.link.set_parent([self.region_ids[0]])
 
         if self._benchmark:
             dt = time.perf_counter() - t0
             total_sites = self.SITES_PER_REGION * len(region_seed)
-            perf_str = (
+            self._perf_log(
                 f"data load complete: {len(region_seed)} regions"
                 f", {total_sites:,} sites in {dt:.2f} s"
             )
-
-            self._perf_log(perf_str)
-
-    def _apply_region_selection(
-        self,
-        region_ids: list[str],
-        *,
-        update_map_selection: bool = True,
-    ) -> None:
-        t0 = time.perf_counter()
-        selected = list(dict.fromkeys(region_ids))
-        self._selected_region_ids = set(selected)
-
-        self.regions_table.select_keys(
-            [(self.region_layer.id, rid) for rid in selected],
-            clear_first=True,
-        )
-        if update_map_selection:
-            self.map_widget.set_vector_selection(self.region_layer.id, selected)
-
-        # Region selection means select all sites for those region(s).
-        selected_site_ids = [
-            sid for rid in selected for sid in self.site_by_region.get(rid, [])
-        ]
-        self._selected_site_ids = set(selected_site_ids)
-        self.sites_table.select_keys(
-            [(self.site_layer.id, sid) for sid in selected_site_ids],
-            clear_first=True,
-        )
-        # This site-layer selection is programmatic (driven by region table/map region),
-        # not a user subset action on the site layer.
-        self._set_site_map_selection_programmatically(selected_site_ids)
-
-        if self._benchmark:
-            dt = (time.perf_counter() - t0) * 1000.0
-            self._perf_log(
-                f"region selection -> {len(selected)} regions, "
-                f"{len(selected_site_ids):,} sites selected in {dt:.1f} ms"
-            )
-
-    def _on_region_table_selection(self, keys: list[tuple[str, str]]) -> None:
-        if self._syncing_from_map:
-            return
-        region_ids = [fid for _layer_id, fid in keys]
-        self._apply_region_selection(region_ids)
-
-    def _on_site_table_selection(self, keys: list[tuple[str, str]]) -> None:
-        if self._syncing_from_map:
-            return
-
-        site_ids = [fid for _layer_id, fid in keys]
-        t0 = time.perf_counter()
-        self._selected_site_ids = set(site_ids)
-        # Programmatic write to map from table should not be interpreted as a user
-        # map-subset gesture that clears region selection.
-        self._set_site_map_selection_programmatically(site_ids)
-
-        if self._benchmark:
-            dt = (time.perf_counter() - t0) * 1000.0
-            self._perf_log(
-                f"site table -> map selection ({len(site_ids):,} ids) in {dt:.1f} ms"
-            )
-
-    def _expected_site_ids_for_selected_regions(self) -> set[str]:
-        """Return the full site-id union implied by current region selection."""
-        return {
-            sid
-            for rid in self._selected_region_ids
-            for sid in self.site_by_region.get(rid, [])
-        }
-
-    def _on_map_selection(self, selection) -> None:
-        self._syncing_from_map = True
-        try:
-            if selection.layer_id == self.region_layer.id:
-                region_ids = list(selection.feature_ids)
-                self._apply_region_selection(region_ids, update_map_selection=False)
-                return
-
-            if selection.layer_id == self.site_layer.id:
-                site_ids = list(selection.feature_ids)
-                incoming_site_ids = set(site_ids)
-
-                # If incoming site selection exactly matches the currently selected
-                # region union, treat this as synchronization echo and do not clear
-                # parent region selection.
-                expected_site_ids = self._expected_site_ids_for_selected_regions()
-                if self._selected_region_ids and incoming_site_ids == expected_site_ids:
-                    self._selected_site_ids = incoming_site_ids
-                    return
-
-                self._selected_site_ids = incoming_site_ids
-
-                # Map subset selection highlights sites only; clear region table/map selection.
-                self._selected_region_ids.clear()
-                self.regions_table.clear_selection()
-                self.map_widget.set_vector_selection(self.region_layer.id, [])
-
-                self.sites_table.select_keys(
-                    [(self.site_layer.id, sid) for sid in site_ids],
-                    clear_first=True,
-                )
-                if self._benchmark:
-                    self._perf_log(
-                        f"map -> site table selection ({len(site_ids):,} ids), regions cleared"
-                    )
-        finally:
-            self._syncing_from_map = False
-
-    def _set_site_map_selection_programmatically(self, site_ids: list[str]) -> None:
-        """Write site selection to map without emitting selectionChanged callbacks."""
-        blocker = QSignalBlocker(self.map_widget)
-        self.map_widget.set_fast_points_selection(self.site_layer.id, site_ids)
-        del blocker
 
 
 def main() -> None:

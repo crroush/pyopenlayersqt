@@ -25,6 +25,8 @@ from .features_table import (
     TableContextMenuEvent,
 )
 from .range_slider import RangeSliderWidget
+from .selection_linking import DualSelectLink, MultiSelectLink, TableLink
+
 
 __all__ = [
     "OLMapWidget",
@@ -47,4 +49,7 @@ __all__ = [
     "ContextMenuActionSpec",
     "TableContextMenuEvent",
     "RangeSliderWidget",
+    "TableLink",
+    "DualSelectLink",
+    "MultiSelectLink",
 ]
