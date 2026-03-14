@@ -115,15 +115,25 @@ class _StaticServer:
                     if fs_path.exists() and fs_path.is_file():
                         try:
                             data = gzip.decompress(fs_path.read_bytes())
+                        except Exception:
+                            try:
+                                self.send_error(500, "Unable to decode gzip GeoJSON")
+                            except (BrokenPipeError, ConnectionResetError):
+                                pass
+                            return
+
+                        try:
                             self.send_response(200)
-                            self.send_header("Content-Type", "application/geo+json; charset=utf-8")
+                            self.send_header(
+                                "Content-Type", "application/geo+json; charset=utf-8"
+                            )
                             self.send_header("Content-Length", str(len(data)))
                             self.end_headers()
                             self.wfile.write(data)
-                            return
-                        except Exception:
-                            self.send_error(500, "Unable to decode gzip GeoJSON")
-                            return
+                        except (BrokenPipeError, ConnectionResetError):
+                            # Client disconnected before transfer completed.
+                            pass
+                        return
                 super().do_GET()
 
             def translate_path(self, path: str) -> str:
