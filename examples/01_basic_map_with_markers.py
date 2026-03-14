@@ -5,7 +5,8 @@ This example demonstrates the most basic usage of pyopenlayersqt:
 - Creating a map widget with custom center and zoom
 - Adding a vector layer
 - Adding markers (points) with QColor styling
-- Displaying the map
+- Toggling built-in country boundaries on/off with optional stroke color
+- Enabling/disabling OSM base layer and setting black map background
 
 This is the recommended starting point for new users.
 """
@@ -18,44 +19,119 @@ from PySide6.QtGui import QColor
 from pyopenlayersqt import OLMapWidget, PointStyle
 
 
+class BasicMapExample(QtWidgets.QMainWindow):
+    """Basic map example window with a country boundaries toggle."""
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Basic Map with Markers")
+        self.resize(1024, 768)
+
+        # Create the map widget centered on the US West Coast
+        # center is (latitude, longitude), zoom is 2-18 (2=world, 18=street)
+        self.map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
+
+        # Add a vector layer for drawing markers
+        vector_layer = self.map_widget.add_vector_layer("cities", selectable=True)
+
+        # Add some city markers with QColor styling
+        # Coordinates are (latitude, longitude)
+        cities = [
+            (37.7749, -122.4194, "San Francisco", QColor("red")),
+            (34.0522, -118.2437, "Los Angeles", QColor("blue")),
+            (47.6062, -122.3321, "Seattle", QColor("green")),
+            (45.5152, -122.6784, "Portland", QColor("purple")),
+        ]
+
+        for lat, lon, city_id, color in cities:
+            vector_layer.add_points(
+                [(lat, lon)],
+                ids=[city_id],
+                style=PointStyle(
+                    radius=10.0,
+                    fill_color=color,
+                    fill_opacity=0.85,
+                    stroke_color=QColor("black"),
+                    stroke_width=2.0,
+                ),
+            )
+
+        # Top controls
+        controls = QtWidgets.QWidget()
+        controls_layout = QtWidgets.QHBoxLayout(controls)
+        controls_layout.setContentsMargins(8, 8, 8, 8)
+
+        self.countries_checkbox = QtWidgets.QCheckBox("Show country boundaries")
+        self.countries_checkbox.setChecked(False)
+        self.countries_checkbox.toggled.connect(self._on_country_boundaries_toggled)
+        controls_layout.addWidget(self.countries_checkbox)
+
+        controls_layout.addWidget(QtWidgets.QLabel("Stroke:"))
+        self.boundary_stroke_color = QColor("#334155")
+        self.stroke_button = QtWidgets.QPushButton("Pick color")
+        self.stroke_button.clicked.connect(self._on_pick_stroke_color)
+        controls_layout.addWidget(self.stroke_button)
+
+        self.stroke_preview = QtWidgets.QFrame()
+        self.stroke_preview.setFixedSize(20, 20)
+        self.stroke_preview.setFrameShape(QtWidgets.QFrame.Box)
+        controls_layout.addWidget(self.stroke_preview)
+        self._update_stroke_preview()
+
+        self.osm_checkbox = QtWidgets.QCheckBox("Show OSM")
+        self.osm_checkbox.setChecked(True)
+        self.osm_checkbox.toggled.connect(self.map_widget.set_base_visible)
+        controls_layout.addWidget(self.osm_checkbox)
+
+        self.black_bg_checkbox = QtWidgets.QCheckBox("Black background")
+        self.black_bg_checkbox.setChecked(False)
+        self.black_bg_checkbox.toggled.connect(self._on_black_background_toggled)
+        controls_layout.addWidget(self.black_bg_checkbox)
+
+        controls_layout.addStretch(1)
+
+        # Main layout
+        container = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(container)
+        layout.addWidget(controls)
+        layout.addWidget(self.map_widget, stretch=1)
+        self.setCentralWidget(container)
+
+    def _update_stroke_preview(self) -> None:
+        self.stroke_preview.setStyleSheet(
+            f"background-color: {self.boundary_stroke_color.name()};"
+        )
+
+    def _on_pick_stroke_color(self) -> None:
+        """Choose country boundary stroke color via QColor picker."""
+        picked = QtWidgets.QColorDialog.getColor(
+            self.boundary_stroke_color, self, "Country boundary stroke color"
+        )
+        if not picked.isValid():
+            return
+        self.boundary_stroke_color = picked
+        self._update_stroke_preview()
+        if self.countries_checkbox.isChecked():
+            self.map_widget.set_country_boundaries_visible(
+                True, stroke_color=self.boundary_stroke_color
+            )
+
+    def _on_country_boundaries_toggled(self, enabled: bool) -> None:
+        """Toggle country boundaries and apply the selected QColor stroke."""
+        self.map_widget.set_country_boundaries_visible(
+            enabled, stroke_color=self.boundary_stroke_color
+        )
+
+    def _on_black_background_toggled(self, enabled: bool) -> None:
+        """Toggle black/white map background behind tiles."""
+        self.map_widget.set_map_background_color("#000000" if enabled else "#ffffff")
+
+
 def main():
     """Run the basic map example."""
     app = QtWidgets.QApplication(sys.argv)
-
-    # Create the map widget centered on the US West Coast
-    # center is (latitude, longitude), zoom is 2-18 (2=world, 18=street)
-    map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
-
-    # Add a vector layer for drawing markers
-    vector_layer = map_widget.add_vector_layer("cities", selectable=True)
-
-    # Add some city markers with QColor styling
-    # Coordinates are (latitude, longitude)
-    cities = [
-        (37.7749, -122.4194, "San Francisco", QColor("red")),
-        (34.0522, -118.2437, "Los Angeles", QColor("blue")),
-        (47.6062, -122.3321, "Seattle", QColor("green")),
-        (45.5152, -122.6784, "Portland", QColor("purple")),
-    ]
-
-    for lat, lon, city_id, color in cities:
-        vector_layer.add_points(
-            [(lat, lon)],
-            ids=[city_id],
-            style=PointStyle(
-                radius=10.0,
-                fill_color=color,
-                fill_opacity=0.85,
-                stroke_color=QColor("black"),
-                stroke_width=2.0
-            )
-        )
-
-    # Show the map window
-    map_widget.setWindowTitle("Basic Map with Markers")
-    map_widget.resize(1024, 768)
-    map_widget.show()
-
+    window = BasicMapExample()
+    window.show()
     sys.exit(app.exec())
 
 

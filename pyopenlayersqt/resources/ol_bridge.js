@@ -43,6 +43,14 @@ const state = {
     // Coordinate display state
     coordinateOverlay: null,      // Overlay element for coordinates
     coordinatePointerMoveKey: null, // Event listener key for coordinate display
+    // Country boundaries layer
+    countryBoundariesLayer: null,
+    countryBoundariesLoaded: false,
+    countryBoundariesLoadPromise: null,
+    countryBoundariesStrokeColor: null,
+    hydrologyLayer: null,
+    hydrologyLoaded: false,
+    hydrologyLoadPromise: null,
     readyEmitted: false,
   };
 
@@ -579,6 +587,19 @@ function cmd_base_set_opacity(msg) {
   if (!state.base_layer) return;
   const op = (msg.opacity == null) ? 1.0 : msg.opacity;
   state.base_layer.setOpacity(op);
+}
+
+
+function cmd_base_set_visible(msg) {
+  if (!state.base_layer) return;
+  state.base_layer.setVisible(!!msg.visible);
+}
+
+function cmd_map_set_background(msg) {
+  const el = document.getElementById('map');
+  if (!el) return;
+  const color = (msg && msg.color != null) ? String(msg.color) : '#ffffff';
+  el.style.background = color;
 }
 
 
@@ -1630,6 +1651,153 @@ function cmd_coordinates_set_visible(msg) {
   setCoordinateDisplayVisible(!!msg.visible);
 }
 
+function countryBoundariesStyle(strokeColorOverride) {
+  const strokeColor = strokeColorOverride || '#334155';
+  const strokeWidth = 1.0;
+  return new ol.style.Style({
+    fill: new ol.style.Fill({ color: 'rgba(0, 0, 0, 0.0)' }),
+    stroke: new ol.style.Stroke({ color: strokeColor, width: strokeWidth }),
+  });
+}
+
+function createCountryBoundariesLayer() {
+  if (state.countryBoundariesLayer) return state.countryBoundariesLayer;
+
+  const source = new ol.source.Vector();
+  const layer = new ol.layer.Vector({
+    source,
+    visible: false,
+    style: countryBoundariesStyle(state.countryBoundariesStrokeColor),
+  });
+  layer.set('id', '_country_boundaries');
+  layer.setZIndex(50);
+  state.countryBoundariesLayer = layer;
+  return layer;
+}
+
+function hydrologyStyle(feature) {
+  const featureClass = (feature.get('featurecla') || '').toLowerCase();
+  const geometry = feature.getGeometry();
+  const geometryType = geometry ? geometry.getType() : '';
+  const isRiver = featureClass.includes('river');
+  const isPolygon = geometryType === 'Polygon' || geometryType === 'MultiPolygon';
+
+  if (isRiver) {
+    return new ol.style.Style({
+      stroke: new ol.style.Stroke({ color: '#1d4ed8', width: 1.5 }),
+    });
+  }
+
+  if (isPolygon) {
+    return new ol.style.Style({
+      fill: new ol.style.Fill({ color: 'rgba(59, 130, 246, 0.35)' }),
+      stroke: new ol.style.Stroke({ color: '#2563eb', width: 1.0 }),
+    });
+  }
+
+  return new ol.style.Style({
+    stroke: new ol.style.Stroke({ color: '#2563eb', width: 2.5 }),
+  });
+}
+
+function createHydrologyLayer() {
+  if (state.hydrologyLayer) return state.hydrologyLayer;
+
+  const source = new ol.source.Vector();
+  const layer = new ol.layer.Vector({
+    source,
+    visible: false,
+    style: hydrologyStyle,
+  });
+  layer.set('id', '_hydrology');
+  layer.setZIndex(51);
+  state.hydrologyLayer = layer;
+  return layer;
+}
+
+async function fetchGeoJSONText(resourceName) {
+  const gzResp = await fetch(`/resources/${resourceName}.geojson.gz`);
+  if (!gzResp.ok) {
+    throw new Error(resourceName + '.geojson.gz not available');
+  }
+
+  if (typeof DecompressionStream !== 'undefined' && gzResp.body) {
+    const stream = gzResp.body.pipeThrough(new DecompressionStream('gzip'));
+    return await new Response(stream).text();
+  }
+
+  const fallbackResp = await fetch(`/resources/${resourceName}.geojson`);
+  if (!fallbackResp.ok) {
+    throw new Error(resourceName + '.geojson fallback not available');
+  }
+  return await fallbackResp.text();
+}
+
+function setCountryBoundariesVisible(visible) {
+  if (!state.map) return;
+
+  const countryLayer = createCountryBoundariesLayer();
+  const hydrologyLayer = createHydrologyLayer();
+  countryLayer.setVisible(!!visible);
+  hydrologyLayer.setVisible(!!visible);
+
+  if (!visible) return;
+
+  if (!state.countryBoundariesLoaded && !state.countryBoundariesLoadPromise) {
+    state.countryBoundariesLoadPromise = fetchGeoJSONText('countries')
+      .then((geojsonText) => {
+        const geojson = JSON.parse(geojsonText);
+        const fmt = new ol.format.GeoJSON();
+        const features = fmt.readFeatures(geojson, {
+          featureProjection: 'EPSG:3857',
+        });
+
+        countryLayer.getSource().clear(true);
+        countryLayer.getSource().addFeatures(features);
+        state.countryBoundariesLoaded = true;
+        log('countries layer loaded (' + features.length + ' features)');
+      })
+      .catch((err) => {
+        console.warn('[pyopenlayersqt]', 'unable to load country boundaries', err);
+      })
+      .finally(() => {
+        state.countryBoundariesLoadPromise = null;
+      });
+  }
+
+  if (!state.hydrologyLoaded && !state.hydrologyLoadPromise) {
+    state.hydrologyLoadPromise = fetchGeoJSONText('lakes')
+      .then((geojsonText) => {
+        const geojson = JSON.parse(geojsonText);
+        const fmt = new ol.format.GeoJSON();
+        const features = fmt.readFeatures(geojson, {
+          featureProjection: 'EPSG:3857',
+        });
+
+        hydrologyLayer.getSource().clear(true);
+        hydrologyLayer.getSource().addFeatures(features);
+        state.hydrologyLoaded = true;
+        log('hydrology layer loaded (' + features.length + ' features)');
+      })
+      .catch((err) => {
+        console.warn('[pyopenlayersqt]', 'unable to load hydrology data', err);
+      })
+      .finally(() => {
+        state.hydrologyLoadPromise = null;
+      });
+  }
+}
+function cmd_countries_set_visible(msg) {
+  if (Object.prototype.hasOwnProperty.call(msg, 'stroke_color')) {
+    state.countryBoundariesStrokeColor = msg.stroke_color || null;
+    const layer = createCountryBoundariesLayer();
+    layer.setStyle(countryBoundariesStyle(state.countryBoundariesStrokeColor));
+  }
+  setCountryBoundariesVisible(!!msg.visible);
+}
+
+
+
 
   function initMap() {
     if (state.map) {
@@ -1638,19 +1806,25 @@ function cmd_coordinates_set_visible(msg) {
     }
 
     // Disable tile transition for better pan/zoom performance
+    const countryBoundaries = createCountryBoundariesLayer();
+    const hydrology = createHydrologyLayer();
     const base = new ol.layer.Tile({ 
       source: new ol.source.OSM({ transition: 0 })
     });
+
+
     state.base_layer = base;
+    base.setZIndex(0);
 
     state.map = new ol.Map({
       target: "map",
-      layers: [base],
+      layers: [countryBoundaries, hydrology, base],
       view: new ol.View({
         center: lonlat_to_3857(0, 0),
         zoom: 2,
       }),
     });
+
 
     // Select: Ctrl/Cmd toggles; plain click replaces.
     state.selectInteraction = new ol.interaction.Select({
@@ -1981,9 +2155,11 @@ function cmd_coordinates_set_visible(msg) {
     case "map.fit_to_data": return cmd_map_fit_to_data(msg);
       case "map.base.opacity": return cmd_map_base_opacity(msg);
     case "map.set_extent_watch": return cmd_map_set_extent_watch(msg);
+    case "map.set_background": return cmd_map_set_background(msg);
 
     // --- Coordinate Display ---
     case "coordinates.set_visible": return cmd_coordinates_set_visible(msg);
+    case "countries.set_visible": return cmd_countries_set_visible(msg);
 
     // --- Measurement Mode ---
     case "measure.set_mode": return cmd_measure_set_mode(msg);
@@ -2003,6 +2179,7 @@ function cmd_coordinates_set_visible(msg) {
     case "fast_points.show_all": return cmd_fast_points_show_all(msg);
     case "fast_points.set_colors": return cmd_fast_points_set_colors(msg);
       case "base.set_opacity": return cmd_base_set_opacity(msg);
+      case "base.set_visible": return cmd_base_set_visible(msg);
       case "vector.remove_features": return cmd_vector_remove_features(msg);
       case "vector.update_styles": return cmd_vector_update_styles(msg);
 
