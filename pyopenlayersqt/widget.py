@@ -202,7 +202,9 @@ class OLMapWidget(QWebEngineView):
         self._initial_zoom = zoom if zoom is not None else self.DEFAULT_ZOOM
         self._show_coordinates = show_coordinates
         self._show_country_boundaries = show_country_boundaries
-        self._country_boundaries_stroke_color = self._normalize_css_color(country_boundaries_stroke_color)
+        self._country_boundaries_stroke_color = self._normalize_css_color(
+            country_boundaries_stroke_color
+        )
         self._show_osm_layer = show_osm_layer
         self._map_background_color = str(map_background_color)
         self._perf_logging_enabled = (
@@ -325,7 +327,9 @@ class OLMapWidget(QWebEngineView):
         """
         self._show_country_boundaries = bool(visible)
         if stroke_color is not None:
-            self._country_boundaries_stroke_color = self._normalize_css_color(stroke_color)
+            self._country_boundaries_stroke_color = self._normalize_css_color(
+                stroke_color
+            )
         payload: Dict[str, Any] = {
             "type": "countries.set_visible",
             "visible": self._show_country_boundaries,
@@ -333,7 +337,6 @@ class OLMapWidget(QWebEngineView):
         if self._country_boundaries_stroke_color is not None:
             payload["stroke_color"] = self._country_boundaries_stroke_color
         self.send(payload)
-
 
     def set_view(
         self,
@@ -550,7 +553,9 @@ class OLMapWidget(QWebEngineView):
         return s
 
     # ---------- JS -> Python events ----------
-    def _parse_event_payload(self, payload_json: str, default: Optional[dict] = None) -> dict:
+    def _parse_event_payload(
+        self, payload_json: str, default: Optional[dict] = None
+    ) -> dict:
         try:
             return json.loads(payload_json) if payload_json else {}
         except Exception:
@@ -558,7 +563,10 @@ class OLMapWidget(QWebEngineView):
 
     def _handle_ready_event(self) -> None:
         self._js_ready = True
-        if self._initial_center != self.DEFAULT_CENTER or self._initial_zoom != self.DEFAULT_ZOOM:
+        if (
+            self._initial_center != self.DEFAULT_CENTER
+            or self._initial_zoom != self.DEFAULT_ZOOM
+        ):
             # Swap lat,lon (public API) to lon,lat (internal format)
             lat, lon = self._initial_center
             self._send_now(
@@ -568,8 +576,12 @@ class OLMapWidget(QWebEngineView):
                     "zoom": int(self._initial_zoom),
                 }
             )
-        self._send_now({"type": "coordinates.set_visible", "visible": self._show_coordinates})
-        self._send_now({"type": "map.set_background", "color": self._map_background_color})
+        self._send_now(
+            {"type": "coordinates.set_visible", "visible": self._show_coordinates}
+        )
+        self._send_now(
+            {"type": "map.set_background", "color": self._map_background_color}
+        )
         self._send_now({"type": "base.set_visible", "visible": self._show_osm_layer})
         self.set_country_boundaries_visible(self._show_country_boundaries)
         self._flush_pending()
