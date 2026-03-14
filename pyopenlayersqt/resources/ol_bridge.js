@@ -47,7 +47,6 @@ const state = {
     countryBoundariesLayer: null,
     countryBoundariesLoaded: false,
     countryBoundariesLoadPromise: null,
-    countryBoundariesDarkMode: false,
     countryBoundariesStrokeColor: null,
     readyEmitted: false,
   };
@@ -1649,9 +1648,9 @@ function cmd_coordinates_set_visible(msg) {
   setCoordinateDisplayVisible(!!msg.visible);
 }
 
-function countryBoundariesStyle(darkMode, strokeColorOverride) {
-  const strokeColor = strokeColorOverride || (darkMode ? '#cbd5e1' : '#334155');
-  const strokeWidth = darkMode ? 1.2 : 1.0;
+function countryBoundariesStyle(strokeColorOverride) {
+  const strokeColor = strokeColorOverride || '#334155';
+  const strokeWidth = 1.0;
   return new ol.style.Style({
     fill: new ol.style.Fill({ color: 'rgba(0, 0, 0, 0.0)' }),
     stroke: new ol.style.Stroke({ color: strokeColor, width: strokeWidth }),
@@ -1665,7 +1664,7 @@ function createCountryBoundariesLayer() {
   const layer = new ol.layer.Vector({
     source,
     visible: false,
-    style: countryBoundariesStyle(state.countryBoundariesDarkMode, state.countryBoundariesStrokeColor),
+    style: countryBoundariesStyle(state.countryBoundariesStrokeColor),
   });
   layer.set('id', '_country_boundaries');
   layer.setZIndex(50);
@@ -1723,17 +1722,11 @@ function cmd_countries_set_visible(msg) {
   if (Object.prototype.hasOwnProperty.call(msg, 'stroke_color')) {
     state.countryBoundariesStrokeColor = msg.stroke_color || null;
     const layer = createCountryBoundariesLayer();
-    layer.setStyle(countryBoundariesStyle(state.countryBoundariesDarkMode, state.countryBoundariesStrokeColor));
+    layer.setStyle(countryBoundariesStyle(state.countryBoundariesStrokeColor));
   }
   setCountryBoundariesVisible(!!msg.visible);
 }
 
-function cmd_countries_set_dark_mode(msg) {
-  const darkMode = !!msg.dark_mode;
-  state.countryBoundariesDarkMode = darkMode;
-  const layer = createCountryBoundariesLayer();
-  layer.setStyle(countryBoundariesStyle(darkMode, state.countryBoundariesStrokeColor));
-}
 
 
 
@@ -2097,7 +2090,6 @@ function cmd_countries_set_dark_mode(msg) {
     // --- Coordinate Display ---
     case "coordinates.set_visible": return cmd_coordinates_set_visible(msg);
     case "countries.set_visible": return cmd_countries_set_visible(msg);
-    case "countries.set_dark_mode": return cmd_countries_set_dark_mode(msg);
 
     // --- Measurement Mode ---
     case "measure.set_mode": return cmd_measure_set_mode(msg);

@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
 
 from PySide6 import QtCore, QtWidgets
+from PySide6.QtGui import QColor
 from PySide6.QtCore import QObject, Signal, Slot, QUrl, QStandardPaths, QTimer
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -67,6 +68,13 @@ def _is_http_url(s: str) -> bool:
     return s.startswith("http://") or s.startswith("https://")
 
 
+def _normalize_css_color(color: Optional[Union[str, QColor]]) -> Optional[str]:
+    if color is None:
+        return None
+    if isinstance(color, QColor):
+        return color.name()
+    s = str(color).strip()
+    return s or None
 
 
 class _Bridge(QObject):
@@ -147,6 +155,10 @@ class OLMapWidget(QWebEngineView):
     DEFAULT_ZOOM = 2
     WEB_MERCATOR_INITIAL_RESOLUTION_M_PER_PX = 156543.03392804097
 
+    @staticmethod
+    def _normalize_css_color(color: Optional[Union[str, QColor]]) -> Optional[str]:
+        return _normalize_css_color(color)
+
     selectionChanged = Signal(object)  # FeatureSelection
     viewExtentReceived = Signal(object)
     viewExtentChanged = Signal(object)
@@ -162,8 +174,7 @@ class OLMapWidget(QWebEngineView):
         zoom: Optional[int] = None,
         show_coordinates: bool = True,
         show_country_boundaries: bool = False,
-        country_boundaries_dark_mode: bool = False,
-        country_boundaries_stroke_color: Optional[str] = None,
+        country_boundaries_stroke_color: Optional[Union[str, QColor]] = None,
         show_osm_layer: bool = True,
         map_background_color: str = "#ffffff",
     ):
@@ -177,10 +188,8 @@ class OLMapWidget(QWebEngineView):
                 lower right corner. Defaults to True.
             show_country_boundaries: If True, shows bundled country boundaries as
                 a built-in vector layer. Defaults to False.
-            country_boundaries_dark_mode: If True, use light-colored boundary
-                strokes for dark map themes. Defaults to False.
-            country_boundaries_stroke_color: Optional CSS stroke color for
-                country boundaries (e.g. "#ffcc00").
+            country_boundaries_stroke_color: Optional boundary stroke color
+                as QColor or CSS color string (e.g. "#ffcc00").
             show_osm_layer: If True, keep the OSM base layer visible.
                 Defaults to True.
             map_background_color: CSS color shown behind the OSM tiles
@@ -193,8 +202,7 @@ class OLMapWidget(QWebEngineView):
         self._initial_zoom = zoom if zoom is not None else self.DEFAULT_ZOOM
         self._show_coordinates = show_coordinates
         self._show_country_boundaries = show_country_boundaries
-        self._country_boundaries_dark_mode = country_boundaries_dark_mode
-        self._country_boundaries_stroke_color = country_boundaries_stroke_color
+        self._country_boundaries_stroke_color = self._normalize_css_color(country_boundaries_stroke_color)
         self._show_osm_layer = show_osm_layer
         self._map_background_color = str(map_background_color)
         self._perf_logging_enabled = (
@@ -308,14 +316,16 @@ class OLMapWidget(QWebEngineView):
         self._map_background_color = str(color)
         self.send({"type": "map.set_background", "color": self._map_background_color})
 
-    def set_country_boundaries_visible(self, visible: bool, stroke_color: Optional[str] = None) -> None:
+    def set_country_boundaries_visible(
+        self, visible: bool, stroke_color: Optional[Union[str, QColor]] = None
+    ) -> None:
         """Show or hide the built-in country boundaries layer.
 
         Optionally set a custom stroke color when toggling visibility.
         """
         self._show_country_boundaries = bool(visible)
         if stroke_color is not None:
-            self._country_boundaries_stroke_color = str(stroke_color)
+            self._country_boundaries_stroke_color = self._normalize_css_color(stroke_color)
         payload: Dict[str, Any] = {
             "type": "countries.set_visible",
             "visible": self._show_country_boundaries,
@@ -324,13 +334,6 @@ class OLMapWidget(QWebEngineView):
             payload["stroke_color"] = self._country_boundaries_stroke_color
         self.send(payload)
 
-    def set_country_boundaries_dark_mode(self, enabled: bool) -> None:
-        """Set dark-mode styling for the country boundaries layer."""
-        self._country_boundaries_dark_mode = bool(enabled)
-        self.send({
-            "type": "countries.set_dark_mode",
-            "dark_mode": self._country_boundaries_dark_mode,
-        })
 
     def set_view(
         self,
@@ -568,7 +571,6 @@ class OLMapWidget(QWebEngineView):
         self._send_now({"type": "coordinates.set_visible", "visible": self._show_coordinates})
         self._send_now({"type": "map.set_background", "color": self._map_background_color})
         self._send_now({"type": "base.set_visible", "visible": self._show_osm_layer})
-        self._send_now({"type": "countries.set_dark_mode", "dark_mode": self._country_boundaries_dark_mode})
         self.set_country_boundaries_visible(self._show_country_boundaries)
         self._flush_pending()
         self.ready.emit()

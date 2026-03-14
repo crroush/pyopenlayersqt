@@ -6,7 +6,6 @@ This example demonstrates the most basic usage of pyopenlayersqt:
 - Adding a vector layer
 - Adding markers (points) with QColor styling
 - Toggling built-in country boundaries on/off with optional stroke color
-- Switching country boundaries between light/dark styles
 - Enabling/disabling OSM base layer and setting black map background
 
 This is the recommended starting point for new users.
@@ -71,13 +70,6 @@ class BasicMapExample(QtWidgets.QMainWindow):
         self.stroke_color_edit = QtWidgets.QLineEdit("#334155")
         self.stroke_color_edit.setFixedWidth(90)
         controls_layout.addWidget(self.stroke_color_edit)
-
-        self.countries_dark_checkbox = QtWidgets.QCheckBox("Dark mode boundaries")
-        self.countries_dark_checkbox.setChecked(False)
-        self.countries_dark_checkbox.toggled.connect(
-            self.map_widget.set_country_boundaries_dark_mode
-        )
-        controls_layout.addWidget(self.countries_dark_checkbox)
 
         self.osm_checkbox = QtWidgets.QCheckBox("Show OSM")
         self.osm_checkbox.setChecked(True)
