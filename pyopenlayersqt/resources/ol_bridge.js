@@ -1713,12 +1713,7 @@ async function _fetchGeoJSONTextWithOptionalGzip(baseName) {
 }
 
 async function fetchCountryBoundariesText() {
-  try {
-    return await _fetchGeoJSONTextWithOptionalGzip('lakes');
-  } catch (e) {
-    // Fallback to countries data if lakes file is unavailable.
-    return await _fetchGeoJSONTextWithOptionalGzip('countries');
-  }
+  return await _fetchGeoJSONTextWithOptionalGzip('lakes');
 }
 
 function setCountryBoundariesVisible(visible) {
@@ -1743,7 +1738,7 @@ function setCountryBoundariesVisible(visible) {
       log('reference layer loaded (' + features.length + ' features)');
     })
     .catch((err) => {
-      console.warn('[pyopenlayersqt]', 'unable to load country boundaries', err);
+      console.warn('[pyopenlayersqt]', 'unable to load lakes/rivers reference layer', err);
     })
     .finally(() => {
       state.countryBoundariesLoadPromise = null;
