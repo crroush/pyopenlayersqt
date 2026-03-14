@@ -21,14 +21,28 @@ class TableLink:
     """Link one map layer to one table widget."""
 
     table: FeatureTableWidget
-    layer: BaseLayer
+    layer: BaseLayer | None = None
+    key_layer_id: str | None = None
 
     @property
-    def lid(self) -> str:
-        return self.layer.id
+    def lid(self) -> str | None:
+        if self.layer is not None:
+            return self.layer.id
+        if self.key_layer_id is not None:
+            return str(self.key_layer_id)
+        return None
+
+    @property
+    def table_lid(self) -> str:
+        if self.key_layer_id is not None:
+            return str(self.key_layer_id)
+        if self.layer is not None:
+            return self.layer.id
+        raise ValueError("TableLink requires either layer or key_layer_id for table keys")
 
     def keys(self, ids: Sequence[str]) -> List[Tuple[str, str]]:
-        return [(self.layer.id, fid) for fid in ids]
+        lid = self.table_lid
+        return [(lid, fid) for fid in ids]
 
 
 class MultiSelectLink:
@@ -50,6 +64,7 @@ class MultiSelectLink:
 
         self.kid_by_lid: Dict[str, str] = {
             link.lid: kid_name for kid_name, link in self.kids.items()
+            if link.lid is not None
         }
 
         self.parent_by_kid: Dict[str, Dict[str, str]] = {}
@@ -149,7 +164,7 @@ class MultiSelectLink:
     def _on_map(self, sel) -> None:
         self._from_map = True
         try:
-            if sel.layer_id == self.parent.lid:
+            if self.parent.lid is not None and sel.layer_id == self.parent.lid:
                 self.set_parent(list(sel.feature_ids), set_map=False)
                 return
 
@@ -172,6 +187,8 @@ class MultiSelectLink:
             self._from_map = False
 
     def _set_map(self, link: TableLink, ids: List[str]) -> None:
+        if link.layer is None or link.lid is None:
+            return
         blocker = QSignalBlocker(self.map_widget)
         setter = self._pick_setter(link.layer)
         setter(link.lid, ids)
