@@ -1715,7 +1715,16 @@ async function _fetchGeoJSONTextWithOptionalGzip(baseName) {
       const stream = gzResp.body.pipeThrough(new DecompressionStream('gzip'));
       return await new Response(stream).text();
     }
-    // Browser/runtime without DecompressionStream support.
+
+    // Runtime without DecompressionStream support. If server already decoded
+    // gzip content for us, this will be valid JSON text.
+    const maybeJsonText = await gzResp.text();
+    const trimmed = maybeJsonText.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      return maybeJsonText;
+    }
+
+    // Fallback to plain GeoJSON if available.
     const plainResp = await fetch('/resources/' + baseName + '.geojson');
     if (!plainResp.ok) {
       throw new Error(baseName + '.geojson fallback not available');
