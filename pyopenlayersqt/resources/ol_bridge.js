@@ -48,6 +48,9 @@ const state = {
     countryBoundariesLoaded: false,
     countryBoundariesLoadPromise: null,
     countryBoundariesStrokeColor: null,
+    hydrologyLayer: null,
+    hydrologyLoaded: false,
+    hydrologyLoadPromise: null,
     readyEmitted: false,
   };
 
@@ -1672,10 +1675,50 @@ function createCountryBoundariesLayer() {
   return layer;
 }
 
-async function fetchCountryBoundariesText() {
-  const gzResp = await fetch('/resources/countries.geojson.gz');
+function hydrologyStyle(feature) {
+  const featureClass = (feature.get('featurecla') || '').toLowerCase();
+  const geometry = feature.getGeometry();
+  const geometryType = geometry ? geometry.getType() : '';
+  const isRiver = featureClass.includes('river');
+  const isPolygon = geometryType === 'Polygon' || geometryType === 'MultiPolygon';
+
+  if (isRiver) {
+    return new ol.style.Style({
+      stroke: new ol.style.Stroke({ color: '#1d4ed8', width: 1.5 }),
+    });
+  }
+
+  if (isPolygon) {
+    return new ol.style.Style({
+      fill: new ol.style.Fill({ color: 'rgba(59, 130, 246, 0.35)' }),
+      stroke: new ol.style.Stroke({ color: '#2563eb', width: 1.0 }),
+    });
+  }
+
+  return new ol.style.Style({
+    stroke: new ol.style.Stroke({ color: '#2563eb', width: 2.5 }),
+  });
+}
+
+function createHydrologyLayer() {
+  if (state.hydrologyLayer) return state.hydrologyLayer;
+
+  const source = new ol.source.Vector();
+  const layer = new ol.layer.Vector({
+    source,
+    visible: false,
+    style: hydrologyStyle,
+  });
+  layer.set('id', '_hydrology');
+  layer.setZIndex(51);
+  state.hydrologyLayer = layer;
+  return layer;
+}
+
+async function fetchGeoJSONText(resourceName) {
+  const gzResp = await fetch(`/resources/${resourceName}.geojson.gz`);
   if (!gzResp.ok) {
-    throw new Error('countries.geojson.gz not available');
+    throw new Error(resourceName + '.geojson.gz not available');
   }
 
   if (typeof DecompressionStream !== 'undefined' && gzResp.body) {
@@ -1683,9 +1726,9 @@ async function fetchCountryBoundariesText() {
     return await new Response(stream).text();
   }
 
-  const fallbackResp = await fetch('/resources/countries.geojson');
+  const fallbackResp = await fetch(`/resources/${resourceName}.geojson`);
   if (!fallbackResp.ok) {
-    throw new Error('countries.geojson fallback not available');
+    throw new Error(resourceName + '.geojson fallback not available');
   }
   return await fallbackResp.text();
 }
@@ -1693,30 +1736,56 @@ async function fetchCountryBoundariesText() {
 function setCountryBoundariesVisible(visible) {
   if (!state.map) return;
 
-  const layer = createCountryBoundariesLayer();
-  layer.setVisible(!!visible);
+  const countryLayer = createCountryBoundariesLayer();
+  const hydrologyLayer = createHydrologyLayer();
+  countryLayer.setVisible(!!visible);
+  hydrologyLayer.setVisible(!!visible);
 
-  if (!visible || state.countryBoundariesLoaded || state.countryBoundariesLoadPromise) return;
+  if (!visible) return;
 
-  state.countryBoundariesLoadPromise = fetchCountryBoundariesText()
-    .then((geojsonText) => {
-      const geojson = JSON.parse(geojsonText);
-      const fmt = new ol.format.GeoJSON();
-      const features = fmt.readFeatures(geojson, {
-        featureProjection: 'EPSG:3857',
+  if (!state.countryBoundariesLoaded && !state.countryBoundariesLoadPromise) {
+    state.countryBoundariesLoadPromise = fetchGeoJSONText('countries')
+      .then((geojsonText) => {
+        const geojson = JSON.parse(geojsonText);
+        const fmt = new ol.format.GeoJSON();
+        const features = fmt.readFeatures(geojson, {
+          featureProjection: 'EPSG:3857',
+        });
+
+        countryLayer.getSource().clear(true);
+        countryLayer.getSource().addFeatures(features);
+        state.countryBoundariesLoaded = true;
+        log('countries layer loaded (' + features.length + ' features)');
+      })
+      .catch((err) => {
+        console.warn('[pyopenlayersqt]', 'unable to load country boundaries', err);
+      })
+      .finally(() => {
+        state.countryBoundariesLoadPromise = null;
       });
+  }
 
-      layer.getSource().clear(true);
-      layer.getSource().addFeatures(features);
-      state.countryBoundariesLoaded = true;
-      log('countries layer loaded (' + features.length + ' features)');
-    })
-    .catch((err) => {
-      console.warn('[pyopenlayersqt]', 'unable to load country boundaries', err);
-    })
-    .finally(() => {
-      state.countryBoundariesLoadPromise = null;
-    });
+  if (!state.hydrologyLoaded && !state.hydrologyLoadPromise) {
+    state.hydrologyLoadPromise = fetchGeoJSONText('lakes')
+      .then((geojsonText) => {
+        const geojson = JSON.parse(geojsonText);
+        const fmt = new ol.format.GeoJSON();
+        const features = fmt.readFeatures(geojson, {
+          featureProjection: 'EPSG:3857',
+        });
+
+        hydrologyLayer.getSource().clear(true);
+        hydrologyLayer.getSource().addFeatures(features);
+        state.hydrologyLoaded = true;
+        log('hydrology layer loaded (' + features.length + ' features)');
+      })
+      .catch((err) => {
+        console.warn('[pyopenlayersqt]', 'unable to load hydrology data', err);
+      })
+      .finally(() => {
+        state.hydrologyLoadPromise = null;
+      });
+  }
 }
 function cmd_countries_set_visible(msg) {
   if (Object.prototype.hasOwnProperty.call(msg, 'stroke_color')) {
@@ -1738,6 +1807,7 @@ function cmd_countries_set_visible(msg) {
 
     // Disable tile transition for better pan/zoom performance
     const countryBoundaries = createCountryBoundariesLayer();
+    const hydrology = createHydrologyLayer();
     const base = new ol.layer.Tile({ 
       source: new ol.source.OSM({ transition: 0 })
     });
@@ -1748,7 +1818,7 @@ function cmd_countries_set_visible(msg) {
 
     state.map = new ol.Map({
       target: "map",
-      layers: [countryBoundaries, base],
+      layers: [countryBoundaries, hydrology, base],
       view: new ol.View({
         center: lonlat_to_3857(0, 0),
         zoom: 2,
