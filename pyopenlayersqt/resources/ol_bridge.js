@@ -1649,18 +1649,27 @@ function cmd_coordinates_set_visible(msg) {
 }
 
 function countryBoundariesStyle(strokeColorOverride) {
-  const strokeColor = strokeColorOverride || '#1e90ff';
-  const lineStyle = new ol.style.Style({
-    stroke: new ol.style.Stroke({ color: strokeColor, width: 1.2 }),
+  const countryStroke = strokeColorOverride || '#334155';
+  const countryPolyStyle = new ol.style.Style({
+    fill: new ol.style.Fill({ color: 'rgba(0, 0, 0, 0.0)' }),
+    stroke: new ol.style.Stroke({ color: countryStroke, width: 1.0 }),
   });
-  const polyStyle = new ol.style.Style({
+  const countryLineStyle = new ol.style.Style({
+    stroke: new ol.style.Stroke({ color: countryStroke, width: 1.0 }),
+  });
+
+  const waterStroke = '#1e90ff';
+  const waterLineStyle = new ol.style.Style({
+    stroke: new ol.style.Stroke({ color: waterStroke, width: 1.2 }),
+  });
+  const waterPolyStyle = new ol.style.Style({
     fill: new ol.style.Fill({ color: 'rgba(30, 144, 255, 0.35)' }),
-    stroke: new ol.style.Stroke({ color: strokeColor, width: 1.0 }),
+    stroke: new ol.style.Stroke({ color: waterStroke, width: 1.0 }),
   });
-  const pointStyle = new ol.style.Style({
+  const waterPointStyle = new ol.style.Style({
     image: new ol.style.Circle({
       radius: 3,
-      fill: new ol.style.Fill({ color: strokeColor }),
+      fill: new ol.style.Fill({ color: waterStroke }),
       stroke: new ol.style.Stroke({ color: '#ffffff', width: 1 }),
     }),
   });
@@ -1668,10 +1677,19 @@ function countryBoundariesStyle(strokeColorOverride) {
   return function (feature) {
     const geom = feature && feature.getGeometry ? feature.getGeometry() : null;
     const type = geom ? geom.getType() : '';
-    if (type === 'LineString' || type === 'MultiLineString') return lineStyle;
-    if (type === 'Polygon' || type === 'MultiPolygon') return polyStyle;
-    if (type === 'Point' || type === 'MultiPoint') return pointStyle;
-    return lineStyle;
+    const src = feature && feature.get ? feature.get('_reference_source') : '';
+    const isWater = src === 'lakes';
+
+    if (type === 'LineString' || type === 'MultiLineString') {
+      return isWater ? waterLineStyle : countryLineStyle;
+    }
+    if (type === 'Polygon' || type === 'MultiPolygon') {
+      return isWater ? waterPolyStyle : countryPolyStyle;
+    }
+    if (type === 'Point' || type === 'MultiPoint') {
+      return isWater ? waterPointStyle : countryLineStyle;
+    }
+    return isWater ? waterLineStyle : countryLineStyle;
   };
 }
 
@@ -1712,8 +1730,21 @@ async function _fetchGeoJSONTextWithOptionalGzip(baseName) {
   return await plainResp.text();
 }
 
-async function fetchCountryBoundariesText() {
-  return await _fetchGeoJSONTextWithOptionalGzip('lakes');
+async function fetchReferenceLayersGeoJSON() {
+  const result = { countries: null, lakes: null };
+
+  const countries = await _fetchGeoJSONTextWithOptionalGzip('countries');
+  result.countries = JSON.parse(countries);
+
+  try {
+    const lakes = await _fetchGeoJSONTextWithOptionalGzip('lakes');
+    result.lakes = JSON.parse(lakes);
+  } catch (_err) {
+    // Lakes are optional; countries remain available.
+    result.lakes = null;
+  }
+
+  return result;
 }
 
 function setCountryBoundariesVisible(visible) {
@@ -1724,13 +1755,26 @@ function setCountryBoundariesVisible(visible) {
 
   if (!visible || state.countryBoundariesLoaded || state.countryBoundariesLoadPromise) return;
 
-  state.countryBoundariesLoadPromise = fetchCountryBoundariesText()
-    .then((geojsonText) => {
-      const geojson = JSON.parse(geojsonText);
+  state.countryBoundariesLoadPromise = fetchReferenceLayersGeoJSON()
+    .then((datasets) => {
       const fmt = new ol.format.GeoJSON();
-      const features = fmt.readFeatures(geojson, {
-        featureProjection: 'EPSG:3857',
-      });
+      const features = [];
+
+      if (datasets.countries && datasets.countries.features) {
+        const countryFeatures = fmt.readFeatures(datasets.countries, {
+          featureProjection: 'EPSG:3857',
+        });
+        for (const f of countryFeatures) f.set('_reference_source', 'countries');
+        features.push(...countryFeatures);
+      }
+
+      if (datasets.lakes && datasets.lakes.features) {
+        const lakeFeatures = fmt.readFeatures(datasets.lakes, {
+          featureProjection: 'EPSG:3857',
+        });
+        for (const f of lakeFeatures) f.set('_reference_source', 'lakes');
+        features.push(...lakeFeatures);
+      }
 
       layer.getSource().clear(true);
       layer.getSource().addFeatures(features);
@@ -1738,7 +1782,7 @@ function setCountryBoundariesVisible(visible) {
       log('reference layer loaded (' + features.length + ' features)');
     })
     .catch((err) => {
-      console.warn('[pyopenlayersqt]', 'unable to load lakes/rivers reference layer', err);
+      console.warn('[pyopenlayersqt]', 'unable to load countries/lakes reference layer', err);
     })
     .finally(() => {
       state.countryBoundariesLoadPromise = null;
