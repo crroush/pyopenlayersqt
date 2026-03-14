@@ -47,6 +47,8 @@ include = ["pyopenlayersqt*"]
 pyopenlayersqt = [
   "resources/*.html",
   "resources/*.js",
+  "resources/*.geojson",
+  "resources/*.geojson.gz",
   "vendor/ol/*.js",
   "vendor/ol/*.css",
   "favicon.ico",

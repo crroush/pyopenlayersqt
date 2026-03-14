@@ -192,6 +192,10 @@ Notes:
 - `center` - Initial map center as `(lat, lon)` tuple. Defaults to `(0, 0)`.
 - `zoom` - Initial zoom level (integer). Defaults to `2` (world view).
 - `show_coordinates` - If True, displays mouse lat/lon coordinates in the lower right corner. Defaults to `True`.
+- `show_country_boundaries` - If True, enables the built-in countries boundary layer at startup. Defaults to `False`.
+- `country_boundaries_stroke_color` - Optional country boundary stroke color as `QColor` or CSS string (e.g. `"#ffcc00"`). Defaults to `None`.
+- `show_osm_layer` - If True, the OSM base layer is visible on startup. Defaults to `True`.
+- `map_background_color` - CSS color rendered behind the OSM layer. Defaults to `"#ffffff"`.
 
 **Key Methods:**
 
@@ -201,6 +205,9 @@ Notes:
 - `add_wms(options, name)` - Add a WMS (Web Map Service) layer
 - `add_raster_image(image, bounds, style, name)` - Add a raster image overlay
 - `set_base_opacity(opacity)` - Set OSM base layer opacity (0.0-1.0)
+- `set_base_visible(visible)` - Show/hide the OSM base layer
+- `set_map_background_color(color)` - Set map background color behind OSM tiles
+- `set_country_boundaries_visible(visible, stroke_color=None)` - Show/hide boundaries and optionally set boundary stroke color (`QColor` or CSS string)
 - `set_measure_mode(enabled)` - Enable/disable interactive distance measurement mode
 - `on_measurement_updated(callback)` - Register a typed callback for measurement click updates
 - `clear_measurements()` - Clear all measurement points and lines
