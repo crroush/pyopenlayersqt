@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Dict, List, Mapping, Sequence, Set, Tuple
 
 from PySide6.QtCore import QSignalBlocker
 
@@ -13,7 +13,7 @@ from .features_table import FeatureTableWidget
 from .layers import BaseLayer, FastGeoPointsLayer, FastPointsLayer, VectorLayer
 from .widget import OLMapWidget
 
-SetSel = Callable[[str, list[str]], None]
+SetSel = Callable[[str, List[str]], None]
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class TableLink:
     def lid(self) -> str:
         return self.layer.id
 
-    def keys(self, ids: Sequence[str]) -> list[tuple[str, str]]:
+    def keys(self, ids: Sequence[str]) -> List[Tuple[str, str]]:
         return [(self.layer.id, fid) for fid in ids]
 
 
@@ -48,16 +48,16 @@ class MultiSelectLink:
         self.kids = dict(kids)
         self.clear_parent_on_kid_subset = bool(clear_parent_on_kid_subset)
 
-        self.kid_by_lid: dict[str, str] = {
+        self.kid_by_lid: Dict[str, str] = {
             link.lid: kid_name for kid_name, link in self.kids.items()
         }
 
-        self.parent_by_kid: dict[str, dict[str, str]] = {}
-        self.kid_by_parent: dict[str, dict[str, list[str]]] = {}
+        self.parent_by_kid: Dict[str, Dict[str, str]] = {}
+        self.kid_by_parent: Dict[str, Dict[str, List[str]]] = {}
         MultiSelectLink.set_links(self, parent_by_kid)
 
-        self.parent_sel: set[str] = set()
-        self.kid_sel: dict[str, set[str]] = {kid_name: set() for kid_name in self.kids}
+        self.parent_sel: Set[str] = set()
+        self.kid_sel: Dict[str, Set[str]] = {kid_name: set() for kid_name in self.kids}
         self._from_map = False
 
         self.map_widget.selectionChanged.connect(self._on_map)
@@ -77,7 +77,7 @@ class MultiSelectLink:
                 str(kid_id): str(parent_id)
                 for kid_id, parent_id in raw.items()
             }
-            grouped: dict[str, list[str]] = defaultdict(list)
+            grouped: Dict[str, List[str]] = defaultdict(list)
             for kid_id, parent_id in mapping.items():
                 grouped[parent_id].append(kid_id)
             self.parent_by_kid[kid_name] = mapping
@@ -129,19 +129,19 @@ class MultiSelectLink:
             self.parent.table.clear_selection()
             self._set_map(self.parent, [])
 
-    def _expected_kid(self, kid_name: str) -> set[str]:
+    def _expected_kid(self, kid_name: str) -> Set[str]:
         return {
             kid_id
             for pid in self.parent_sel
             for kid_id in self.kid_by_parent[kid_name].get(pid, [])
         }
 
-    def _on_parent_table(self, keys: list[tuple[str, str]]) -> None:
+    def _on_parent_table(self, keys: List[Tuple[str, str]]) -> None:
         if self._from_map:
             return
         self.set_parent([fid for _lid, fid in keys])
 
-    def _on_kid_table(self, kid_name: str, keys: list[tuple[str, str]]) -> None:
+    def _on_kid_table(self, kid_name: str, keys: List[Tuple[str, str]]) -> None:
         if self._from_map:
             return
         self.set_kid(kid_name, [fid for _lid, fid in keys], clear_parent=False)
@@ -171,7 +171,7 @@ class MultiSelectLink:
         finally:
             self._from_map = False
 
-    def _set_map(self, link: TableLink, ids: list[str]) -> None:
+    def _set_map(self, link: TableLink, ids: List[str]) -> None:
         blocker = QSignalBlocker(self.map_widget)
         setter = self._pick_setter(link.layer)
         setter(link.lid, ids)

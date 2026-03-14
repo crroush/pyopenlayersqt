@@ -40,7 +40,6 @@ disable=import-error,
         too-many-instance-attributes,
         too-many-statements,
         import-outside-toplevel,
-        too-many-positional-arguments,
         too-many-public-methods
 
 [BASIC]
