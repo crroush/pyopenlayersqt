@@ -197,6 +197,7 @@ Notes:
 - `show_country_boundaries` - If True, enables the built-in countries boundary layer at startup. Defaults to `False`.
 - `country_boundaries_stroke_color` - Optional country boundary stroke color as `QColor` or CSS string (e.g. `"#ffcc00"`). Defaults to `None`.
 - `show_osm_layer` - If True, the OSM base layer is visible on startup. Defaults to `True`.
+- `osm_url` - Optional OSM tile URL template override used for the base layer.
 - `map_background_color` - CSS color rendered behind the OSM layer. Defaults to `"#ffffff"`.
 
 **Key Methods:**

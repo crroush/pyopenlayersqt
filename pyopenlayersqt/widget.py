@@ -6,6 +6,7 @@ import shutil
 import threading
 import time
 import uuid
+from urllib.parse import quote
 from dataclasses import asdict, is_dataclass
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -176,6 +177,7 @@ class OLMapWidget(QWebEngineView):
         show_country_boundaries: bool = False,
         country_boundaries_stroke_color: Optional[Union[str, QColor]] = None,
         show_osm_layer: bool = True,
+        osm_url: Optional[str] = None,
         map_background_color: str = "#ffffff",
     ):
         """Initialize the map widget.
@@ -192,6 +194,8 @@ class OLMapWidget(QWebEngineView):
                 as QColor or CSS color string (e.g. "#ffcc00").
             show_osm_layer: If True, keep the OSM base layer visible.
                 Defaults to True.
+            osm_url: Optional tile URL template to override the default OSM source
+                URL (e.g. "https://tile.openstreetmap.org/{z}/{x}/{y}.png").
             map_background_color: CSS color shown behind the OSM tiles
                 (e.g. "black" or "#000000"). Defaults to "#ffffff".
         """
@@ -206,6 +210,9 @@ class OLMapWidget(QWebEngineView):
             country_boundaries_stroke_color
         )
         self._show_osm_layer = show_osm_layer
+        self._osm_url = str(osm_url).strip() if osm_url is not None else None
+        if self._osm_url == "":
+            self._osm_url = None
         self._map_background_color = str(map_background_color)
         self._perf_logging_enabled = (
             os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
@@ -240,7 +247,10 @@ class OLMapWidget(QWebEngineView):
 
         # load
         self.loadFinished.connect(self._on_load_finished)
-        self.setUrl(QUrl(f"{self._base_url}/resources/map.html"))
+        map_url = f"{self._base_url}/resources/map.html"
+        if self._osm_url:
+            map_url += f"?pyolqt_osm_url={quote(self._osm_url, safe='')}"
+        self.setUrl(QUrl(map_url))
 
     # ---------- lifecycle ----------
 
