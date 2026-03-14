@@ -67,9 +67,16 @@ class BasicMapExample(QtWidgets.QMainWindow):
         controls_layout.addWidget(self.countries_checkbox)
 
         controls_layout.addWidget(QtWidgets.QLabel("Stroke:"))
-        self.stroke_color_edit = QtWidgets.QLineEdit("#334155")
-        self.stroke_color_edit.setFixedWidth(90)
-        controls_layout.addWidget(self.stroke_color_edit)
+        self.boundary_stroke_color = QColor("#334155")
+        self.stroke_button = QtWidgets.QPushButton("Pick color")
+        self.stroke_button.clicked.connect(self._on_pick_stroke_color)
+        controls_layout.addWidget(self.stroke_button)
+
+        self.stroke_preview = QtWidgets.QFrame()
+        self.stroke_preview.setFixedSize(20, 20)
+        self.stroke_preview.setFrameShape(QtWidgets.QFrame.Box)
+        controls_layout.addWidget(self.stroke_preview)
+        self._update_stroke_preview()
 
         self.osm_checkbox = QtWidgets.QCheckBox("Show OSM")
         self.osm_checkbox.setChecked(True)
@@ -90,10 +97,30 @@ class BasicMapExample(QtWidgets.QMainWindow):
         layout.addWidget(self.map_widget, stretch=1)
         self.setCentralWidget(container)
 
+    def _update_stroke_preview(self) -> None:
+        self.stroke_preview.setStyleSheet(
+            f"background-color: {self.boundary_stroke_color.name()};"
+        )
+
+    def _on_pick_stroke_color(self) -> None:
+        """Choose country boundary stroke color via QColor picker."""
+        picked = QtWidgets.QColorDialog.getColor(
+            self.boundary_stroke_color, self, "Country boundary stroke color"
+        )
+        if not picked.isValid():
+            return
+        self.boundary_stroke_color = picked
+        self._update_stroke_preview()
+        if self.countries_checkbox.isChecked():
+            self.map_widget.set_country_boundaries_visible(
+                True, stroke_color=self.boundary_stroke_color
+            )
+
     def _on_country_boundaries_toggled(self, enabled: bool) -> None:
-        """Toggle country boundaries and optionally apply stroke color."""
-        stroke = self.stroke_color_edit.text().strip() or None
-        self.map_widget.set_country_boundaries_visible(enabled, stroke_color=stroke)
+        """Toggle country boundaries and apply the selected QColor stroke."""
+        self.map_widget.set_country_boundaries_visible(
+            enabled, stroke_color=self.boundary_stroke_color
+        )
 
     def _on_black_background_toggled(self, enabled: bool) -> None:
         """Toggle black/white map background behind tiles."""
