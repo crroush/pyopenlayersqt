@@ -207,8 +207,17 @@ class DualSelectLink(MultiSelectLink):
             clear_parent_on_kid_subset=clear_parent_on_child_subset,
         )
 
-    def set_links(self, parent_by_child: Mapping[str, str]) -> None:  # type: ignore[override]
-        super().set_links({"child": parent_by_child})
+    def set_links(
+        self,
+        parent_by_kid: Mapping[str, Mapping[str, str]] | Mapping[str, str],
+    ) -> None:
+        """Set child mapping using either wrapped or one-child shorthand input."""
+        values = list(parent_by_kid.values())
+        is_wrapped = bool(values) and all(hasattr(v, "items") for v in values)
+        if is_wrapped:
+            super().set_links(parent_by_kid)  # type: ignore[arg-type]
+            return
+        super().set_links({"child": parent_by_kid})  # type: ignore[arg-type]
 
     def set_child(
         self,
