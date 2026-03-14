@@ -25,6 +25,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
   - [Deleting Features](#deleting-features)
   - [Distance Measurement Mode](#distance-measurement-mode)
   - [FeatureTableWidget](#featuretablewidget)
+    - [Multi-table linking pattern](#multi-table-linking-pattern)
   - [RangeSliderWidget](#rangesliderwidget)
 - [Complete Example](#complete-example)
 - [View Extent Tracking](#view-extent-tracking)
@@ -900,6 +901,61 @@ table.set_context_menu_actions([
 # Optional hook for custom menus owned by your GUI code
 # table.contextMenuRequested.connect(on_context_menu_requested)
 ```
+
+#### Multi-table linking pattern
+
+For parent/child selection workflows (including **one parent + many child tables**), use
+`TableLink` + `MultiSelectLink` from `pyopenlayersqt.selection_linking`.
+
+```python
+from pyopenlayersqt import MultiSelectLink, TableLink
+
+# parent table/layer
+parent = TableLink(table=regions_table, layer=region_layer)
+
+# any number of child table/layers
+kids = {
+    "sites": TableLink(table=sites_table, layer=sites_layer),
+    "assets": TableLink(table=assets_table, layer=assets_layer),
+    "tickets": TableLink(table=tickets_table, layer=tickets_layer),
+}
+
+# mapping for each child table: child_feature_id -> parent_feature_id
+parent_by_kid = {
+    "sites": site_to_region,
+    "assets": asset_to_region,
+    "tickets": ticket_to_region,
+}
+
+link = MultiSelectLink(
+    map_widget=map_widget,
+    parent=parent,
+    kids=kids,
+    parent_by_kid=parent_by_kid,
+    clear_parent_on_kid_subset=True,
+)
+
+# If mappings change later (e.g., data reload)
+link.set_links(parent_by_kid)
+
+# Programmatic parent selection fans out to all child tables/layers
+link.set_parent(["region_1", "region_5"])
+```
+
+**Design pattern:**
+- Keep one authoritative parent entity (e.g., Region).
+- For each child table, maintain a lightweight `child_id -> parent_id` dict.
+- Feed all child mappings into one `MultiSelectLink` instance.
+- Let the link own Qt signal wiring and map/table sync logic (instead of per-view glue code).
+
+**About fan-out chains (Table1 -> Table2 -> Table3):**
+- A single `MultiSelectLink` supports **one level** of fan-out (parent -> many children).
+- For deeper cascades, compose multiple links:
+  - Link A: `Table1` parent -> `Table2` children
+  - Link B: `Table2` parent -> `Table3` children
+- In other words: yes, this pattern supports that workflow by chaining links per level.
+
+See [examples/13_dual_table_linking.py](examples/13_dual_table_linking.py) for a concrete implementation.
 
 #### Row removal APIs: `remove_keys` vs `remove_where`
 
