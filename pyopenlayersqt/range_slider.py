@@ -172,6 +172,20 @@ class DualHandleSlider(QWidget):
         max_pos = self._value_to_pos(self._max_value)
         return QRect(min_pos, track.top(), max(max_pos - min_pos, 0), track.height())
 
+    def _is_in_selected_range_hit_area(self, event_pos) -> bool:
+        """Return True when pointer is within the draggable selected-range region."""
+        min_pos = self._value_to_pos(self._min_value)
+        max_pos = self._value_to_pos(self._max_value)
+        if max_pos <= min_pos:
+            return False
+
+        y_center = self.height() // 2
+        y_tolerance = self._handle_radius + 6
+        return (
+            min_pos <= event_pos.x() <= max_pos
+            and (y_center - y_tolerance) <= event_pos.y() <= (y_center + y_tolerance)
+        )
+
     def paintEvent(self, _event: QPaintEvent) -> None:
         """Paint the slider."""
         painter = QPainter(self)
@@ -222,7 +236,7 @@ class DualHandleSlider(QWidget):
                 self._dragging_handle = hovered_handle
                 self._hovered_handle = hovered_handle
                 self._show_handle_tooltip(hovered_handle)
-            elif self._get_selected_rect().contains(event.pos()):
+            elif self._is_in_selected_range_hit_area(event.pos()):
                 self._dragging_handle = 'range'
                 self._drag_range_start_value = self._pos_to_value(pos)
                 self._drag_range_initial_min = self._min_value
@@ -287,7 +301,7 @@ class DualHandleSlider(QWidget):
             if hovered_handle is not None:
                 self.setCursor(Qt.PointingHandCursor)
                 self._show_handle_tooltip(hovered_handle)
-            elif self._get_selected_rect().contains(event.pos()):
+            elif self._is_in_selected_range_hit_area(event.pos()):
                 self.setCursor(Qt.OpenHandCursor)
                 QToolTip.hideText()
             else:
