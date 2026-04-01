@@ -86,15 +86,9 @@ class RangeSliderExample(QtWidgets.QMainWindow):
         )
         value_slider.rangeChanged.connect(self._on_value_range_changed)
 
-        # Time slider (30-day range with hourly ISO8601 values)
-        start_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        total_hours = 30 * 24
-        timestamp_values = [
-            (start_date + timedelta(hours=hour)).isoformat().replace("+00:00", "Z")
-            for hour in range(total_hours + 1)
-        ]
+        # Time slider (timestamp values are loaded later with data)
         time_slider = RangeSliderWidget(
-            values=timestamp_values,
+            is_iso8601=True,
             label="Filter by Timestamp",
             show_value_tooltips=True
         )
@@ -196,6 +190,9 @@ class RangeSliderExample(QtWidgets.QMainWindow):
             for d in self.data
         ]
         self.table.append_rows(rows)
+        min_timestamp = min(d["timestamp"] for d in self.data)
+        max_timestamp = max(d["timestamp"] for d in self.data)
+        self.time_slider.set_range(min_timestamp, max_timestamp)
 
         self._update_info_label()
 
