@@ -52,6 +52,9 @@ class DualHandleSlider(QWidget):
         self._track_height = 4
         self._dragging_handle = None  # 'min', 'max', or None
         self._hovered_handle = None  # 'min', 'max', or None
+        self._drag_range_start_value: Optional[int] = None
+        self._drag_range_initial_min: Optional[int] = None
+        self._drag_range_initial_max: Optional[int] = None
         self._tooltip_formatter: Optional[Callable[[int], str]] = None
 
         self.setMinimumHeight(40)
@@ -162,6 +165,13 @@ class DualHandleSlider(QWidget):
         r = self._handle_radius
         return QRect(x - r, y - r, 2 * r, 2 * r)
 
+    def _get_selected_rect(self) -> QRect:
+        """Get the rectangle for the currently selected range segment."""
+        track = self._get_track_rect()
+        min_pos = self._value_to_pos(self._min_value)
+        max_pos = self._value_to_pos(self._max_value)
+        return QRect(min_pos, track.top(), max(max_pos - min_pos, 0), track.height())
+
     def paintEvent(self, _event: QPaintEvent) -> None:
         """Paint the slider."""
         painter = QPainter(self)
@@ -175,14 +185,7 @@ class DualHandleSlider(QWidget):
         painter.drawRoundedRect(track, self._track_height / 2, self._track_height / 2)
 
         # Draw selected range
-        min_pos = self._value_to_pos(self._min_value)
-        max_pos = self._value_to_pos(self._max_value)
-        selected_rect = QRect(
-            min_pos,
-            track.top(),
-            max_pos - min_pos,
-            track.height()
-        )
+        selected_rect = self._get_selected_rect()
         painter.setBrush(QColor(70, 130, 180))  # Steel blue
         painter.drawRoundedRect(selected_rect, self._track_height / 2, self._track_height / 2)
 
@@ -219,6 +222,12 @@ class DualHandleSlider(QWidget):
                 self._dragging_handle = hovered_handle
                 self._hovered_handle = hovered_handle
                 self._show_handle_tooltip(hovered_handle)
+            elif self._get_selected_rect().contains(event.pos()):
+                self._dragging_handle = 'range'
+                self._drag_range_start_value = self._pos_to_value(pos)
+                self._drag_range_initial_min = self._min_value
+                self._drag_range_initial_max = self._max_value
+                self.setCursor(Qt.ClosedHandCursor)
             else:
                 # Click on track - move nearest handle
                 value = self._pos_to_value(pos)
@@ -244,8 +253,32 @@ class DualHandleSlider(QWidget):
                 self.setMinValue(value)
             elif self._dragging_handle == 'max':
                 self.setMaxValue(value)
+            elif (
+                self._dragging_handle == 'range'
+                and self._drag_range_start_value is not None
+                and self._drag_range_initial_min is not None
+                and self._drag_range_initial_max is not None
+            ):
+                delta = value - self._drag_range_start_value
+                span = self._drag_range_initial_max - self._drag_range_initial_min
+                new_min = self._drag_range_initial_min + delta
+                new_max = self._drag_range_initial_max + delta
 
-            self._show_handle_tooltip(self._dragging_handle)
+                if new_min < self._minimum:
+                    new_min = self._minimum
+                    new_max = new_min + span
+                if new_max > self._maximum:
+                    new_max = self._maximum
+                    new_min = new_max - span
+
+                if new_min != self._min_value or new_max != self._max_value:
+                    self._min_value = int(new_min)
+                    self._max_value = int(new_max)
+                    self.update()
+                    self.rangeChanged.emit(self._min_value, self._max_value)
+
+            if self._dragging_handle in ('min', 'max'):
+                self._show_handle_tooltip(self._dragging_handle)
         else:
             # Update cursor/tooltip when hovering over handles
             hovered_handle = self._handle_at_pos(event.pos())
@@ -254,6 +287,9 @@ class DualHandleSlider(QWidget):
             if hovered_handle is not None:
                 self.setCursor(Qt.PointingHandCursor)
                 self._show_handle_tooltip(hovered_handle)
+            elif self._get_selected_rect().contains(event.pos()):
+                self.setCursor(Qt.OpenHandCursor)
+                QToolTip.hideText()
             else:
                 self.setCursor(Qt.ArrowCursor)
                 QToolTip.hideText()
@@ -262,6 +298,10 @@ class DualHandleSlider(QWidget):
         """Handle mouse release events."""
         if event.button() == Qt.LeftButton:
             self._dragging_handle = None
+            self._drag_range_start_value = None
+            self._drag_range_initial_min = None
+            self._drag_range_initial_max = None
+            self.setCursor(Qt.ArrowCursor)
             if self._hovered_handle is None:
                 QToolTip.hideText()
 
