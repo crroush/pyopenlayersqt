@@ -18,8 +18,10 @@ Typical usage:
 
     # ISO8601 timestamps
     slider = RangeSliderWidget(
-        values=["2024-01-01T00:00:00Z", "2024-12-31T23:59:59Z"],
-        step=86400  # 1 day in seconds
+        min_val="2024-01-01T00:00:00Z",
+        max_val="2024-12-31T23:59:59Z",
+        step=3600.0,
+        is_iso8601=True,
     )
     slider.rangeChanged.connect(lambda min_v, max_v: filter_by_time(min_v, max_v))
 
@@ -28,6 +30,7 @@ Google-style docstrings + PEP8.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Callable, List, Optional, Tuple, Union
 
 from PySide6.QtCore import Qt, QEvent, Signal, QRect
@@ -287,10 +290,11 @@ class RangeSliderWidget(QWidget):
         self,
         parent: Optional[QWidget] = None,
         *,
-        min_val: Optional[float] = None,
-        max_val: Optional[float] = None,
+        min_val: Optional[Union[float, str]] = None,
+        max_val: Optional[Union[float, str]] = None,
         step: float = 1.0,
         values: Optional[List[str]] = None,
+        is_iso8601: bool = False,
         label: str = "Range",
         show_value_tooltips: bool = False,
     ) -> None:
@@ -298,35 +302,48 @@ class RangeSliderWidget(QWidget):
 
         Args:
             parent: Parent widget.
-            min_val: Minimum numeric value (for numeric mode).
-            max_val: Maximum numeric value (for numeric mode).
-            step: Step size for numeric values.
+            min_val: Minimum value for the slider's available range.
+                     Numeric mode expects a number; ISO8601 mode expects a timestamp string.
+            max_val: Maximum value for the slider's available range.
+                     Numeric mode expects a number; ISO8601 mode expects a timestamp string.
+            step: Numeric step size for numeric mode, or step size in seconds for ISO8601 range mode.
             values: List of ISO8601 timestamp strings (for timestamp mode).
-                   If provided, overrides min_val/max_val/step.
+                   If provided, these explicit values define timestamp positions.
+            is_iso8601: Whether the slider should operate in ISO8601 timestamp mode.
             label: Label text to display above the slider.
             show_value_tooltips: Whether to show value tooltips while dragging handles.
         """
         super().__init__(parent)
 
-        # Determine mode: ISO8601 or numeric
-        self._is_iso8601 = values is not None
+        # Determine mode at construction time
+        self._is_iso8601 = is_iso8601
         self._iso_values: List[str] = []
         self._min_numeric: float = 0.0
         self._max_numeric: float = 100.0
         self._step: float = step
         self._show_value_tooltips = show_value_tooltips
+        self._iso_origin_ts: float = 0.0
+        self._iso_step_seconds: float = 1.0
 
         if self._is_iso8601:
-            # ISO8601 mode: convert timestamps to indices
-            self._iso_values = sorted(values)
-            self._min_numeric = 0.0
-            self._max_numeric = float(len(self._iso_values) - 1)
-            self._step = 1.0
+            if values is not None:
+                self._configure_iso_values(values)
+            else:
+                iso_min = str(min_val) if min_val is not None else "1970-01-01T00:00:00Z"
+                iso_max = str(max_val) if max_val is not None else iso_min
+                iso_step_seconds = step if step > 0 else None
+                self._configure_iso_range(
+                    min_value=iso_min,
+                    max_value=iso_max,
+                    step_seconds=iso_step_seconds,
+                )
         else:
             # Numeric mode
-            self._min_numeric = float(min_val) if min_val is not None else 0.0
-            self._max_numeric = float(max_val) if max_val is not None else 100.0
-            self._step = float(step)
+            self._configure_numeric_range(
+                min_val=float(min_val) if min_val is not None else None,
+                max_val=float(max_val) if max_val is not None else None,
+                step=step,
+            )
 
         # Convert to slider integer range (sliders work with integers)
         self._slider_min = 0
@@ -339,6 +356,85 @@ class RangeSliderWidget(QWidget):
         self._slider.setMinValue(self._slider_min)
         self._slider.setMaxValue(self._slider_max)
         self._update_labels()
+
+    def _configure_numeric_range(
+        self,
+        min_val: Optional[float],
+        max_val: Optional[float],
+        step: float,
+    ) -> None:
+        """Configure the internal numeric range."""
+        self._min_numeric = float(min_val) if min_val is not None else 0.0
+        self._max_numeric = float(max_val) if max_val is not None else 100.0
+        self._step = float(step)
+        self._slider_min = 0
+        self._slider_max = int((self._max_numeric - self._min_numeric) / self._step)
+
+    def _configure_iso_values(self, values: List[str]) -> None:
+        """Configure ISO8601 values and map them to slider indices."""
+        self._iso_values = sorted(set(values))
+        self._min_numeric = 0.0
+        self._max_numeric = float(max(len(self._iso_values) - 1, 0))
+        self._step = 1.0
+        self._slider_min = 0
+        self._slider_max = int(self._max_numeric)
+
+    def _parse_iso8601(self, value: str) -> float:
+        """Parse an ISO8601 string and return a UTC timestamp in seconds."""
+        normalized = value.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).timestamp()
+
+    def _timestamp_to_iso8601(self, timestamp: float) -> str:
+        """Convert a UTC timestamp in seconds to an ISO8601 string with Z suffix."""
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def _configure_iso_range(
+        self,
+        min_value: str,
+        max_value: str,
+        step_seconds: Optional[float] = None,
+        target_steps: int = 400,
+    ) -> None:
+        """Configure ISO8601 mode from min/max bounds instead of explicit values."""
+        min_ts = self._parse_iso8601(min_value)
+        max_ts = self._parse_iso8601(max_value)
+        if max_ts < min_ts:
+            min_ts, max_ts = max_ts, min_ts
+
+        range_seconds = max_ts - min_ts
+        computed_step = step_seconds
+        if computed_step is None:
+            computed_step = self._choose_iso_step_seconds(range_seconds, target_steps)
+
+        self._iso_values = []
+        self._iso_origin_ts = min_ts
+        self._iso_step_seconds = float(computed_step)
+        self._min_numeric = 0.0
+        self._max_numeric = range_seconds / self._iso_step_seconds if self._iso_step_seconds > 0 else 0.0
+        self._step = 1.0
+        self._slider_min = 0
+        self._slider_max = int(max(self._max_numeric, 0.0))
+
+    def _choose_iso_step_seconds(self, range_seconds: float, target_steps: int = 400) -> float:
+        """Pick a human-friendly ISO8601 step size in seconds."""
+        if range_seconds <= 0:
+            return 1.0
+
+        ideal = range_seconds / max(target_steps, 1)
+        candidate_steps = [
+            1, 5, 10, 15, 30,
+            60, 5 * 60, 10 * 60, 15 * 60, 30 * 60,
+            60 * 60, 2 * 60 * 60, 3 * 60 * 60, 6 * 60 * 60, 12 * 60 * 60,
+            24 * 60 * 60, 2 * 24 * 60 * 60, 7 * 24 * 60 * 60, 14 * 24 * 60 * 60,
+            30 * 24 * 60 * 60,
+        ]
+        for step in candidate_steps:
+            if step >= ideal:
+                return float(step)
+        return float(candidate_steps[-1])
 
     def _setup_ui(self, label: str) -> None:
         """Set up the user interface."""
@@ -383,9 +479,11 @@ class RangeSliderWidget(QWidget):
         """Format a numeric value for display."""
         if self._is_iso8601:
             idx = int(numeric_value)
-            if 0 <= idx < len(self._iso_values):
-                return self._iso_values[idx]
-            return ""
+            if self._iso_values:
+                if 0 <= idx < len(self._iso_values):
+                    return self._iso_values[idx]
+                return ""
+            return self._timestamp_to_iso8601(self._iso_origin_ts + (idx * self._iso_step_seconds))
         # Format numeric value nicely
         if self._step >= 1.0:
             return str(int(numeric_value))
@@ -446,21 +544,81 @@ class RangeSliderWidget(QWidget):
         Args:
             min_value: Minimum value (float for numeric mode, str for ISO8601).
             max_value: Maximum value (float for numeric mode, str for ISO8601).
+
+        Notes:
+            If called with values outside the current available bounds, the widget
+            will automatically expand/reconfigure its available range to include
+            the requested values.
         """
         if self._is_iso8601:
             # Find indices for ISO8601 values
-            try:
-                min_idx = self._iso_values.index(str(min_value))
-                max_idx = self._iso_values.index(str(max_value))
+            if self._iso_values:
+                try:
+                    min_idx = self._iso_values.index(str(min_value))
+                    max_idx = self._iso_values.index(str(max_value))
+                    self._slider.setMinValue(min_idx)
+                    self._slider.setMaxValue(max_idx)
+                except ValueError:
+                    pass  # Value not in list
+            else:
+                min_ts = self._parse_iso8601(str(min_value))
+                max_ts = self._parse_iso8601(str(max_value))
+
+                current_min_ts = self._iso_origin_ts
+                current_max_ts = self._iso_origin_ts + (self._slider_max * self._iso_step_seconds)
+                if (
+                    self._slider_max == 0
+                    or min_ts < current_min_ts
+                    or max_ts > current_max_ts
+                ):
+                    self._configure_iso_range(
+                        min_value=str(min_value),
+                        max_value=str(max_value),
+                        step_seconds=None,
+                    )
+                    self._slider.setMinimum(self._slider_min)
+                    self._slider.setMaximum(self._slider_max)
+
+                min_idx = int((min_ts - self._iso_origin_ts) / self._iso_step_seconds)
+                max_idx = int((max_ts - self._iso_origin_ts) / self._iso_step_seconds)
                 self._slider.setMinValue(min_idx)
                 self._slider.setMaxValue(max_idx)
-            except ValueError:
-                pass  # Value not in list
         else:
             # Set numeric values
-            min_slider = self._value_to_slider(float(min_value))
-            max_slider = self._value_to_slider(float(max_value))
+            min_num = float(min_value)
+            max_num = float(max_value)
+            if (
+                min_num < self._min_numeric
+                or max_num > self._max_numeric
+            ):
+                resolved_min = min(min_num, max_num)
+                resolved_max = max(min_num, max_num)
+                self._configure_numeric_range(
+                    min_val=resolved_min,
+                    max_val=resolved_max,
+                    step=self._step,
+                )
+                self._slider.setMinimum(self._slider_min)
+                self._slider.setMaximum(self._slider_max)
+
+            min_slider = self._value_to_slider(min_num)
+            max_slider = self._value_to_slider(max_num)
             self._slider.setMinValue(min_slider)
             self._slider.setMaxValue(max_slider)
 
         self._update_labels()
+
+    def set_values(self, values: List[str]) -> None:
+        """Set ISO8601 timestamp values after widget construction.
+
+        This method enables constructing a slider before timestamp data is available
+        and switching it into ISO8601 mode once values are loaded.
+
+        Args:
+            values: List of ISO8601 timestamp strings.
+        """
+        self._is_iso8601 = True
+        self._configure_iso_values(values)
+        self._slider.setMinimum(self._slider_min)
+        self._slider.setMaximum(self._slider_max)
+        self.reset_range()

@@ -1111,12 +1111,14 @@ def on_value_range_changed(min_val, max_val):
 
 value_slider.rangeChanged.connect(on_value_range_changed)
 
-# ISO8601 timestamp range slider
-timestamps = ["2024-01-01T00:00:00Z", "2024-01-15T12:00:00Z", "2024-01-31T23:59:59Z"]
+# ISO8601 timestamp range slider (can be created before values are available)
 timestamp_slider = RangeSliderWidget(
-    values=sorted(set(timestamps)),  # Unique sorted timestamps
+    is_iso8601=True,
     label="Filter by Timestamp"
 )
+
+# Later, after loading data:
+timestamp_slider.set_range("2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z")
 
 timestamp_slider.rangeChanged.connect(on_timestamp_range_changed)
 
