@@ -52,6 +52,7 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         self._coverage_resolution: Optional[float] = None
         self._pad_factor = 1.6
         self._debug = bool(args.debug_terrain)
+        self._rerender_on_pan = bool(args.rerender_on_pan)
         self._cmap = args.cmap
         self._color_unit = args.color_unit
         self._color_range: Optional[Tuple[float, float]] = None
@@ -167,6 +168,16 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
 
     def _on_view_extent(self, extent: Dict[str, float]):
         if not self._terrain_enabled:
+            return
+
+        res_now = round(float(extent.get("resolution", 0.0)), 3)
+        if (
+            not self._rerender_on_pan
+            and self._coverage_resolution is not None
+            and self.raster_layer is not None
+            and res_now == self._coverage_resolution
+        ):
+            self._dbg("skip: rerender_on_pan disabled and resolution unchanged")
             return
 
         if self._view_inside_coverage(extent):
@@ -336,6 +347,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dted-root", required=True, help="Path to DTED root directory (required)")
     parser.add_argument("--disable-terrain", action="store_true", help="Start with terrain overlay disabled")
     parser.add_argument("--debug-terrain", action="store_true", help="Print terrain render debug logs to stdout")
+    parser.add_argument("--rerender-on-pan", action="store_true", help="Re-render while panning at same zoom/resolution")
     parser.add_argument("--center-lat", type=float, default=29.0)
     parser.add_argument("--center-lon", type=float, default=-106.0)
     parser.add_argument("--zoom", type=int, default=7)
