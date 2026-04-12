@@ -69,6 +69,7 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         self._render_cache: "OrderedDict[Tuple[float, ...], tuple[bytes, list[tuple[float, float]]]]" = OrderedDict()
 
         self._store = DTEDStore(args.dted_root, cache_size=int(args.tile_cache_size))
+        self._dted_coverage = self._store.coverage_bounds()
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._pending_future: Optional[Future] = None
 
@@ -85,6 +86,7 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
 
         self.map_widget.ready.connect(self._on_map_ready)
         self.renderReady.connect(self._apply_render_result)
+        self._dbg(f"dted-coverage: {self._dted_coverage}")
 
     def closeEvent(self, event):  # pylint: disable=invalid-name
         self._executor.shutdown(wait=False, cancel_futures=True)
@@ -161,6 +163,19 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         ext2["lat_max"] = snapped_min_lat + span_h
         ext2["lon_min"] = snapped_min_lon
         ext2["lon_max"] = snapped_min_lon + span_w
+
+        if self._dted_coverage is not None:
+            (c_lat_min, c_lon_min), (c_lat_max, c_lon_max) = self._dted_coverage
+            ext2["lat_min"] = max(ext2["lat_min"], c_lat_min)
+            ext2["lat_max"] = min(ext2["lat_max"], c_lat_max)
+            ext2["lon_min"] = max(ext2["lon_min"], c_lon_min)
+            ext2["lon_max"] = min(ext2["lon_max"], c_lon_max)
+            if ext2["lat_max"] <= ext2["lat_min"] or ext2["lon_max"] <= ext2["lon_min"]:
+                # Outside DTED coverage; keep original snapped bounds for debug visibility.
+                ext2["lat_min"] = snapped_min_lat
+                ext2["lat_max"] = snapped_min_lat + span_h
+                ext2["lon_min"] = snapped_min_lon
+                ext2["lon_max"] = snapped_min_lon + span_w
         return ext2
 
     def _view_inside_coverage(self, ext: Dict[str, float]) -> bool:

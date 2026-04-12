@@ -51,6 +51,7 @@ class DTEDStore:
         self.root_dir = Path(root_dir).expanduser().resolve()
         self.cache_size = max(1, int(cache_size))
         self._tile_cache: "OrderedDict[Tuple[int, int], _TileData]" = OrderedDict()
+        self._coverage_bounds: Optional[Bounds] = None
 
     @staticmethod
     def _tile_dir_name(lon_floor: int) -> str:
@@ -129,6 +130,41 @@ class DTEDStore:
             self._tile_cache.popitem(last=False)
 
         return tile
+
+    def coverage_bounds(self) -> Optional[Bounds]:
+        """Best-effort DTED coverage bounds derived from directory/file names."""
+        if self._coverage_bounds is not None:
+            return self._coverage_bounds
+
+        lat_floors: list[int] = []
+        lon_floors: list[int] = []
+        for lon_dir in self.root_dir.iterdir():
+            if not lon_dir.is_dir():
+                continue
+            name = lon_dir.name.lower()
+            if len(name) != 4 or name[0] not in ("e", "w") or not name[1:].isdigit():
+                continue
+            lon = int(name[1:])
+            lon_floor = lon if name[0] == "e" else -lon
+            lon_floors.append(lon_floor)
+            for f in lon_dir.iterdir():
+                if not f.is_file():
+                    continue
+                stem = f.stem.lower()
+                if len(stem) != 3 or stem[0] not in ("n", "s") or not stem[1:].isdigit():
+                    continue
+                lat = int(stem[1:])
+                lat_floor = lat if stem[0] == "n" else -lat
+                lat_floors.append(lat_floor)
+
+        if not lat_floors or not lon_floors:
+            return None
+
+        self._coverage_bounds = (
+            (float(min(lat_floors)), float(min(lon_floors))),
+            (float(max(lat_floors) + 1), float(max(lon_floors) + 1)),
+        )
+        return self._coverage_bounds
 
     @staticmethod
     def _bilinear_sample(tile: _TileData, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
