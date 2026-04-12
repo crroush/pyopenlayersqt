@@ -569,9 +569,10 @@ The dynamic demo `examples/17_dted_terrain_overlay.py` adds:
 - required CLI argument `--dted-root` (must point to DTED root),
 - global terrain enable/disable control,
 - debounced auto-re-render on view changes,
-- sampling resolution derived from viewport pixel size,
+- sampling resolution derived from viewport pixel size (with max render-size cap),
 - opacity slider,
-- and rendered-view LRU caching for responsiveness.
+- rendered-view LRU caching for responsiveness,
+- and an extent tile-count guard so very low zoom levels do not trigger multi-minute renders.
 
 ### Style Classes
 

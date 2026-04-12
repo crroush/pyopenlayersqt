@@ -103,12 +103,10 @@ class DTEDStore:
             else:
                 nlon = min(nlon, payload // record_len)
 
-        elev = np.empty((nlat, nlon), dtype=np.int16)
-        off = 3428
-        for x in range(nlon):
-            col_be = np.frombuffer(buf, dtype=">i2", count=nlat, offset=off + 8)
-            elev[:, x] = col_be.astype(np.int16)
-            off += record_len
+        records = np.frombuffer(buf, dtype=np.uint8, count=nlon * record_len, offset=3428)
+        records = records.reshape((nlon, record_len))
+        sample_bytes = records[:, 8: 8 + (2 * nlat)]
+        elev = sample_bytes.view(">i2").reshape((nlon, nlat)).astype(np.int16, copy=True).T
 
         return _TileData(lat_floor=lat_floor, lon_floor=lon_floor, elevations_m=elev)
 
@@ -187,38 +185,44 @@ class DTEDStore:
 
         lats = np.linspace(lat_min, lat_max, int(height), dtype=np.float64)
         lons = np.linspace(lon_min, lon_max, int(width), dtype=np.float64)
-        lat_grid, lon_grid = np.meshgrid(lats, lons, indexing="ij")
 
         out = np.full((height, width), nodata_value, dtype=np.float32)
 
-        lat_hi = math.floor(np.nextafter(lat_max, -np.inf))
-        lon_hi = math.floor(np.nextafter(lon_max, -np.inf))
+        lat_floors = np.floor(lats).astype(np.int32)
+        lon_floors = np.floor(lons).astype(np.int32)
 
-        for lat_floor in range(math.floor(lat_min), lat_hi + 1):
-            for lon_floor in range(math.floor(lon_min), lon_hi + 1):
-                inside_tile = (
-                    (lat_grid >= lat_floor)
-                    & (lat_grid < lat_floor + 1.0)
-                    & (lon_grid >= lon_floor)
-                    & (lon_grid < lon_floor + 1.0)
-                )
-                if not inside_tile.any():
-                    continue
+        def _runs(floors: np.ndarray):
+            starts = np.flatnonzero(np.r_[True, floors[1:] != floors[:-1]])
+            ends = np.r_[starts[1:], floors.size]
+            return [(int(floors[s]), int(s), int(e)) for s, e in zip(starts, ends)]
 
+        lat_runs = _runs(lat_floors)
+        lon_runs = _runs(lon_floors)
+
+        for lat_floor, ys, ye in lat_runs:
+            sub_lats = lats[ys:ye][:, None]
+            for lon_floor, xs, xe in lon_runs:
                 tile = self._get_tile(lat_floor, lon_floor)
                 if tile is None:
                     continue
+                sub_lons = lons[xs:xe][None, :]
+                out[ys:ye, xs:xe] = self._bilinear_sample(tile, lats=sub_lats, lons=sub_lons)
 
-                out[inside_tile] = self._bilinear_sample(
-                    tile,
-                    lats=lat_grid[inside_tile],
-                    lons=lon_grid[inside_tile],
-                )
-
-        poly_xy = np.column_stack([lons_poly, lats_poly])
-        path = MplPath(poly_xy, closed=True)
-        pts = np.column_stack([lon_grid.ravel(), lat_grid.ravel()])
-        mask = path.contains_points(pts).reshape((height, width))
+        is_rect = (
+            len(polygon_latlon) == 4
+            and np.isclose(lats_poly.min(), lat_min)
+            and np.isclose(lats_poly.max(), lat_max)
+            and np.isclose(lons_poly.min(), lon_min)
+            and np.isclose(lons_poly.max(), lon_max)
+        )
+        if is_rect:
+            mask = np.ones((height, width), dtype=bool)
+        else:
+            lat_grid, lon_grid = np.meshgrid(lats, lons, indexing="ij")
+            poly_xy = np.column_stack([lons_poly, lats_poly])
+            path = MplPath(poly_xy, closed=True)
+            pts = np.column_stack([lon_grid.ravel(), lat_grid.ravel()])
+            mask = path.contains_points(pts).reshape((height, width))
 
         out[~mask] = nodata_value
 

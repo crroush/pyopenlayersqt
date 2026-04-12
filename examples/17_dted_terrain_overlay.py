@@ -40,6 +40,8 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
 
         self._terrain_enabled = not bool(args.disable_terrain)
         self._dpr_scale = float(args.pixel_ratio_scale)
+        self._max_render_px = int(args.max_render_px)
+        self._max_tiles = int(args.max_tiles)
         self._current_request_id = 0
         self._latest_applied_id = 0
         self._last_requested_key: Optional[Tuple[float, ...]] = None
@@ -98,6 +100,8 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
     def _extent_key(self, ext: Dict[str, float]) -> Tuple[float, ...]:
         width_px = max(128, int(float(ext.get("width_px", 1024.0)) * self._dpr_scale))
         height_px = max(128, int(float(ext.get("height_px", 768.0)) * self._dpr_scale))
+        width_px = min(width_px, self._max_render_px)
+        height_px = min(height_px, self._max_render_px)
 
         # Quantize key enough to avoid unnecessary re-renders while panning tiny amounts.
         return (
@@ -122,6 +126,13 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         if key == self._last_requested_key:
             return
         self._last_requested_key = key
+
+        tile_est = max(1, int(np.ceil(key[2] - key[0]))) * max(1, int(np.ceil(key[3] - key[1])))
+        if tile_est > self._max_tiles:
+            self.status_label.setText(
+                f"Zoom in to render terrain (estimated {tile_est} DTED tiles > limit {self._max_tiles})"
+            )
+            return
 
         cached = self._render_cache.get(key)
         if cached is not None:
@@ -230,10 +241,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--zoom", type=int, default=7)
     parser.add_argument("--tile-cache-size", type=int, default=24, help="DTED tile LRU cache size")
     parser.add_argument("--render-cache-size", type=int, default=8, help="Rendered view LRU cache size")
+    parser.add_argument("--max-render-px", type=int, default=1024, help="Max render width/height in px")
+    parser.add_argument("--max-tiles", type=int, default=64, help="Skip rendering when extent spans too many DTED tiles")
     parser.add_argument(
         "--pixel-ratio-scale",
         type=float,
-        default=1.5,
+        default=1.0,
         help="Multiplier applied to viewport pixels when sampling DTED",
     )
     return parser
