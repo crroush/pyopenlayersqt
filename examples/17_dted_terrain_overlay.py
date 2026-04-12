@@ -433,7 +433,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dted-root", required=True, help="Path to DTED root directory (required)")
     parser.add_argument("--disable-terrain", action="store_true", help="Start with terrain overlay disabled")
     parser.add_argument("--debug-terrain", action="store_true", help="Print terrain render debug logs to stdout")
-    parser.add_argument("--rerender-on-pan", action="store_true", help="Re-render while panning at same zoom/resolution")
+    parser.add_argument(
+        "--rerender-on-pan",
+        action="store_true",
+        default=True,
+        help="Re-render while panning at same zoom/resolution (default: enabled)",
+    )
+    parser.add_argument(
+        "--no-rerender-on-pan",
+        dest="rerender_on_pan",
+        action="store_false",
+        help="Disable same-resolution pan re-rendering",
+    )
     parser.add_argument("--clip-to-bbox", action="store_true", help="Clip requests to coarse min/max DTED bbox")
     parser.add_argument("--lon-dir-offset", type=int, default=0, help="Longitude directory offset for non-standard layouts")
     parser.add_argument("--auto-lon-offset", action="store_true", help="Auto-detect longitude directory offset on first render")
