@@ -264,8 +264,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-render-px", type=int, default=1024, help="Max render width/height in px")
     parser.add_argument("--max-tiles", type=int, default=400, help="Skip rendering when extent spans too many DTED tiles")
     parser.add_argument("--cmap", default="viridis", help="Matplotlib colormap name (default: viridis)")
-    parser.add_argument("--color-min", type=float, default=None, help="Fixed minimum elevation for color scaling")
-    parser.add_argument("--color-max", type=float, default=None, help="Fixed maximum elevation for color scaling")
+    parser.add_argument("--color-min", type=float, default=0.0, help="Fixed minimum elevation for color scaling (default: 0 m)")
+    parser.add_argument("--color-max", type=float, default=15000.0, help="Fixed maximum elevation for color scaling (default: 15000 m)")
     parser.add_argument(
         "--pixel-ratio-scale",
         type=float,
@@ -277,8 +277,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 if __name__ == "__main__":
     args = _build_arg_parser().parse_args()
-    if (args.color_min is None) ^ (args.color_max is None):
-        raise SystemExit("Use both --color-min and --color-max together, or omit both.")
     if args.color_min is not None and args.color_max <= args.color_min:
         raise SystemExit("--color-max must be greater than --color-min.")
 
