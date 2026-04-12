@@ -11,6 +11,7 @@ import argparse
 from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+import math
 import sys
 import time
 from typing import Dict, Optional, Tuple
@@ -144,13 +145,22 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         lon_max = float(ext["lon_max"])
         lat_mid = 0.5 * (lat_min + lat_max)
         lon_mid = 0.5 * (lon_min + lon_max)
-        half_h = 0.5 * (lat_max - lat_min) * self._pad_factor
-        half_w = 0.5 * (lon_max - lon_min) * self._pad_factor
+        span_h = (lat_max - lat_min) * self._pad_factor
+        span_w = (lon_max - lon_min) * self._pad_factor
+        half_h = 0.5 * span_h
+        half_w = 0.5 * span_w
+
+        # Snap coverage window to a stable lattice so same-resolution pans
+        # don't continuously shift the requested render bounds.
+        step_h = max(span_h * 0.5, 1e-9)
+        step_w = max(span_w * 0.5, 1e-9)
+        snapped_min_lat = math.floor((lat_mid - half_h) / step_h) * step_h
+        snapped_min_lon = math.floor((lon_mid - half_w) / step_w) * step_w
         ext2 = dict(ext)
-        ext2["lat_min"] = lat_mid - half_h
-        ext2["lat_max"] = lat_mid + half_h
-        ext2["lon_min"] = lon_mid - half_w
-        ext2["lon_max"] = lon_mid + half_w
+        ext2["lat_min"] = snapped_min_lat
+        ext2["lat_max"] = snapped_min_lat + span_h
+        ext2["lon_min"] = snapped_min_lon
+        ext2["lon_max"] = snapped_min_lon + span_w
         return ext2
 
     def _view_inside_coverage(self, ext: Dict[str, float]) -> bool:
