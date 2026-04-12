@@ -47,6 +47,9 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         self._current_request_id = 0
         self._latest_applied_id = 0
         self._last_requested_key: Optional[Tuple[float, ...]] = None
+        self._coverage_bounds: Optional[Tuple[float, float, float, float]] = None
+        self._coverage_resolution: Optional[float] = None
+        self._pad_factor = 1.6
         self._cmap = args.cmap
         self._color_unit = args.color_unit
         self._color_range: Optional[Tuple[float, float]] = None
@@ -126,12 +129,45 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
             round(float(ext.get("resolution", 0.0)), 3),
         )
 
+
+    def _expanded_extent(self, ext: Dict[str, float]) -> Dict[str, float]:
+        lat_min = float(ext["lat_min"])
+        lon_min = float(ext["lon_min"])
+        lat_max = float(ext["lat_max"])
+        lon_max = float(ext["lon_max"])
+        lat_mid = 0.5 * (lat_min + lat_max)
+        lon_mid = 0.5 * (lon_min + lon_max)
+        half_h = 0.5 * (lat_max - lat_min) * self._pad_factor
+        half_w = 0.5 * (lon_max - lon_min) * self._pad_factor
+        ext2 = dict(ext)
+        ext2["lat_min"] = lat_mid - half_h
+        ext2["lat_max"] = lat_mid + half_h
+        ext2["lon_min"] = lon_mid - half_w
+        ext2["lon_max"] = lon_mid + half_w
+        return ext2
+
+    def _view_inside_coverage(self, ext: Dict[str, float]) -> bool:
+        if self._coverage_bounds is None or self._coverage_resolution is None:
+            return False
+        if round(float(ext.get("resolution", 0.0)), 3) != self._coverage_resolution:
+            return False
+        lat_min, lon_min, lat_max, lon_max = self._coverage_bounds
+        return (
+            float(ext["lat_min"]) >= lat_min
+            and float(ext["lat_max"]) <= lat_max
+            and float(ext["lon_min"]) >= lon_min
+            and float(ext["lon_max"]) <= lon_max
+        )
+
     def _on_view_extent(self, extent: Dict[str, float]):
         if not self._terrain_enabled:
             return
 
+        if self._view_inside_coverage(extent):
+            return
+
         try:
-            key = self._extent_key(extent)
+            key = self._extent_key(self._expanded_extent(extent))
         except KeyError:
             return
 
@@ -222,6 +258,8 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         if result.request_id != self._current_request_id:
             return
         self._latest_applied_id = result.request_id
+        self._coverage_bounds = (result.key[0], result.key[1], result.key[2], result.key[3])
+        self._coverage_resolution = result.key[6]
 
         self._render_cache[result.key] = (result.png, result.bounds)
         self._render_cache.move_to_end(result.key)
