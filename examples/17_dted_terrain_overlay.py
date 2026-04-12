@@ -210,19 +210,17 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
             f"lon=({float(extent.get('lon_min', 0.0)):.6f},{float(extent.get('lon_max', 0.0)):.6f}) "
             f"res={res_now}"
         )
-        if self._view_inside_coverage(extent):
-            self._dbg("skip: viewport is inside current rendered coverage")
-            return
         if (
             not self._rerender_on_pan
             and self._coverage_resolution is not None
             and self.raster_layer is not None
             and res_now == self._coverage_resolution
         ):
-            self._dbg("pan refill: resolution unchanged but viewport left coverage; requesting new coverage")
+            self._dbg("skip: rerender_on_pan disabled and resolution unchanged")
+            return
 
         try:
-            key = self._extent_key(self._expanded_extent(extent))
+            key = self._extent_key(extent)
         except KeyError:
             self._dbg("skip: extent payload missing expected keys")
             return
