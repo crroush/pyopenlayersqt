@@ -279,15 +279,15 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         q_lon = q_deg
         self._dbg(f"worker-quantize: q_deg={q_deg:.8f}")
 
-        deg_per_px_lat = max(1e-12, (lat_max - lat_min) / max(1, int(height_px) - 1))
-        deg_per_px_lon = max(1e-12, (lon_max - lon_min) / max(1, int(width_px) - 1))
+        deg_per_px_lat = max(1e-12, (lat_max - lat_min) / max(1, int(height_px)))
+        deg_per_px_lon = max(1e-12, (lon_max - lon_min) / max(1, int(width_px)))
         tile_deg_lat = deg_per_px_lat * self._tile_px
         tile_deg_lon = deg_per_px_lon * self._tile_px
 
         iy0 = int(math.floor(lat_min / tile_deg_lat))
-        iy1 = int(math.floor(np.nextafter(lat_max, -np.inf) / tile_deg_lat))
+        iy1 = int(math.ceil(lat_max / tile_deg_lat) - 1)
         ix0 = int(math.floor(lon_min / tile_deg_lon))
-        ix1 = int(math.floor(np.nextafter(lon_max, -np.inf) / tile_deg_lon))
+        ix1 = int(math.ceil(lon_max / tile_deg_lon) - 1)
         self._dbg(f"worker-view-tiles: ix[{ix0},{ix1}] iy[{iy0},{iy1}] tile_px={self._tile_px}")
 
         def _get_tile_image(ix: int, iy: int) -> Image.Image:
@@ -311,7 +311,6 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
                 width=self._tile_px,
                 height=self._tile_px,
                 nodata_value=np.nan,
-                quantize_deg=(q_lat, q_lon),
             )
             if self._color_range is None:
                 finite = np.isfinite(terrain.grid_m)
