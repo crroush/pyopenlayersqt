@@ -362,7 +362,7 @@ class RangeSliderWidget(QWidget):
                      Numeric mode expects a number; ISO8601 mode expects a timestamp string.
             max_val: Maximum value for the slider's available range.
                      Numeric mode expects a number; ISO8601 mode expects a timestamp string.
-            step: Numeric step size for numeric mode, or step size in seconds for ISO8601 range mode.
+            step: Numeric step size for numeric mode, or step size in seconds for ISO8601.
             values: List of ISO8601 timestamp strings (for timestamp mode).
                    If provided, these explicit values define timestamp positions.
             is_iso8601: Whether the slider should operate in ISO8601 timestamp mode.
