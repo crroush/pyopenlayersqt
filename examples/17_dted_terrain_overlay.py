@@ -282,14 +282,22 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         lon_hi = int(math.floor(np.nextafter(lon_max, -np.inf)))
         total_tiles = max(0, (lat_hi - lat_lo + 1)) * max(0, (lon_hi - lon_lo + 1))
         missing_tiles = 0
+        missing_examples: list[str] = []
         for lat_floor in range(lat_lo, lat_hi + 1):
             for lon_floor in range(lon_lo, lon_hi + 1):
-                if not self._store._tile_path(lat_floor, lon_floor).exists():  # pylint: disable=protected-access
+                missing_path = self._store._tile_path(lat_floor, lon_floor)  # pylint: disable=protected-access
+                if not missing_path.exists():
                     missing_tiles += 1
+                    if len(missing_examples) < 25:
+                        missing_examples.append(str(missing_path))
         self._dbg(
             f"worker-tiles: lat[{lat_lo},{lat_hi}] lon[{lon_lo},{lon_hi}] "
             f"total={total_tiles} missing={missing_tiles}"
         )
+        if missing_examples:
+            self._dbg("worker-missing-examples:")
+            for p in missing_examples:
+                self._dbg(f"  missing: {p}")
 
         terrain = self._store.sample_polygon_grid(
             polygon_latlon=polygon,
