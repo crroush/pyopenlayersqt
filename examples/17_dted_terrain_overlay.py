@@ -191,7 +191,8 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
 
     @QtCore.Slot(object)
     def _apply_render_result(self, result: RenderResult):
-        if result.request_id < self._latest_applied_id:
+        # Never apply stale renders; only the newest requested frame can paint.
+        if result.request_id != self._current_request_id:
             return
         self._latest_applied_id = result.request_id
 
