@@ -181,6 +181,12 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
             return
 
         res_now = round(float(extent.get("resolution", 0.0)), 3)
+        self._dbg(
+            "view: "
+            f"lat=({float(extent.get('lat_min', 0.0)):.6f},{float(extent.get('lat_max', 0.0)):.6f}) "
+            f"lon=({float(extent.get('lon_min', 0.0)):.6f},{float(extent.get('lon_max', 0.0)):.6f}) "
+            f"res={res_now}"
+        )
         if self._view_inside_coverage(extent):
             self._dbg("skip: viewport is inside current rendered coverage")
             return
@@ -255,6 +261,21 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         q_lon = q_deg
         self._dbg(f"worker-quantize: q_deg={q_deg:.8f}")
 
+        lat_lo = int(math.floor(lat_min))
+        lat_hi = int(math.floor(np.nextafter(lat_max, -np.inf)))
+        lon_lo = int(math.floor(lon_min))
+        lon_hi = int(math.floor(np.nextafter(lon_max, -np.inf)))
+        total_tiles = max(0, (lat_hi - lat_lo + 1)) * max(0, (lon_hi - lon_lo + 1))
+        missing_tiles = 0
+        for lat_floor in range(lat_lo, lat_hi + 1):
+            for lon_floor in range(lon_lo, lon_hi + 1):
+                if not self._store._tile_path(lat_floor, lon_floor).exists():  # pylint: disable=protected-access
+                    missing_tiles += 1
+        self._dbg(
+            f"worker-tiles: lat[{lat_lo},{lat_hi}] lon[{lon_lo},{lon_hi}] "
+            f"total={total_tiles} missing={missing_tiles}"
+        )
+
         terrain = self._store.sample_polygon_grid(
             polygon_latlon=polygon,
             width=int(width_px),
@@ -281,6 +302,8 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         bounds = [terrain.bounds[0], terrain.bounds[1]]
+        valid_ratio = float(np.isfinite(terrain.grid_m).mean())
+        self._dbg(f"worker-valid: finite_ratio={valid_ratio:.4f}")
         self._dbg(f"worker-done: request_id={request_id} elapsed_ms={elapsed_ms:.1f}")
         return RenderResult(request_id=request_id, key=key, png=png, bounds=bounds, elapsed_ms=elapsed_ms)
 
