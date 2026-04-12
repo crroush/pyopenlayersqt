@@ -113,6 +113,7 @@ See the [examples directory](examples/) for more working examples:
 - `14_delayed_render_interrupt.py` - Debounced, interruptible process-based heatmap rendering
 - `15_load_data_and_zoom.py` - Load features, then click a button to auto-zoom to loaded data
 - `16_metadata_only_table_linking.py` - 100k FastGeo parent map objects linked to metadata-only child rows (3-5 per parent)
+- `17_dted_terrain_overlay.py` - Dynamic DTED Level-2 terrain overlay (debounced zoom/pan rendering + opacity slider)
 
 ## Core Components
 
@@ -545,6 +546,36 @@ raster.set_opacity(0.8)
 raster.remove()
 ```
 <img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/2ff33448-afcd-42fc-9b0a-91066ee84202" />
+
+
+#### DTED Terrain Utilities
+
+For local DTED Level-2 folders (for example `~/dted/w106/n19.dt2`), use `DTEDStore`
+to sample a polygon footprint quickly and convert directly into PNG bytes for
+`RasterLayer`:
+
+```python
+from pyopenlayersqt import DTEDStore
+
+polygon = [(27.6, -107.2), (27.9, -104.7), (29.8, -104.6), (30.6, -106.1)]
+store = DTEDStore("~/dted", cache_size=24)  # tile LRU cache
+terrain = store.sample_polygon_grid(polygon, width=900, height=700)
+png = store.terrain_to_heatmap_png(terrain, cmap="terrain", alpha=0.75)
+
+raster = map_widget.add_raster_image(png, bounds=terrain.bounds, name="terrain")
+```
+
+The dynamic demo `examples/17_dted_terrain_overlay.py` adds:
+- required CLI argument `--dted-root` (must point to DTED root),
+- fixed color scaling to avoid color shifts while panning (default 0 to 15,000 feet),
+- global terrain enable/disable control,
+- coverage-based pan refill by default (full pan re-render optional via `--rerender-on-pan`),
+- optional coarse DTED-bbox clipping (`--clip-to-bbox`) for dense global datasets,
+- longitude-directory offset controls (`--lon-dir-offset`, optional `--auto-lon-offset`) for non-standard layouts,
+- sampling resolution derived from viewport pixel size (with max render-size cap),
+- opacity slider,
+- rendered-view LRU caching for responsiveness,
+- and an extent tile-count guard so very low zoom levels do not trigger multi-minute renders.
 
 ### Style Classes
 
