@@ -58,6 +58,7 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         self._color_unit = args.color_unit
         self._auto_lon_offset = bool(args.auto_lon_offset)
         self._lon_offset_locked = False
+        self._clip_to_bbox = bool(args.clip_to_bbox)
         self._color_range: Optional[Tuple[float, float]] = None
         if args.color_min is not None and args.color_max is not None:
             lo = float(args.color_min)
@@ -170,7 +171,7 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         ext2["lon_min"] = snapped_min_lon
         ext2["lon_max"] = snapped_min_lon + span_w
 
-        if self._dted_coverage is not None:
+        if self._clip_to_bbox and self._dted_coverage is not None:
             (c_lat_min, c_lon_min), (c_lat_max, c_lon_max) = self._dted_coverage
             ext2["lat_min"] = max(ext2["lat_min"], c_lat_min)
             ext2["lat_max"] = min(ext2["lat_max"], c_lat_max)
@@ -317,6 +318,15 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
             f"worker-tiles: lat[{lat_lo},{lat_hi}] lon[{lon_lo},{lon_hi}] "
             f"total={total_tiles} available={available_tiles} unavailable={unavailable_tiles}"
         )
+        if self._debug:
+            for lon_floor in range(lon_lo, lon_hi + 1):
+                avail_lats = self._store.available_lats_for_lon(lon_floor)
+                if avail_lats:
+                    preview = ",".join(f"{x:+d}" for x in avail_lats[:10])
+                    suffix = "..." if len(avail_lats) > 10 else ""
+                    self._dbg(f"  lon {lon_floor:+d} has {len(avail_lats)} lats: {preview}{suffix}")
+                else:
+                    self._dbg(f"  lon {lon_floor:+d} has 0 indexed lats")
         if unavailable_examples:
             self._dbg("worker-unavailable-examples (outside indexed DTED set):")
             for p in unavailable_examples:
@@ -425,6 +435,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--disable-terrain", action="store_true", help="Start with terrain overlay disabled")
     parser.add_argument("--debug-terrain", action="store_true", help="Print terrain render debug logs to stdout")
     parser.add_argument("--rerender-on-pan", action="store_true", help="Re-render while panning at same zoom/resolution")
+    parser.add_argument("--clip-to-bbox", action="store_true", help="Clip requests to coarse min/max DTED bbox")
     parser.add_argument("--lon-dir-offset", type=int, default=0, help="Longitude directory offset for non-standard layouts")
     parser.add_argument("--auto-lon-offset", action="store_true", help="Auto-detect longitude directory offset on first render")
     parser.add_argument("--center-lat", type=float, default=29.0)

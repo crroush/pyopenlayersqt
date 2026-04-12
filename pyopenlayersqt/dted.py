@@ -54,6 +54,7 @@ class DTEDStore:
         self._tile_cache: "OrderedDict[Tuple[int, int], _TileData]" = OrderedDict()
         self._coverage_bounds: Optional[Bounds] = None
         self._available_tiles: Optional[set[tuple[int, int]]] = None
+        self._available_by_lon: Optional[dict[int, set[int]]] = None
 
     @staticmethod
     def _tile_dir_name(lon_floor: int) -> str:
@@ -142,6 +143,7 @@ class DTEDStore:
         lat_floors: list[int] = []
         lon_floors: list[int] = []
         available_tiles: set[tuple[int, int]] = set()
+        by_lon: dict[int, set[int]] = {}
         for lon_dir in self.root_dir.iterdir():
             if not lon_dir.is_dir():
                 continue
@@ -161,6 +163,7 @@ class DTEDStore:
                 lat_floor = lat if stem[0] == "n" else -lat
                 lat_floors.append(lat_floor)
                 available_tiles.add((lat_floor, lon_floor))
+                by_lon.setdefault(lon_floor, set()).add(lat_floor)
 
         if not lat_floors or not lon_floors:
             return None
@@ -170,6 +173,7 @@ class DTEDStore:
             (float(max(lat_floors) + 1), float(max(lon_floors) + 1)),
         )
         self._available_tiles = available_tiles
+        self._available_by_lon = by_lon
         return self._coverage_bounds
 
     def has_tile(self, lat_floor: int, lon_floor: int) -> bool:
@@ -187,6 +191,15 @@ class DTEDStore:
         if offset != self.lon_dir_offset:
             self.lon_dir_offset = offset
             self._tile_cache.clear()
+
+    def available_lats_for_lon(self, lon_floor: int) -> list[int]:
+        """List available latitude floors for a longitude directory."""
+        if self._available_by_lon is None:
+            self.coverage_bounds()
+        mapped_lon = lon_floor + self.lon_dir_offset
+        if not self._available_by_lon:
+            return []
+        return sorted(self._available_by_lon.get(mapped_lon, set()))
 
     @staticmethod
     def _bilinear_sample(tile: _TileData, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
