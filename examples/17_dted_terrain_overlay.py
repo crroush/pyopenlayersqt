@@ -20,6 +20,8 @@ from PySide6 import QtCore, QtWidgets
 
 from pyopenlayersqt import DTEDStore, OLMapWidget, RasterStyle
 
+FT_TO_M = 0.3048
+
 
 @dataclass(frozen=True)
 class RenderResult:
@@ -46,9 +48,15 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         self._latest_applied_id = 0
         self._last_requested_key: Optional[Tuple[float, ...]] = None
         self._cmap = args.cmap
+        self._color_unit = args.color_unit
         self._color_range: Optional[Tuple[float, float]] = None
         if args.color_min is not None and args.color_max is not None:
-            self._color_range = (float(args.color_min), float(args.color_max))
+            lo = float(args.color_min)
+            hi = float(args.color_max)
+            if self._color_unit == "feet":
+                lo *= FT_TO_M
+                hi *= FT_TO_M
+            self._color_range = (lo, hi)
 
         self._render_cache_size = max(1, int(args.render_cache_size))
         self._render_cache: "OrderedDict[Tuple[float, ...], tuple[bytes, list[tuple[float, float]]]]" = OrderedDict()
@@ -264,8 +272,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-render-px", type=int, default=1024, help="Max render width/height in px")
     parser.add_argument("--max-tiles", type=int, default=400, help="Skip rendering when extent spans too many DTED tiles")
     parser.add_argument("--cmap", default="viridis", help="Matplotlib colormap name (default: viridis)")
-    parser.add_argument("--color-min", type=float, default=0.0, help="Fixed minimum elevation for color scaling (default: 0 m)")
-    parser.add_argument("--color-max", type=float, default=15000.0, help="Fixed maximum elevation for color scaling (default: 15000 m)")
+    parser.add_argument("--color-min", type=float, default=0.0, help="Fixed minimum elevation for color scaling")
+    parser.add_argument("--color-max", type=float, default=15000.0, help="Fixed maximum elevation for color scaling")
+    parser.add_argument("--color-unit", choices=["feet", "meters"], default="feet", help="Units for --color-min/--color-max (default: feet)")
     parser.add_argument(
         "--pixel-ratio-scale",
         type=float,
