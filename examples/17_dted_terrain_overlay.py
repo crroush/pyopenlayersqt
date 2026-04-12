@@ -11,6 +11,7 @@ import argparse
 from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+import math
 import sys
 import time
 from typing import Dict, Optional, Tuple
@@ -21,6 +22,7 @@ from PySide6 import QtCore, QtWidgets
 from pyopenlayersqt import DTEDStore, OLMapWidget, RasterStyle
 
 FT_TO_M = 0.3048
+M_PER_DEG_LAT = 111_320.0
 
 
 @dataclass(frozen=True)
@@ -219,7 +221,7 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
     def _render_for_extent(self, request_id: int, key: Tuple[float, ...]) -> RenderResult:
         t0 = time.perf_counter()
         self._dbg(f"worker-start: request_id={request_id} key={key}")
-        lat_min, lon_min, lat_max, lon_max, width_px, height_px, _res = key
+        lat_min, lon_min, lat_max, lon_max, width_px, height_px, res_m_per_px = key
 
         polygon = [
             (lat_min, lon_min),
@@ -228,11 +230,18 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
             (lat_max, lon_min),
         ]
 
+        lat_mid = 0.5 * (lat_min + lat_max)
+        meters_per_deg_lon = max(1e-6, M_PER_DEG_LAT * math.cos(math.radians(lat_mid)))
+        q_lat = max(1e-9, float(res_m_per_px) / M_PER_DEG_LAT)
+        q_lon = max(1e-9, float(res_m_per_px) / meters_per_deg_lon)
+        self._dbg(f"worker-quantize: q_lat={q_lat:.8f} q_lon={q_lon:.8f}")
+
         terrain = self._store.sample_polygon_grid(
             polygon_latlon=polygon,
             width=int(width_px),
             height=int(height_px),
             nodata_value=np.nan,
+            quantize_deg=(q_lat, q_lon),
         )
         if self._color_range is None:
             finite = np.isfinite(terrain.grid_m)

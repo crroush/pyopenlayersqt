@@ -163,6 +163,7 @@ class DTEDStore:
         width: int,
         height: int,
         nodata_value: float = np.nan,
+        quantize_deg: Optional[Tuple[float, float]] = None,
     ) -> TerrainLayer:
         """Sample terrain within a polygon's bounding rectangle and mask outside.
 
@@ -171,6 +172,8 @@ class DTEDStore:
             width: Raster width in pixels.
             height: Raster height in pixels.
             nodata_value: Fill value when DTED data is unavailable.
+            quantize_deg: Optional (lat_step_deg, lon_step_deg) used to snap
+                sampling coordinates to a stable global lattice.
         """
         if len(polygon_latlon) < 3:
             raise ValueError("polygon_latlon must contain at least 3 vertices")
@@ -185,6 +188,12 @@ class DTEDStore:
 
         lats = np.linspace(lat_min, lat_max, int(height), dtype=np.float64)
         lons = np.linspace(lon_min, lon_max, int(width), dtype=np.float64)
+        if quantize_deg is not None:
+            q_lat, q_lon = quantize_deg
+            if q_lat > 0:
+                lats = np.round(lats / q_lat) * q_lat
+            if q_lon > 0:
+                lons = np.round(lons / q_lon) * q_lon
 
         out = np.full((height, width), nodata_value, dtype=np.float32)
 
