@@ -281,23 +281,25 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         lon_lo = int(math.floor(lon_min))
         lon_hi = int(math.floor(np.nextafter(lon_max, -np.inf)))
         total_tiles = max(0, (lat_hi - lat_lo + 1)) * max(0, (lon_hi - lon_lo + 1))
-        missing_tiles = 0
-        missing_examples: list[str] = []
+        available_tiles = 0
+        unavailable_examples: list[str] = []
         for lat_floor in range(lat_lo, lat_hi + 1):
             for lon_floor in range(lon_lo, lon_hi + 1):
-                missing_path = self._store._tile_path(lat_floor, lon_floor)  # pylint: disable=protected-access
-                if not missing_path.exists():
-                    missing_tiles += 1
-                    if len(missing_examples) < 25:
-                        missing_examples.append(str(missing_path))
+                if self._store.has_tile(lat_floor, lon_floor):
+                    available_tiles += 1
+                elif len(unavailable_examples) < 25:
+                    unavailable_examples.append(
+                        str(self._store._tile_path(lat_floor, lon_floor))  # pylint: disable=protected-access
+                    )
+        unavailable_tiles = total_tiles - available_tiles
         self._dbg(
             f"worker-tiles: lat[{lat_lo},{lat_hi}] lon[{lon_lo},{lon_hi}] "
-            f"total={total_tiles} missing={missing_tiles}"
+            f"total={total_tiles} available={available_tiles} unavailable={unavailable_tiles}"
         )
-        if missing_examples:
-            self._dbg("worker-missing-examples:")
-            for p in missing_examples:
-                self._dbg(f"  missing: {p}")
+        if unavailable_examples:
+            self._dbg("worker-unavailable-examples (outside indexed DTED set):")
+            for p in unavailable_examples:
+                self._dbg(f"  unavailable: {p}")
 
         terrain = self._store.sample_polygon_grid(
             polygon_latlon=polygon,

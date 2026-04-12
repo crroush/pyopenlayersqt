@@ -52,6 +52,7 @@ class DTEDStore:
         self.cache_size = max(1, int(cache_size))
         self._tile_cache: "OrderedDict[Tuple[int, int], _TileData]" = OrderedDict()
         self._coverage_bounds: Optional[Bounds] = None
+        self._available_tiles: Optional[set[tuple[int, int]]] = None
 
     @staticmethod
     def _tile_dir_name(lon_floor: int) -> str:
@@ -138,6 +139,7 @@ class DTEDStore:
 
         lat_floors: list[int] = []
         lon_floors: list[int] = []
+        available_tiles: set[tuple[int, int]] = set()
         for lon_dir in self.root_dir.iterdir():
             if not lon_dir.is_dir():
                 continue
@@ -156,6 +158,7 @@ class DTEDStore:
                 lat = int(stem[1:])
                 lat_floor = lat if stem[0] == "n" else -lat
                 lat_floors.append(lat_floor)
+                available_tiles.add((lat_floor, lon_floor))
 
         if not lat_floors or not lon_floors:
             return None
@@ -164,7 +167,16 @@ class DTEDStore:
             (float(min(lat_floors)), float(min(lon_floors))),
             (float(max(lat_floors) + 1), float(max(lon_floors) + 1)),
         )
+        self._available_tiles = available_tiles
         return self._coverage_bounds
+
+    def has_tile(self, lat_floor: int, lon_floor: int) -> bool:
+        """Return True when a DTED file exists for this tile."""
+        if self._available_tiles is None:
+            self.coverage_bounds()
+        if self._available_tiles is not None:
+            return (lat_floor, lon_floor) in self._available_tiles
+        return self._tile_path(lat_floor, lon_floor).exists()
 
     @staticmethod
     def _bilinear_sample(tile: _TileData, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
