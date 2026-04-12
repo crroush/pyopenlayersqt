@@ -567,6 +567,7 @@ raster = map_widget.add_raster_image(png, bounds=terrain.bounds, name="terrain")
 
 The dynamic demo `examples/17_dted_terrain_overlay.py` adds:
 - required CLI argument `--dted-root` (must point to DTED root),
+- fixed or auto-locked color scaling to avoid color shifts while panning,
 - global terrain enable/disable control,
 - debounced auto-re-render on view changes,
 - sampling resolution derived from viewport pixel size (with max render-size cap),

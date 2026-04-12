@@ -237,6 +237,8 @@ class DTEDStore:
         terrain: TerrainLayer,
         cmap: str = "terrain",
         alpha: float = 0.85,
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
     ) -> bytes:
         """Convert sampled terrain into RGBA PNG bytes for RasterLayer overlays."""
         arr = terrain.grid_m
@@ -244,10 +246,14 @@ class DTEDStore:
         if not valid.any():
             rgba = np.zeros((*arr.shape, 4), dtype=np.uint8)
         else:
-            vmin = float(np.nanmin(arr))
-            vmax = float(np.nanmax(arr))
-            span = max(vmax - vmin, 1e-6)
-            norm = (arr - vmin) / span
+            data_min = float(np.nanmin(arr))
+            data_max = float(np.nanmax(arr))
+            lo = data_min if vmin is None else float(vmin)
+            hi = data_max if vmax is None else float(vmax)
+            if hi <= lo:
+                hi = lo + 1e-6
+            span = max(hi - lo, 1e-6)
+            norm = (arr - lo) / span
             norm = np.clip(norm, 0.0, 1.0)
             rgba_f = colormaps[cmap](norm)
             rgba = (rgba_f * 255).astype(np.uint8)

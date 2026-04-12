@@ -45,6 +45,10 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         self._current_request_id = 0
         self._latest_applied_id = 0
         self._last_requested_key: Optional[Tuple[float, ...]] = None
+        self._cmap = args.cmap
+        self._color_range: Optional[Tuple[float, float]] = None
+        if args.color_min is not None and args.color_max is not None:
+            self._color_range = (float(args.color_min), float(args.color_max))
 
         self._render_cache_size = max(1, int(args.render_cache_size))
         self._render_cache: "OrderedDict[Tuple[float, ...], tuple[bytes, list[tuple[float, float]]]]" = OrderedDict()
@@ -172,7 +176,22 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
             height=int(height_px),
             nodata_value=np.nan,
         )
-        png = self._store.terrain_to_heatmap_png(terrain, cmap="terrain", alpha=1.0)
+        if self._color_range is None:
+            finite = np.isfinite(terrain.grid_m)
+            if finite.any():
+                self._color_range = (
+                    float(np.nanmin(terrain.grid_m)),
+                    float(np.nanmax(terrain.grid_m)),
+                )
+
+        color_min, color_max = (self._color_range if self._color_range is not None else (None, None))
+        png = self._store.terrain_to_heatmap_png(
+            terrain,
+            cmap=self._cmap,
+            alpha=1.0,
+            vmin=color_min,
+            vmax=color_max,
+        )
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         bounds = [terrain.bounds[0], terrain.bounds[1]]
@@ -244,6 +263,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--render-cache-size", type=int, default=8, help="Rendered view LRU cache size")
     parser.add_argument("--max-render-px", type=int, default=1024, help="Max render width/height in px")
     parser.add_argument("--max-tiles", type=int, default=400, help="Skip rendering when extent spans too many DTED tiles")
+    parser.add_argument("--cmap", default="viridis", help="Matplotlib colormap name (default: viridis)")
+    parser.add_argument("--color-min", type=float, default=None, help="Fixed minimum elevation for color scaling")
+    parser.add_argument("--color-max", type=float, default=None, help="Fixed maximum elevation for color scaling")
     parser.add_argument(
         "--pixel-ratio-scale",
         type=float,
@@ -255,6 +277,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 if __name__ == "__main__":
     args = _build_arg_parser().parse_args()
+    if (args.color_min is None) ^ (args.color_max is None):
+        raise SystemExit("Use both --color-min and --color-max together, or omit both.")
+    if args.color_min is not None and args.color_max <= args.color_min:
+        raise SystemExit("--color-max must be greater than --color-min.")
 
     app = QtWidgets.QApplication(sys.argv)
     win = DTEDTerrainRenderer(args)
