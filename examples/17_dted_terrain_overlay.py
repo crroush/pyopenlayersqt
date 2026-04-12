@@ -11,12 +11,14 @@ import argparse
 from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+import io
 import math
 import sys
 import time
 from typing import Dict, Optional, Tuple
 
 import numpy as np
+from PIL import Image
 from PySide6 import QtCore, QtWidgets
 
 from pyopenlayersqt import DTEDStore, OLMapWidget, RasterStyle
@@ -70,6 +72,9 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
 
         self._render_cache_size = max(1, int(args.render_cache_size))
         self._render_cache: "OrderedDict[Tuple[float, ...], tuple[bytes, list[tuple[float, float]]]]" = OrderedDict()
+        self._tile_px = int(args.tile_px)
+        self._tile_cache_size = int(args.tile_cache_entries)
+        self._terrain_tile_cache: "OrderedDict[tuple[float, int, int], Image.Image]" = OrderedDict()
 
         self._store = DTEDStore(
             args.dted_root,
@@ -268,97 +273,84 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         self._dbg(f"worker-start: request_id={request_id} key={key}")
         lat_min, lon_min, lat_max, lon_max, width_px, height_px, res_m_per_px = key
 
-        polygon = [
-            (lat_min, lon_min),
-            (lat_min, lon_max),
-            (lat_max, lon_max),
-            (lat_max, lon_min),
-        ]
-
-        # Use a fixed degree lattice per resolution for both axes so panning
-        # at the same zoom does not change the quantization grid.
+        # Use a fixed degree lattice per resolution for both axes.
         q_deg = max(1e-9, float(res_m_per_px) / M_PER_DEG_LAT)
         q_lat = q_deg
         q_lon = q_deg
         self._dbg(f"worker-quantize: q_deg={q_deg:.8f}")
 
-        lat_lo = int(math.floor(lat_min))
-        lat_hi = int(math.floor(np.nextafter(lat_max, -np.inf)))
-        lon_lo = int(math.floor(lon_min))
-        lon_hi = int(math.floor(np.nextafter(lon_max, -np.inf)))
-        if self._auto_lon_offset and not self._lon_offset_locked:
-            candidates = {}
-            for off in (-1, 0, 1):
-                self._store.set_lon_dir_offset(off)
-                c = 0
-                for lat_floor in range(lat_lo, lat_hi + 1):
-                    for lon_floor in range(lon_lo, lon_hi + 1):
-                        if self._store.has_tile(lat_floor, lon_floor):
-                            c += 1
-                candidates[off] = c
-            best_off = max(candidates, key=candidates.get)
-            self._store.set_lon_dir_offset(best_off)
-            self._lon_offset_locked = True
-            self._dbg(f"autodetect-lon-offset: candidates={candidates} selected={best_off}")
+        deg_per_px_lat = max(1e-12, (lat_max - lat_min) / max(1, int(height_px) - 1))
+        deg_per_px_lon = max(1e-12, (lon_max - lon_min) / max(1, int(width_px) - 1))
+        tile_deg_lat = deg_per_px_lat * self._tile_px
+        tile_deg_lon = deg_per_px_lon * self._tile_px
 
-        total_tiles = max(0, (lat_hi - lat_lo + 1)) * max(0, (lon_hi - lon_lo + 1))
-        available_tiles = 0
-        unavailable_examples: list[str] = []
-        for lat_floor in range(lat_lo, lat_hi + 1):
-            for lon_floor in range(lon_lo, lon_hi + 1):
-                if self._store.has_tile(lat_floor, lon_floor):
-                    available_tiles += 1
-                elif len(unavailable_examples) < 25:
-                    unavailable_examples.append(
-                        str(self._store._tile_path(lat_floor, lon_floor))  # pylint: disable=protected-access
+        iy0 = int(math.floor(lat_min / tile_deg_lat))
+        iy1 = int(math.floor(np.nextafter(lat_max, -np.inf) / tile_deg_lat))
+        ix0 = int(math.floor(lon_min / tile_deg_lon))
+        ix1 = int(math.floor(np.nextafter(lon_max, -np.inf) / tile_deg_lon))
+        self._dbg(f"worker-view-tiles: ix[{ix0},{ix1}] iy[{iy0},{iy1}] tile_px={self._tile_px}")
+
+        def _get_tile_image(ix: int, iy: int) -> Image.Image:
+            tkey = (round(float(res_m_per_px), 3), ix, iy)
+            cached = self._terrain_tile_cache.get(tkey)
+            if cached is not None:
+                self._terrain_tile_cache.move_to_end(tkey)
+                return cached
+            t_lon_min = ix * tile_deg_lon
+            t_lon_max = t_lon_min + tile_deg_lon
+            t_lat_min = iy * tile_deg_lat
+            t_lat_max = t_lat_min + tile_deg_lat
+            t_poly = [
+                (t_lat_min, t_lon_min),
+                (t_lat_min, t_lon_max),
+                (t_lat_max, t_lon_max),
+                (t_lat_max, t_lon_min),
+            ]
+            terrain = self._store.sample_polygon_grid(
+                polygon_latlon=t_poly,
+                width=self._tile_px,
+                height=self._tile_px,
+                nodata_value=np.nan,
+                quantize_deg=(q_lat, q_lon),
+            )
+            if self._color_range is None:
+                finite = np.isfinite(terrain.grid_m)
+                if finite.any():
+                    self._color_range = (
+                        float(np.nanmin(terrain.grid_m)),
+                        float(np.nanmax(terrain.grid_m)),
                     )
-        unavailable_tiles = total_tiles - available_tiles
-        self._dbg(
-            f"worker-tiles: lat[{lat_lo},{lat_hi}] lon[{lon_lo},{lon_hi}] "
-            f"total={total_tiles} available={available_tiles} unavailable={unavailable_tiles}"
-        )
-        if self._debug:
-            for lon_floor in range(lon_lo, lon_hi + 1):
-                avail_lats = self._store.available_lats_for_lon(lon_floor)
-                if avail_lats:
-                    preview = ",".join(f"{x:+d}" for x in avail_lats[:10])
-                    suffix = "..." if len(avail_lats) > 10 else ""
-                    self._dbg(f"  lon {lon_floor:+d} has {len(avail_lats)} lats: {preview}{suffix}")
-                else:
-                    self._dbg(f"  lon {lon_floor:+d} has 0 indexed lats")
-        if unavailable_examples:
-            self._dbg("worker-unavailable-examples (outside indexed DTED set):")
-            for p in unavailable_examples:
-                self._dbg(f"  unavailable: {p}")
+            color_min, color_max = (self._color_range if self._color_range is not None else (None, None))
+            png_bytes = self._store.terrain_to_heatmap_png(
+                terrain,
+                cmap=self._cmap,
+                alpha=1.0,
+                vmin=color_min,
+                vmax=color_max,
+            )
+            img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+            self._terrain_tile_cache[tkey] = img
+            self._terrain_tile_cache.move_to_end(tkey)
+            while len(self._terrain_tile_cache) > self._tile_cache_size:
+                self._terrain_tile_cache.popitem(last=False)
+            return img
 
-        terrain = self._store.sample_polygon_grid(
-            polygon_latlon=polygon,
-            width=int(width_px),
-            height=int(height_px),
-            nodata_value=np.nan,
-            quantize_deg=(q_lat, q_lon),
-        )
-        if self._color_range is None:
-            finite = np.isfinite(terrain.grid_m)
-            if finite.any():
-                self._color_range = (
-                    float(np.nanmin(terrain.grid_m)),
-                    float(np.nanmax(terrain.grid_m)),
-                )
+        canvas = Image.new("RGBA", (int(width_px), int(height_px)), (0, 0, 0, 0))
+        for iy in range(iy0, iy1 + 1):
+            for ix in range(ix0, ix1 + 1):
+                tile_img = _get_tile_image(ix, iy)
+                tile_lon_min = ix * tile_deg_lon
+                tile_lat_max = (iy + 1) * tile_deg_lat
+                x_px = int(round((tile_lon_min - lon_min) / deg_per_px_lon))
+                y_px = int(round((lat_max - tile_lat_max) / deg_per_px_lat))
+                canvas.alpha_composite(tile_img, (x_px, y_px))
 
-        color_min, color_max = (self._color_range if self._color_range is not None else (None, None))
-        png = self._store.terrain_to_heatmap_png(
-            terrain,
-            cmap=self._cmap,
-            alpha=1.0,
-            vmin=color_min,
-            vmax=color_max,
-        )
+        out = io.BytesIO()
+        canvas.save(out, format="PNG")
+        png = out.getvalue()
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        bounds = [terrain.bounds[0], terrain.bounds[1]]
-        valid_ratio = float(np.isfinite(terrain.grid_m).mean())
-        self._dbg(f"worker-valid: finite_ratio={valid_ratio:.4f}")
+        bounds = [(lat_min, lon_min), (lat_max, lon_max)]
         self._dbg(f"worker-done: request_id={request_id} elapsed_ms={elapsed_ms:.1f}")
         return RenderResult(request_id=request_id, key=key, png=png, bounds=bounds, elapsed_ms=elapsed_ms)
 
@@ -465,6 +457,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="Multiplier applied to viewport pixels when sampling DTED",
     )
+    parser.add_argument("--tile-px", type=int, default=256, help="Terrain tile edge length in pixels")
+    parser.add_argument("--tile-cache-entries", type=int, default=256, help="Cached terrain tile count")
     return parser
 
 

@@ -569,7 +569,7 @@ The dynamic demo `examples/17_dted_terrain_overlay.py` adds:
 - required CLI argument `--dted-root` (must point to DTED root),
 - fixed color scaling to avoid color shifts while panning (default 0 to 15,000 feet),
 - global terrain enable/disable control,
-- debounced pan/zoom re-rendering by default (use `--no-rerender-on-pan` to disable same-zoom pan updates),
+- debounced pan/zoom rendering with a tile-style renderer that fills only missing terrain squares,
 - optional coarse DTED-bbox clipping (`--clip-to-bbox`) for dense global datasets,
 - longitude-directory offset controls (`--lon-dir-offset`, optional `--auto-lon-offset`) for non-standard layouts,
 - sampling resolution derived from viewport pixel size (with max render-size cap),
