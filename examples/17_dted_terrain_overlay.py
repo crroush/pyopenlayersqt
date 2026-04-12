@@ -50,6 +50,7 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         self._coverage_bounds: Optional[Tuple[float, float, float, float]] = None
         self._coverage_resolution: Optional[float] = None
         self._pad_factor = 1.6
+        self._debug = bool(args.debug_terrain)
         self._cmap = args.cmap
         self._color_unit = args.color_unit
         self._color_range: Optional[Tuple[float, float]] = None
@@ -85,6 +86,10 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
     def closeEvent(self, event):  # pylint: disable=invalid-name
         self._executor.shutdown(wait=False, cancel_futures=True)
         super().closeEvent(event)
+
+    def _dbg(self, msg: str):
+        if self._debug:
+            print(f"[DTED-DEBUG] {msg}", flush=True)
 
     def _build_controls(self) -> QtWidgets.QWidget:
         panel = QtWidgets.QWidget()
@@ -164,30 +169,36 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
             return
 
         if self._view_inside_coverage(extent):
+            self._dbg("skip: viewport is inside current rendered coverage")
             return
 
         try:
             key = self._extent_key(self._expanded_extent(extent))
         except KeyError:
+            self._dbg("skip: extent payload missing expected keys")
             return
 
         if key == self._last_requested_key:
+            self._dbg("skip: same request key as previous extent")
             return
         self._last_requested_key = key
 
         tile_est = max(1, int(np.ceil(abs(key[2] - key[0])))) * max(1, int(np.ceil(abs(key[3] - key[1]))))
         if tile_est > self._max_tiles:
+            self._dbg(f"skip: tile estimate {tile_est} > max_tiles {self._max_tiles}")
             self.status_label.setText(
                 f"Zoom in to render terrain (estimated {tile_est} DTED tiles > limit {self._max_tiles})"
             )
             return
 
+        self._dbg(f"request: key={key} tile_est={tile_est}")
         cached = self._render_cache.get(key)
         if cached is not None:
             self._render_cache.move_to_end(key)
             png, bounds = cached
             self._ensure_layer_and_set(png, bounds)
             self.status_label.setText(f"Terrain cache hit | {key[4]}x{key[5]} px | bounds={key[0]:.5f},{key[1]:.5f}→{key[2]:.5f},{key[3]:.5f}")
+            self._dbg("cache-hit: reused rendered image")
             return
 
         self._current_request_id += 1
@@ -199,12 +210,15 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
 
         if self._pending_future and not self._pending_future.done():
             self._pending_future.cancel()
+            self._dbg("cancel: pending future cancelled before submit")
 
+        self._dbg(f"submit: request_id={request_id}")
         self._pending_future = self._executor.submit(self._render_for_extent, request_id, key)
         self._pending_future.add_done_callback(self._on_render_done)
 
     def _render_for_extent(self, request_id: int, key: Tuple[float, ...]) -> RenderResult:
         t0 = time.perf_counter()
+        self._dbg(f"worker-start: request_id={request_id} key={key}")
         lat_min, lon_min, lat_max, lon_max, width_px, height_px, _res = key
 
         polygon = [
@@ -239,13 +253,16 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         bounds = [terrain.bounds[0], terrain.bounds[1]]
+        self._dbg(f"worker-done: request_id={request_id} elapsed_ms={elapsed_ms:.1f}")
         return RenderResult(request_id=request_id, key=key, png=png, bounds=bounds, elapsed_ms=elapsed_ms)
 
     def _on_render_done(self, future: Future):
         if future.cancelled():
+            self._dbg("done: future cancelled")
             return
         exc = future.exception()
         if exc is not None:
+            self._dbg(f"done: future exception={exc}")
             QtCore.QTimer.singleShot(0, lambda: self.status_label.setText(f"Render error: {exc}"))
             return
 
@@ -256,10 +273,17 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
     def _apply_render_result(self, result: RenderResult):
         # Never apply stale renders; only the newest requested frame can paint.
         if result.request_id != self._current_request_id:
+            self._dbg(f"drop-stale: result={result.request_id} current={self._current_request_id}")
             return
         self._latest_applied_id = result.request_id
         self._coverage_bounds = (result.key[0], result.key[1], result.key[2], result.key[3])
         self._coverage_resolution = result.key[6]
+        self._dbg(
+            "apply: "
+            f"request_id={result.request_id} "
+            f"coverage=({result.key[0]:.6f},{result.key[1]:.6f})→({result.key[2]:.6f},{result.key[3]:.6f}) "
+            f"res={result.key[6]}"
+        )
 
         self._render_cache[result.key] = (result.png, result.bounds)
         self._render_cache.move_to_end(result.key)
@@ -302,6 +326,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Dynamic DTED terrain overlay demo")
     parser.add_argument("--dted-root", required=True, help="Path to DTED root directory (required)")
     parser.add_argument("--disable-terrain", action="store_true", help="Start with terrain overlay disabled")
+    parser.add_argument("--debug-terrain", action="store_true", help="Print terrain render debug logs to stdout")
     parser.add_argument("--center-lat", type=float, default=29.0)
     parser.add_argument("--center-lon", type=float, default=-106.0)
     parser.add_argument("--zoom", type=int, default=7)
