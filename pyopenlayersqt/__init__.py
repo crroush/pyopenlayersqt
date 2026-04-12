@@ -26,6 +26,7 @@ from .features_table import (
 )
 from .range_slider import RangeSliderWidget
 from .selection_linking import DualSelectLink, MultiSelectLink, TableLink
+from .dted import DTEDStore, TerrainLayer
 
 
 __all__ = [
@@ -52,4 +53,6 @@ __all__ = [
     "TableLink",
     "DualSelectLink",
     "MultiSelectLink",
+    "DTEDStore",
+    "TerrainLayer",
 ]
