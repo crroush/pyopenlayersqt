@@ -56,6 +56,8 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         self._rerender_on_pan = bool(args.rerender_on_pan)
         self._cmap = args.cmap
         self._color_unit = args.color_unit
+        self._auto_lon_offset = bool(args.auto_lon_offset)
+        self._lon_offset_locked = False
         self._color_range: Optional[Tuple[float, float]] = None
         if args.color_min is not None and args.color_max is not None:
             lo = float(args.color_min)
@@ -68,7 +70,11 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         self._render_cache_size = max(1, int(args.render_cache_size))
         self._render_cache: "OrderedDict[Tuple[float, ...], tuple[bytes, list[tuple[float, float]]]]" = OrderedDict()
 
-        self._store = DTEDStore(args.dted_root, cache_size=int(args.tile_cache_size))
+        self._store = DTEDStore(
+            args.dted_root,
+            cache_size=int(args.tile_cache_size),
+            lon_dir_offset=int(args.lon_dir_offset),
+        )
         self._dted_coverage = self._store.coverage_bounds()
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._pending_future: Optional[Future] = None
@@ -280,6 +286,21 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         lat_hi = int(math.floor(np.nextafter(lat_max, -np.inf)))
         lon_lo = int(math.floor(lon_min))
         lon_hi = int(math.floor(np.nextafter(lon_max, -np.inf)))
+        if self._auto_lon_offset and not self._lon_offset_locked:
+            candidates = {}
+            for off in (-1, 0, 1):
+                self._store.set_lon_dir_offset(off)
+                c = 0
+                for lat_floor in range(lat_lo, lat_hi + 1):
+                    for lon_floor in range(lon_lo, lon_hi + 1):
+                        if self._store.has_tile(lat_floor, lon_floor):
+                            c += 1
+                candidates[off] = c
+            best_off = max(candidates, key=candidates.get)
+            self._store.set_lon_dir_offset(best_off)
+            self._lon_offset_locked = True
+            self._dbg(f"autodetect-lon-offset: candidates={candidates} selected={best_off}")
+
         total_tiles = max(0, (lat_hi - lat_lo + 1)) * max(0, (lon_hi - lon_lo + 1))
         available_tiles = 0
         unavailable_examples: list[str] = []
@@ -404,6 +425,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--disable-terrain", action="store_true", help="Start with terrain overlay disabled")
     parser.add_argument("--debug-terrain", action="store_true", help="Print terrain render debug logs to stdout")
     parser.add_argument("--rerender-on-pan", action="store_true", help="Re-render while panning at same zoom/resolution")
+    parser.add_argument("--lon-dir-offset", type=int, default=0, help="Longitude directory offset for non-standard layouts")
+    parser.add_argument("--auto-lon-offset", action="store_true", help="Auto-detect longitude directory offset on first render")
     parser.add_argument("--center-lat", type=float, default=29.0)
     parser.add_argument("--center-lon", type=float, default=-106.0)
     parser.add_argument("--zoom", type=int, default=7)

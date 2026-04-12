@@ -47,9 +47,10 @@ class DTEDStore:
     ``<root>/w106/n19.dt2``.
     """
 
-    def __init__(self, root_dir: str | Path, cache_size: int = 16):
+    def __init__(self, root_dir: str | Path, cache_size: int = 16, lon_dir_offset: int = 0):
         self.root_dir = Path(root_dir).expanduser().resolve()
         self.cache_size = max(1, int(cache_size))
+        self.lon_dir_offset = int(lon_dir_offset)
         self._tile_cache: "OrderedDict[Tuple[int, int], _TileData]" = OrderedDict()
         self._coverage_bounds: Optional[Bounds] = None
         self._available_tiles: Optional[set[tuple[int, int]]] = None
@@ -65,7 +66,8 @@ class DTEDStore:
         return f"{hemi}{abs(lat_floor):02d}.dt2"
 
     def _tile_path(self, lat_floor: int, lon_floor: int) -> Path:
-        return self.root_dir / self._tile_dir_name(lon_floor) / self._tile_file_name(lat_floor)
+        mapped_lon = lon_floor + self.lon_dir_offset
+        return self.root_dir / self._tile_dir_name(mapped_lon) / self._tile_file_name(lat_floor)
 
     @staticmethod
     def _parse_uhl_counts(buf: memoryview) -> Tuple[Optional[int], Optional[int]]:
@@ -175,8 +177,16 @@ class DTEDStore:
         if self._available_tiles is None:
             self.coverage_bounds()
         if self._available_tiles is not None:
-            return (lat_floor, lon_floor) in self._available_tiles
+            mapped_lon = lon_floor + self.lon_dir_offset
+            return (lat_floor, mapped_lon) in self._available_tiles
         return self._tile_path(lat_floor, lon_floor).exists()
+
+    def set_lon_dir_offset(self, offset: int) -> None:
+        """Apply a directory longitude offset for non-standard DTED layouts."""
+        offset = int(offset)
+        if offset != self.lon_dir_offset:
+            self.lon_dir_offset = offset
+            self._tile_cache.clear()
 
     @staticmethod
     def _bilinear_sample(tile: _TileData, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
