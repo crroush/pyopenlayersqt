@@ -37,6 +37,7 @@ from PySide6.QtCore import Qt, QEvent, Signal, QRect
 from PySide6.QtGui import QPainter, QPen, QColor, QPaintEvent, QMouseEvent
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolTip, QVBoxLayout, QWidget
 
+
 class DualHandleSlider(QWidget):
     """A single slider widget with two draggable handles for min/max selection."""
 
@@ -70,7 +71,7 @@ class DualHandleSlider(QWidget):
         if self._tooltip_formatter is None:
             return
 
-        value = self._min_value if handle == 'min' else self._max_value
+        value = self._min_value if handle == "min" else self._max_value
         tooltip = self._tooltip_formatter(value)
         if not tooltip:
             return
@@ -84,9 +85,9 @@ class DualHandleSlider(QWidget):
         max_handle = self._get_handle_rect(self._max_value)
 
         if min_handle.contains(event_pos):
-            return 'min'
+            return "min"
         if max_handle.contains(event_pos):
-            return 'max'
+            return "max"
         return None
 
     def setMinimum(self, value: int) -> None:
@@ -138,7 +139,7 @@ class DualHandleSlider(QWidget):
             margin,
             (self.height() - self._track_height) // 2,
             self.width() - 2 * margin,
-            self._track_height
+            self._track_height,
         )
 
     def _value_to_pos(self, value: int) -> int:
@@ -181,10 +182,9 @@ class DualHandleSlider(QWidget):
 
         y_center = self.height() // 2
         y_tolerance = self._handle_radius + 6
-        return (
-            min_pos <= event_pos.x() <= max_pos
-            and (y_center - y_tolerance) <= event_pos.y() <= (y_center + y_tolerance)
-        )
+        return min_pos <= event_pos.x() <= max_pos and (
+            y_center - y_tolerance
+        ) <= event_pos.y() <= (y_center + y_tolerance)
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         """Paint the slider."""
@@ -201,7 +201,9 @@ class DualHandleSlider(QWidget):
         # Draw selected range
         selected_rect = self._get_selected_rect()
         painter.setBrush(QColor(70, 130, 180))  # Steel blue
-        painter.drawRoundedRect(selected_rect, self._track_height / 2, self._track_height / 2)
+        painter.drawRoundedRect(
+            selected_rect, self._track_height / 2, self._track_height / 2
+        )
 
         # Draw handles
         for value, _ in [(self._min_value, False), (self._max_value, True)]:
@@ -237,7 +239,7 @@ class DualHandleSlider(QWidget):
                 self._hovered_handle = hovered_handle
                 self._show_handle_tooltip(hovered_handle)
             elif self._is_in_selected_range_hit_area(event.pos()):
-                self._dragging_handle = 'range'
+                self._dragging_handle = "range"
                 self._drag_range_start_value = self._pos_to_value(pos)
                 self._drag_range_initial_min = self._min_value
                 self._drag_range_initial_max = self._max_value
@@ -250,10 +252,10 @@ class DualHandleSlider(QWidget):
 
                 if min_dist < max_dist:
                     self.setMinValue(value)
-                    self._dragging_handle = 'min'
+                    self._dragging_handle = "min"
                 else:
                     self.setMaxValue(value)
-                    self._dragging_handle = 'max'
+                    self._dragging_handle = "max"
 
                 self._show_handle_tooltip(self._dragging_handle)
 
@@ -263,12 +265,12 @@ class DualHandleSlider(QWidget):
             pos = event.pos().x()
             value = self._pos_to_value(pos)
 
-            if self._dragging_handle == 'min':
+            if self._dragging_handle == "min":
                 self.setMinValue(value)
-            elif self._dragging_handle == 'max':
+            elif self._dragging_handle == "max":
                 self.setMaxValue(value)
             elif (
-                self._dragging_handle == 'range'
+                self._dragging_handle == "range"
                 and self._drag_range_start_value is not None
                 and self._drag_range_initial_min is not None
                 and self._drag_range_initial_max is not None
@@ -291,7 +293,7 @@ class DualHandleSlider(QWidget):
                     self.update()
                     self.rangeChanged.emit(self._min_value, self._max_value)
 
-            if self._dragging_handle in ('min', 'max'):
+            if self._dragging_handle in ("min", "max"):
                 self._show_handle_tooltip(self._dragging_handle)
         else:
             # Update cursor/tooltip when hovering over handles
@@ -383,7 +385,9 @@ class RangeSliderWidget(QWidget):
             if values is not None:
                 self._configure_iso_values(values)
             else:
-                iso_min = str(min_val) if min_val is not None else "1970-01-01T00:00:00Z"
+                iso_min = (
+                    str(min_val) if min_val is not None else "1970-01-01T00:00:00Z"
+                )
                 iso_max = str(max_val) if max_val is not None else iso_min
                 iso_step_seconds = step if step > 0 else None
                 self._configure_iso_range(
@@ -443,7 +447,11 @@ class RangeSliderWidget(QWidget):
 
     def _timestamp_to_iso8601(self, timestamp: float) -> str:
         """Convert a UTC timestamp in seconds to an ISO8601 string with Z suffix."""
-        return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        return (
+            datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
 
     def _configure_iso_range(
         self,
@@ -467,22 +475,43 @@ class RangeSliderWidget(QWidget):
         self._iso_origin_ts = min_ts
         self._iso_step_seconds = float(computed_step)
         self._min_numeric = 0.0
-        self._max_numeric = range_seconds / self._iso_step_seconds if self._iso_step_seconds > 0 else 0.0
+        self._max_numeric = (
+            range_seconds / self._iso_step_seconds
+            if self._iso_step_seconds > 0
+            else 0.0
+        )
         self._step = 1.0
         self._slider_min = 0
         self._slider_max = int(max(self._max_numeric, 0.0))
 
-    def _choose_iso_step_seconds(self, range_seconds: float, target_steps: int = 400) -> float:
+    def _choose_iso_step_seconds(
+        self, range_seconds: float, target_steps: int = 400
+    ) -> float:
         """Pick a human-friendly ISO8601 step size in seconds."""
         if range_seconds <= 0:
             return 1.0
 
         ideal = range_seconds / max(target_steps, 1)
         candidate_steps = [
-            1, 5, 10, 15, 30,
-            60, 5 * 60, 10 * 60, 15 * 60, 30 * 60,
-            60 * 60, 2 * 60 * 60, 3 * 60 * 60, 6 * 60 * 60, 12 * 60 * 60,
-            24 * 60 * 60, 2 * 24 * 60 * 60, 7 * 24 * 60 * 60, 14 * 24 * 60 * 60,
+            1,
+            5,
+            10,
+            15,
+            30,
+            60,
+            5 * 60,
+            10 * 60,
+            15 * 60,
+            30 * 60,
+            60 * 60,
+            2 * 60 * 60,
+            3 * 60 * 60,
+            6 * 60 * 60,
+            12 * 60 * 60,
+            24 * 60 * 60,
+            2 * 24 * 60 * 60,
+            7 * 24 * 60 * 60,
+            14 * 24 * 60 * 60,
             30 * 24 * 60 * 60,
         ]
         for step in candidate_steps:
@@ -537,7 +566,9 @@ class RangeSliderWidget(QWidget):
                 if 0 <= idx < len(self._iso_values):
                     return self._iso_values[idx]
                 return ""
-            return self._timestamp_to_iso8601(self._iso_origin_ts + (idx * self._iso_step_seconds))
+            return self._timestamp_to_iso8601(
+                self._iso_origin_ts + (idx * self._iso_step_seconds)
+            )
         # Format numeric value nicely
         if self._step >= 1.0:
             return str(int(numeric_value))
@@ -570,7 +601,6 @@ class RangeSliderWidget(QWidget):
             # Emit numeric values
             self.rangeChanged.emit(min_val, max_val)
 
-
     def reset_range(self) -> None:
         """Reset the slider to its full available range."""
         self._slider.setMinValue(self._slider_min)
@@ -592,7 +622,9 @@ class RangeSliderWidget(QWidget):
             return (self._format_value(min_val), self._format_value(max_val))
         return (min_val, max_val)
 
-    def set_range(self, min_value: Union[float, str], max_value: Union[float, str]) -> None:
+    def set_range(
+        self, min_value: Union[float, str], max_value: Union[float, str]
+    ) -> None:
         """Set the current range programmatically.
 
         Args:
@@ -619,7 +651,9 @@ class RangeSliderWidget(QWidget):
                 max_ts = self._parse_iso8601(str(max_value))
 
                 current_min_ts = self._iso_origin_ts
-                current_max_ts = self._iso_origin_ts + (self._slider_max * self._iso_step_seconds)
+                current_max_ts = self._iso_origin_ts + (
+                    self._slider_max * self._iso_step_seconds
+                )
                 if (
                     self._slider_max == 0
                     or min_ts < current_min_ts
@@ -641,10 +675,7 @@ class RangeSliderWidget(QWidget):
             # Set numeric values
             min_num = float(min_value)
             max_num = float(max_value)
-            if (
-                min_num < self._min_numeric
-                or max_num > self._max_numeric
-            ):
+            if min_num < self._min_numeric or max_num > self._max_numeric:
                 resolved_min = min(min_num, max_num)
                 resolved_max = max(min_num, max_num)
                 self._configure_numeric_range(
