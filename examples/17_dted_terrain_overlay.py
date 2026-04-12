@@ -11,7 +11,6 @@ import argparse
 from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-import math
 import sys
 import time
 from typing import Dict, Optional, Tuple
@@ -230,11 +229,12 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
             (lat_max, lon_min),
         ]
 
-        lat_mid = 0.5 * (lat_min + lat_max)
-        meters_per_deg_lon = max(1e-6, M_PER_DEG_LAT * math.cos(math.radians(lat_mid)))
-        q_lat = max(1e-9, float(res_m_per_px) / M_PER_DEG_LAT)
-        q_lon = max(1e-9, float(res_m_per_px) / meters_per_deg_lon)
-        self._dbg(f"worker-quantize: q_lat={q_lat:.8f} q_lon={q_lon:.8f}")
+        # Use a fixed degree lattice per resolution for both axes so panning
+        # at the same zoom does not change the quantization grid.
+        q_deg = max(1e-9, float(res_m_per_px) / M_PER_DEG_LAT)
+        q_lat = q_deg
+        q_lon = q_deg
+        self._dbg(f"worker-quantize: q_deg={q_deg:.8f}")
 
         terrain = self._store.sample_polygon_grid(
             polygon_latlon=polygon,
