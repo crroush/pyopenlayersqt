@@ -290,8 +290,10 @@ class DTEDTerrainRenderer(QtWidgets.QMainWindow):
         ix1 = int(math.ceil(lon_max / tile_deg_lon) - 1)
         self._dbg(f"worker-view-tiles: ix[{ix0},{ix1}] iy[{iy0},{iy1}] tile_px={self._tile_px}")
 
+        tile_scale_key = (round(tile_deg_lat, 8), round(tile_deg_lon, 8))
+
         def _get_tile_image(ix: int, iy: int) -> Image.Image:
-            tkey = (round(float(res_m_per_px), 3), ix, iy)
+            tkey = (round(float(res_m_per_px), 3), tile_scale_key[0], tile_scale_key[1], ix, iy)
             cached = self._terrain_tile_cache.get(tkey)
             if cached is not None:
                 self._terrain_tile_cache.move_to_end(tkey)
