@@ -68,7 +68,7 @@ class TerrainDEM:
         self,
         extent: dict,
         zoom: int,
-        progress_cb: Optional[Callable[[str], None]] = None,
+        progress_cb: Optional[Callable[[str, Optional[int]], None]] = None,
     ):
         self.zoom = int(zoom)
         lon_min = float(extent["lon_min"])
@@ -99,7 +99,10 @@ class TerrainDEM:
                 done_tiles += 1
                 if progress_cb:
                     pct = int(done_tiles * 100 / max(1, total_tiles))
-                    progress_cb(f"Downloading terrain tiles... {pct}% ({done_tiles}/{total_tiles})")
+                    progress_cb(
+                        f"Downloading terrain tiles... {pct}% ({done_tiles}/{total_tiles})",
+                        pct,
+                    )
 
     def _fetch_tile(self, tx: int, ty: int) -> np.ndarray:
         key = (self.zoom, tx, ty)
@@ -214,7 +217,7 @@ def _compute_viewshed_rgba(
     observers: List[Observer],
     width_px: int,
     height_px: int,
-    progress_cb: Optional[Callable[[str], None]] = None,
+    progress_cb: Optional[Callable[[str, Optional[int]], None]] = None,
 ) -> bytes:
     lon_min = float(extent["lon_min"])
     lon_max = float(extent["lon_max"])
@@ -232,7 +235,7 @@ def _compute_viewshed_rgba(
             elev_grid[iy, ix] = dem.elevation_m(float(lat), float(lon))
         if progress_cb and (iy % max(1, height_px // 16) == 0 or iy == height_px - 1):
             pct = int((iy + 1) * 100 / max(1, height_px))
-            progress_cb(f"Sampling DEM grid... {pct}%")
+            progress_cb(f"Sampling DEM grid... {pct}%", pct)
 
     r = np.zeros((height_px, width_px), dtype=np.uint16)
     g = np.zeros((height_px, width_px), dtype=np.uint16)
@@ -240,8 +243,9 @@ def _compute_viewshed_rgba(
     a = np.zeros((height_px, width_px), dtype=np.uint16)
 
     for idx, obs in enumerate(observers, start=1):
+        obs_pct = int(idx * 100 / max(1, len(observers)))
         if progress_cb:
-            progress_cb(f"Computing viewshed for observer {idx}/{len(observers)}...")
+            progress_cb(f"Computing viewshed for observer {idx}/{len(observers)}...", obs_pct)
         cr, cg, cb = _hex_to_rgb(obs.color)
         if lon_max == lon_min or lat_max == lat_min:
             continue
@@ -344,6 +348,10 @@ class ViewshedWindow(QtWidgets.QMainWindow):
 
         self.status = QtWidgets.QLabel("Ready")
         controls.addWidget(self.status)
+        self.progress = QtWidgets.QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        controls.addWidget(self.progress)
         controls.addStretch(1)
 
         self._seed_default_observers()
@@ -453,6 +461,7 @@ class ViewshedWindow(QtWidgets.QMainWindow):
             return
 
         self.status.setText("Reading map extent...")
+        self.progress.setValue(0)
         self._worker_running = True
         self._extent_pending = True
         self._extent_request_token += 1
@@ -482,22 +491,36 @@ class ViewshedWindow(QtWidgets.QMainWindow):
                 float(ext["lon_max"]),
             ) / 1000.0
             self.status.setText("Computing viewshed...")
+            self.progress.setValue(2)
 
             def worker():
                 try:
-                    def post_status(msg: str):
-                        QTimer.singleShot(0, lambda m=msg: self.status.setText(m))
+                    def post_status(msg: str, pct: Optional[int] = None):
+                        def apply_status(m=msg, p=pct):
+                            self.status.setText(m)
+                            if p is not None:
+                                self.progress.setValue(int(np.clip(p, 0, 100)))
+
+                        QTimer.singleShot(0, apply_status)
 
                     zoom = max(8, min(12, int(ext.get("zoom", 10)) + 1))
-                    post_status(f"Preparing DEM at z={zoom}...")
-                    dem = TerrainDEM(ext, zoom=zoom, progress_cb=post_status)
+                    post_status(f"Preparing DEM at z={zoom}...", 5)
+                    dem = TerrainDEM(
+                        ext,
+                        zoom=zoom,
+                        progress_cb=lambda m, p: post_status(
+                            m, 5 + int((p or 0) * 0.40)
+                        ),
+                    )
                     png = _compute_viewshed_rgba(
                         dem,
                         ext,
                         observers,
                         size,
                         size,
-                        progress_cb=post_status,
+                        progress_cb=lambda m, p: post_status(
+                            m, 45 + int((p or 0) * 0.53)
+                        ),
                     )
                     bounds = [
                         (float(ext["lat_min"]), float(ext["lon_min"])),
@@ -515,12 +538,14 @@ class ViewshedWindow(QtWidgets.QMainWindow):
                             f"Viewshed complete | observers={len(observers)} | z={zoom} | "
                             f"size={size} | extent_diag={extent_range_km:.1f}km"
                         )
+                        self.progress.setValue(100)
                         self._worker_running = False
 
                     QTimer.singleShot(0, apply_result)
                 except Exception as exc:
                     def apply_error():
                         self.status.setText(f"Viewshed failed: {exc}")
+                        self.progress.setValue(0)
                         self._worker_running = False
 
                     QTimer.singleShot(0, apply_error)
