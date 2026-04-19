@@ -23,7 +23,7 @@ from PySide6 import QtWidgets
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 
-from pyopenlayersqt import OLMapWidget, PointStyle, RasterStyle, XYZTileOptions
+from pyopenlayersqt import OLMapWidget, PointStyle, RasterStyle
 
 TERRARIUM_URL = "https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png"
 WEB_MERCATOR_MAX_LAT = 85.05112878
@@ -146,8 +146,8 @@ def _is_visible(
     obs_h = obs_ground + obs_alt_m
     tgt_h = tgt_ground + tgt_offset_m
 
-    # Step count scales with range; cap for speed.
-    steps = int(max(8, min(120, dist_m / 120.0)))
+    # Step count scales with range; tuned for interactive speed.
+    steps = int(max(6, min(48, dist_m / 250.0)))
     for i in range(1, steps):
         t = i / steps
         lat = obs_lat + (tgt_lat - obs_lat) * t
@@ -165,6 +165,7 @@ def _compute_viewshed_rgba(
     observers: List[Observer],
     width_px: int,
     height_px: int,
+    max_range_km: float,
 ) -> bytes:
     lon_min = float(extent["lon_min"])
     lon_max = float(extent["lon_max"])
@@ -182,8 +183,11 @@ def _compute_viewshed_rgba(
 
     for obs in observers:
         cr, cg, cb = _hex_to_rgb(obs.color)
+        max_range_m = float(max_range_km) * 1000.0
         for iy, lat in enumerate(lat_axis):
             for ix, lon in enumerate(lon_axis):
+                if _haversine_m(obs.lat, obs.lon, float(lat), float(lon)) > max_range_m:
+                    continue
                 if _is_visible(dem, obs.lat, obs.lon, obs.eye_alt_m, float(lat), float(lon)):
                     r[iy, ix] += cr
                     g[iy, ix] += cg
@@ -208,21 +212,12 @@ class ViewshedWindow(QtWidgets.QMainWindow):
         self.resize(1380, 860)
 
         self.map_widget = OLMapWidget(center=(39.5, -106.0), zoom=10)
-        self.map_widget.add_xyz_tiles(
-            XYZTileOptions(
-                url=TERRARIUM_URL,
-                opacity=0.65,
-                min_zoom=0,
-                max_zoom=15,
-                attribution="Mapzen terrain tiles (AWS Open Data)",
-            ),
-            name="terrain",
-        )
 
         self.observers: List[Observer] = []
         self.viewshed_layer = None
         self.observer_layer = self.map_widget.add_vector_layer("observers", selectable=False)
         self._worker_running = False
+        self._extent_request_token = 0
 
         root = QtWidgets.QWidget()
         self.setCentralWidget(root)
@@ -264,14 +259,22 @@ class ViewshedWindow(QtWidgets.QMainWindow):
 
         self.res_slider = QtWidgets.QSlider(Qt.Orientation.Horizontal)
         self.res_slider.setRange(64, 256)
-        self.res_slider.setValue(128)
+        self.res_slider.setValue(96)
         self.res_slider.setTickInterval(32)
         self.res_slider.valueChanged.connect(
             lambda v: self.res_label.setText(f"Raster size: {v} x {v}")
         )
-        self.res_label = QtWidgets.QLabel("Raster size: 128 x 128")
+        self.res_label = QtWidgets.QLabel("Raster size: 96 x 96")
         controls.addWidget(self.res_label)
         controls.addWidget(self.res_slider)
+
+        self.range_km = QtWidgets.QDoubleSpinBox()
+        self.range_km.setRange(1.0, 200.0)
+        self.range_km.setValue(25.0)
+        self.range_km.setDecimals(1)
+        self.range_km.setSuffix(" km")
+        controls.addWidget(QtWidgets.QLabel("Max LOS range from each observer"))
+        controls.addWidget(self.range_km)
 
         compute_btn = QtWidgets.QPushButton("Compute Viewshed")
         compute_btn.clicked.connect(self._compute_viewshed)
@@ -384,15 +387,39 @@ class ViewshedWindow(QtWidgets.QMainWindow):
 
         self.status.setText("Reading map extent...")
         self._worker_running = True
+        self._extent_request_token += 1
+        token = self._extent_request_token
+
+        def on_extent_timeout():
+            if token != self._extent_request_token:
+                return
+            if self._worker_running:
+                self._worker_running = False
+                self.status.setText(
+                    "Could not read map extent (map may still be initializing). Try again."
+                )
+
+        QTimer.singleShot(7000, on_extent_timeout)
 
         def on_extent(ext):
+            if token != self._extent_request_token:
+                return
             size = int(self.res_slider.value())
+            max_range_km = float(self.range_km.value())
+            self.status.setText("Computing viewshed...")
 
             def worker():
                 try:
-                    zoom = max(8, min(14, int(ext.get("zoom", 10)) + 2))
+                    zoom = max(8, min(12, int(ext.get("zoom", 10)) + 1))
                     dem = TerrainDEM(ext, zoom=zoom)
-                    png = _compute_viewshed_rgba(dem, ext, observers, size, size)
+                    png = _compute_viewshed_rgba(
+                        dem,
+                        ext,
+                        observers,
+                        size,
+                        size,
+                        max_range_km=max_range_km,
+                    )
                     bounds = [
                         (float(ext["lat_min"]), float(ext["lon_min"])),
                         (float(ext["lat_max"]), float(ext["lon_max"])),
@@ -406,7 +433,8 @@ class ViewshedWindow(QtWidgets.QMainWindow):
                         else:
                             self.viewshed_layer.set_image(png, bounds=bounds)
                         self.status.setText(
-                            f"Viewshed complete | observers={len(observers)} | z={zoom} | size={size}"
+                            f"Viewshed complete | observers={len(observers)} | z={zoom} | "
+                            f"size={size} | range={max_range_km:.1f}km"
                         )
                         self._worker_running = False
 
