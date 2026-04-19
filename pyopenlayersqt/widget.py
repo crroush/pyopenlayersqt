@@ -23,6 +23,7 @@ from .layers import (
     RasterLayer,
     VectorLayer,
     WMSLayer,
+    XYZTileLayer,
     FastPointsLayer,
     FastGeoPointsLayer,
 )
@@ -32,6 +33,7 @@ from .models import (
     MeasurementUpdate,
     RasterStyle,
     WMSOptions,
+    XYZTileOptions,
     FastPointsStyle,
     FastGeoPointsStyle,
 )
@@ -796,6 +798,23 @@ class OLMapWidget(QWebEngineView):
             }
         )
         return WMSLayer(self, layer_id, opt, name=name)
+
+    def add_xyz_tiles(
+        self,
+        opt: XYZTileOptions,
+        name: str = "xyz",
+    ) -> XYZTileLayer:
+        """Add a generic XYZ tile layer."""
+        layer_id = self._next_id("x")
+        self._send(
+            {
+                "type": "layer.add_xyz",
+                "layer_id": layer_id,
+                "name": name,
+                "xyz": opt.to_js(),
+            }
+        )
+        return XYZTileLayer(self, layer_id, opt, name=name)
 
     def add_raster_image(
         self,
