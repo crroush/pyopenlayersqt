@@ -217,6 +217,7 @@ def _compute_viewshed_rgba(
     observers: List[Observer],
     width_px: int,
     height_px: int,
+    render_mode: str = "not_visible",
     progress_cb: Optional[Callable[[str, Optional[int]], None]] = None,
 ) -> bytes:
     lon_min = float(extent["lon_min"])
@@ -256,10 +257,28 @@ def _compute_viewshed_rgba(
         obs_h_m = float(elev_grid[obs_y, obs_x] + obs.eye_alt_m)
 
         vis_mask = _observer_viewshed_mask(elev_grid, obs_x, obs_y, obs_h_m)
-        r[vis_mask] += cr
-        g[vis_mask] += cg
-        b[vis_mask] += cb
-        a[vis_mask] += 90
+        hidden_mask = ~vis_mask
+
+        if render_mode == "visible":
+            target_mask = vis_mask
+            r[target_mask] += cr
+            g[target_mask] += cg
+            b[target_mask] += cb
+            a[target_mask] += 90
+        elif render_mode == "both":
+            r[vis_mask] += cr
+            g[vis_mask] += cg
+            b[vis_mask] += cb
+            a[vis_mask] += 100
+
+            # Shade hidden regions slightly darker so both are distinguishable.
+            a[hidden_mask] += 35
+        else:
+            # Default: highlight what is NOT visible from the observer(s).
+            r[hidden_mask] += cr
+            g[hidden_mask] += cg
+            b[hidden_mask] += cb
+            a[hidden_mask] += 90
 
     out = np.zeros((height_px, width_px, 4), dtype=np.uint8)
     out[:, :, 0] = np.clip(r, 0, 255).astype(np.uint8)
@@ -291,6 +310,7 @@ class ViewshedWindow(QtWidgets.QMainWindow):
         self._extent_request_token = 0
         self._extent_pending = False
         self._map_ready = False
+        self._last_render_mode = "not_visible"
         self.map_widget.ready.connect(self._on_map_ready)
         self.workerProgress.connect(self._on_worker_progress)
         self.workerSuccess.connect(self._on_worker_success)
@@ -349,6 +369,13 @@ class ViewshedWindow(QtWidgets.QMainWindow):
         compute_btn.clicked.connect(self._compute_viewshed)
         controls.addWidget(compute_btn)
 
+        self.mode_combo = QtWidgets.QComboBox()
+        self.mode_combo.addItem("Not visible (default)", "not_visible")
+        self.mode_combo.addItem("Visible", "visible")
+        self.mode_combo.addItem("Both", "both")
+        controls.addWidget(QtWidgets.QLabel("Render mode"))
+        controls.addWidget(self.mode_combo)
+
         clear_btn = QtWidgets.QPushButton("Clear Raster")
         clear_btn.clicked.connect(self._clear_viewshed)
         controls.addWidget(clear_btn)
@@ -389,7 +416,7 @@ class ViewshedWindow(QtWidgets.QMainWindow):
             self.viewshed_layer.set_image(png, bounds=bounds)
         self.status.setText(
             f"Viewshed complete | observers={observer_count} | z={zoom} | "
-            f"extent_diag={extent_range_km:.1f}km"
+            f"extent_diag={extent_range_km:.1f}km | mode={self._last_render_mode}"
         )
         self.progress.setValue(100)
         self._worker_running = False
@@ -522,6 +549,8 @@ class ViewshedWindow(QtWidgets.QMainWindow):
                 return
             self._extent_pending = False
             size = int(self.res_slider.value())
+            render_mode = str(self.mode_combo.currentData())
+            self._last_render_mode = render_mode
             extent_range_km = _haversine_m(
                 float(ext["lat_min"]),
                 float(ext["lon_min"]),
@@ -551,6 +580,7 @@ class ViewshedWindow(QtWidgets.QMainWindow):
                         observers,
                         size,
                         size,
+                        render_mode=render_mode,
                         progress_cb=lambda m, p: post_status(
                             m, 45 + int((p or 0) * 0.53)
                         ),
