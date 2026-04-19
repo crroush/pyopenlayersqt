@@ -113,6 +113,7 @@ See the [examples directory](examples/) for more working examples:
 - `14_delayed_render_interrupt.py` - Debounced, interruptible process-based heatmap rendering
 - `15_load_data_and_zoom.py` - Load features, then click a button to auto-zoom to loaded data
 - `16_metadata_only_table_linking.py` - 100k FastGeo parent map objects linked to metadata-only child rows (3-5 per parent)
+- `18_viewshed_terrain.py` - Compute and render multi-observer terrain viewshed overlays from AWS terrarium tiles
 
 ## Core Components
 
