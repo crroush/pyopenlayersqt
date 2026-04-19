@@ -128,35 +128,57 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2.0 * EARTH_RADIUS_M * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
 
 
-def _is_visible(
-    dem: TerrainDEM,
-    obs_lat: float,
-    obs_lon: float,
-    obs_alt_m: float,
-    tgt_lat: float,
-    tgt_lon: float,
-    tgt_offset_m: float = 1.7,
-) -> bool:
-    dist_m = _haversine_m(obs_lat, obs_lon, tgt_lat, tgt_lon)
-    if dist_m < 1.0:
-        return True
+def _bresenham_line(x0: int, y0: int, x1: int, y1: int):
+    x, y = x0, y0
+    dx = abs(x1 - x0)
+    dy = -abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx + dy
+    while True:
+        yield x, y
+        if x == x1 and y == y1:
+            break
+        e2 = 2 * err
+        if e2 >= dy:
+            err += dy
+            x += sx
+        if e2 <= dx:
+            err += dx
+            y += sy
 
-    obs_ground = dem.elevation_m(obs_lat, obs_lon)
-    tgt_ground = dem.elevation_m(tgt_lat, tgt_lon)
-    obs_h = obs_ground + obs_alt_m
-    tgt_h = tgt_ground + tgt_offset_m
 
-    # Step count scales with range; tuned for interactive speed.
-    steps = int(max(6, min(48, dist_m / 250.0)))
-    for i in range(1, steps):
-        t = i / steps
-        lat = obs_lat + (tgt_lat - obs_lat) * t
-        lon = obs_lon + (tgt_lon - obs_lon) * t
-        terrain_h = dem.elevation_m(lat, lon)
-        los_h = obs_h + (tgt_h - obs_h) * t
-        if terrain_h > los_h:
-            return False
-    return True
+def _observer_viewshed_mask(
+    elev_grid: np.ndarray,
+    obs_x: int,
+    obs_y: int,
+    obs_h_m: float,
+) -> np.ndarray:
+    h, w = elev_grid.shape
+    mask = np.zeros((h, w), dtype=bool)
+    mask[obs_y, obs_x] = True
+
+    boundary = []
+    for x in range(w):
+        boundary.append((x, 0))
+        boundary.append((x, h - 1))
+    for y in range(1, h - 1):
+        boundary.append((0, y))
+        boundary.append((w - 1, y))
+
+    for tx, ty in boundary:
+        max_slope = -1e9
+        for x, y in _bresenham_line(obs_x, obs_y, tx, ty):
+            if x == obs_x and y == obs_y:
+                continue
+            d = math.hypot(x - obs_x, y - obs_y)
+            if d <= 0.0:
+                continue
+            slope = (float(elev_grid[y, x]) - obs_h_m) / d
+            if slope > max_slope:
+                mask[y, x] = True
+                max_slope = slope
+    return mask
 
 
 def _compute_viewshed_rgba(
@@ -165,7 +187,6 @@ def _compute_viewshed_rgba(
     observers: List[Observer],
     width_px: int,
     height_px: int,
-    max_range_km: float,
 ) -> bytes:
     lon_min = float(extent["lon_min"])
     lon_max = float(extent["lon_max"])
@@ -176,6 +197,12 @@ def _compute_viewshed_rgba(
     lon_axis = np.linspace(lon_min, lon_max, width_px, dtype=np.float64)
     lat_axis = np.linspace(lat_max, lat_min, height_px, dtype=np.float64)
 
+    # Build DEM samples once on output grid.
+    elev_grid = np.zeros((height_px, width_px), dtype=np.float32)
+    for iy, lat in enumerate(lat_axis):
+        for ix, lon in enumerate(lon_axis):
+            elev_grid[iy, ix] = dem.elevation_m(float(lat), float(lon))
+
     r = np.zeros((height_px, width_px), dtype=np.uint16)
     g = np.zeros((height_px, width_px), dtype=np.uint16)
     b = np.zeros((height_px, width_px), dtype=np.uint16)
@@ -183,16 +210,19 @@ def _compute_viewshed_rgba(
 
     for obs in observers:
         cr, cg, cb = _hex_to_rgb(obs.color)
-        max_range_m = float(max_range_km) * 1000.0
-        for iy, lat in enumerate(lat_axis):
-            for ix, lon in enumerate(lon_axis):
-                if _haversine_m(obs.lat, obs.lon, float(lat), float(lon)) > max_range_m:
-                    continue
-                if _is_visible(dem, obs.lat, obs.lon, obs.eye_alt_m, float(lat), float(lon)):
-                    r[iy, ix] += cr
-                    g[iy, ix] += cg
-                    b[iy, ix] += cb
-                    a[iy, ix] += 90
+        if lon_max == lon_min or lat_max == lat_min:
+            continue
+        obs_x = int(round((obs.lon - lon_min) / (lon_max - lon_min) * (width_px - 1)))
+        obs_y = int(round((lat_max - obs.lat) / (lat_max - lat_min) * (height_px - 1)))
+        obs_x = int(np.clip(obs_x, 0, width_px - 1))
+        obs_y = int(np.clip(obs_y, 0, height_px - 1))
+        obs_h_m = float(elev_grid[obs_y, obs_x] + obs.eye_alt_m)
+
+        vis_mask = _observer_viewshed_mask(elev_grid, obs_x, obs_y, obs_h_m)
+        r[vis_mask] += cr
+        g[vis_mask] += cg
+        b[vis_mask] += cb
+        a[vis_mask] += 90
 
     out = np.zeros((height_px, width_px, 4), dtype=np.uint8)
     out[:, :, 0] = np.clip(r, 0, 255).astype(np.uint8)
@@ -270,14 +300,6 @@ class ViewshedWindow(QtWidgets.QMainWindow):
         self.res_label = QtWidgets.QLabel("Raster size: 96 x 96")
         controls.addWidget(self.res_label)
         controls.addWidget(self.res_slider)
-
-        self.range_km = QtWidgets.QDoubleSpinBox()
-        self.range_km.setRange(1.0, 200.0)
-        self.range_km.setValue(25.0)
-        self.range_km.setDecimals(1)
-        self.range_km.setSuffix(" km")
-        controls.addWidget(QtWidgets.QLabel("Max LOS range from each observer"))
-        controls.addWidget(self.range_km)
 
         compute_btn = QtWidgets.QPushButton("Compute Viewshed")
         compute_btn.clicked.connect(self._compute_viewshed)
@@ -420,7 +442,12 @@ class ViewshedWindow(QtWidgets.QMainWindow):
                 return
             self._extent_pending = False
             size = int(self.res_slider.value())
-            max_range_km = float(self.range_km.value())
+            extent_range_km = _haversine_m(
+                float(ext["lat_min"]),
+                float(ext["lon_min"]),
+                float(ext["lat_max"]),
+                float(ext["lon_max"]),
+            ) / 1000.0
             self.status.setText("Computing viewshed...")
 
             def worker():
@@ -433,7 +460,6 @@ class ViewshedWindow(QtWidgets.QMainWindow):
                         observers,
                         size,
                         size,
-                        max_range_km=max_range_km,
                     )
                     bounds = [
                         (float(ext["lat_min"]), float(ext["lon_min"])),
@@ -449,7 +475,7 @@ class ViewshedWindow(QtWidgets.QMainWindow):
                             self.viewshed_layer.set_image(png, bounds=bounds)
                         self.status.setText(
                             f"Viewshed complete | observers={len(observers)} | z={zoom} | "
-                            f"size={size} | range={max_range_km:.1f}km"
+                            f"size={size} | extent_diag={extent_range_km:.1f}km"
                         )
                         self._worker_running = False
 
