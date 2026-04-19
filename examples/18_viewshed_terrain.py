@@ -15,7 +15,7 @@ import math
 import threading
 import urllib.request
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
@@ -60,7 +60,16 @@ def _hex_to_rgb(color: str) -> Tuple[int, int, int]:
 
 
 class TerrainDEM:
-    def __init__(self, extent: dict, zoom: int):
+    _tile_cache: Dict[Tuple[int, int, int], np.ndarray] = {}
+    _tile_cache_order: List[Tuple[int, int, int]] = []
+    _tile_cache_max = 512
+
+    def __init__(
+        self,
+        extent: dict,
+        zoom: int,
+        progress_cb: Optional[Callable[[str], None]] = None,
+    ):
         self.zoom = int(zoom)
         lon_min = float(extent["lon_min"])
         lon_max = float(extent["lon_max"])
@@ -78,6 +87,8 @@ class TerrainDEM:
         w_tiles = self.tx_max - self.tx_min + 1
         h_tiles = self.ty_max - self.ty_min + 1
         self.mosaic = np.zeros((h_tiles * 256, w_tiles * 256), dtype=np.float32)
+        total_tiles = w_tiles * h_tiles
+        done_tiles = 0
 
         for ty in range(self.ty_min, self.ty_max + 1):
             for tx in range(self.tx_min, self.tx_max + 1):
@@ -85,15 +96,31 @@ class TerrainDEM:
                 oy = (ty - self.ty_min) * 256
                 ox = (tx - self.tx_min) * 256
                 self.mosaic[oy : oy + 256, ox : ox + 256] = tile
+                done_tiles += 1
+                if progress_cb:
+                    pct = int(done_tiles * 100 / max(1, total_tiles))
+                    progress_cb(f"Downloading terrain tiles... {pct}% ({done_tiles}/{total_tiles})")
 
     def _fetch_tile(self, tx: int, ty: int) -> np.ndarray:
+        key = (self.zoom, tx, ty)
+        cached = self._tile_cache.get(key)
+        if cached is not None:
+            return cached
+
         url = TERRARIUM_URL.format(z=self.zoom, x=tx, y=ty)
         with urllib.request.urlopen(url, timeout=20) as resp:
             data = resp.read()
         img = Image.open(io.BytesIO(data)).convert("RGB")
         arr = np.asarray(img, dtype=np.float32)
         # Terrarium encoding: elevation = (R*256 + G + B/256) - 32768
-        return (arr[:, :, 0] * 256.0 + arr[:, :, 1] + (arr[:, :, 2] / 256.0)) - 32768.0
+        decoded = (arr[:, :, 0] * 256.0 + arr[:, :, 1] + (arr[:, :, 2] / 256.0)) - 32768.0
+
+        self._tile_cache[key] = decoded
+        self._tile_cache_order.append(key)
+        if len(self._tile_cache_order) > self._tile_cache_max:
+            old = self._tile_cache_order.pop(0)
+            self._tile_cache.pop(old, None)
+        return decoded
 
     def elevation_m(self, lat: float, lon: float) -> float:
         xf, yf = _lonlat_to_tile_xy(lon, lat, self.zoom)
@@ -166,7 +193,7 @@ def _observer_viewshed_mask(
         boundary.append((0, y))
         boundary.append((w - 1, y))
 
-    for tx, ty in boundary:
+    for i, (tx, ty) in enumerate(boundary):
         max_slope = -1e9
         for x, y in _bresenham_line(obs_x, obs_y, tx, ty):
             if x == obs_x and y == obs_y:
@@ -187,6 +214,7 @@ def _compute_viewshed_rgba(
     observers: List[Observer],
     width_px: int,
     height_px: int,
+    progress_cb: Optional[Callable[[str], None]] = None,
 ) -> bytes:
     lon_min = float(extent["lon_min"])
     lon_max = float(extent["lon_max"])
@@ -202,13 +230,18 @@ def _compute_viewshed_rgba(
     for iy, lat in enumerate(lat_axis):
         for ix, lon in enumerate(lon_axis):
             elev_grid[iy, ix] = dem.elevation_m(float(lat), float(lon))
+        if progress_cb and (iy % max(1, height_px // 16) == 0 or iy == height_px - 1):
+            pct = int((iy + 1) * 100 / max(1, height_px))
+            progress_cb(f"Sampling DEM grid... {pct}%")
 
     r = np.zeros((height_px, width_px), dtype=np.uint16)
     g = np.zeros((height_px, width_px), dtype=np.uint16)
     b = np.zeros((height_px, width_px), dtype=np.uint16)
     a = np.zeros((height_px, width_px), dtype=np.uint16)
 
-    for obs in observers:
+    for idx, obs in enumerate(observers, start=1):
+        if progress_cb:
+            progress_cb(f"Computing viewshed for observer {idx}/{len(observers)}...")
         cr, cg, cb = _hex_to_rgb(obs.color)
         if lon_max == lon_min or lat_max == lat_min:
             continue
@@ -292,12 +325,12 @@ class ViewshedWindow(QtWidgets.QMainWindow):
 
         self.res_slider = QtWidgets.QSlider(Qt.Orientation.Horizontal)
         self.res_slider.setRange(64, 256)
-        self.res_slider.setValue(96)
+        self.res_slider.setValue(64)
         self.res_slider.setTickInterval(32)
         self.res_slider.valueChanged.connect(
             lambda v: self.res_label.setText(f"Raster size: {v} x {v}")
         )
-        self.res_label = QtWidgets.QLabel("Raster size: 96 x 96")
+        self.res_label = QtWidgets.QLabel("Raster size: 64 x 64")
         controls.addWidget(self.res_label)
         controls.addWidget(self.res_slider)
 
@@ -452,14 +485,19 @@ class ViewshedWindow(QtWidgets.QMainWindow):
 
             def worker():
                 try:
+                    def post_status(msg: str):
+                        QTimer.singleShot(0, lambda m=msg: self.status.setText(m))
+
                     zoom = max(8, min(12, int(ext.get("zoom", 10)) + 1))
-                    dem = TerrainDEM(ext, zoom=zoom)
+                    post_status(f"Preparing DEM at z={zoom}...")
+                    dem = TerrainDEM(ext, zoom=zoom, progress_cb=post_status)
                     png = _compute_viewshed_rgba(
                         dem,
                         ext,
                         observers,
                         size,
                         size,
+                        progress_cb=post_status,
                     )
                     bounds = [
                         (float(ext["lat_min"]), float(ext["lon_min"])),
