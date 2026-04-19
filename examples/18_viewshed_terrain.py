@@ -218,6 +218,9 @@ class ViewshedWindow(QtWidgets.QMainWindow):
         self.observer_layer = self.map_widget.add_vector_layer("observers", selectable=False)
         self._worker_running = False
         self._extent_request_token = 0
+        self._extent_pending = False
+        self._map_ready = False
+        self.map_widget.ready.connect(self._on_map_ready)
 
         root = QtWidgets.QWidget()
         self.setCentralWidget(root)
@@ -289,6 +292,11 @@ class ViewshedWindow(QtWidgets.QMainWindow):
         controls.addStretch(1)
 
         self._seed_default_observers()
+
+    def _on_map_ready(self):
+        self._map_ready = True
+        if not self._worker_running:
+            self.status.setText("Ready")
 
     def _set_color_button_style(self):
         self.color_btn.setStyleSheet(f"background: {self.current_color};")
@@ -375,6 +383,10 @@ class ViewshedWindow(QtWidgets.QMainWindow):
             self.viewshed_layer = None
 
     def _compute_viewshed(self):
+        if not self._map_ready:
+            self.status.setText("Map still loading... wait for Ready.")
+            return
+
         if self._worker_running:
             self.status.setText("Viewshed already running...")
             return
@@ -387,23 +399,26 @@ class ViewshedWindow(QtWidgets.QMainWindow):
 
         self.status.setText("Reading map extent...")
         self._worker_running = True
+        self._extent_pending = True
         self._extent_request_token += 1
         token = self._extent_request_token
 
         def on_extent_timeout():
             if token != self._extent_request_token:
                 return
-            if self._worker_running:
+            if self._extent_pending:
+                self._extent_pending = False
                 self._worker_running = False
                 self.status.setText(
                     "Could not read map extent (map may still be initializing). Try again."
                 )
 
-        QTimer.singleShot(7000, on_extent_timeout)
+        QTimer.singleShot(20000, on_extent_timeout)
 
         def on_extent(ext):
             if token != self._extent_request_token:
                 return
+            self._extent_pending = False
             size = int(self.res_slider.value())
             max_range_km = float(self.range_km.value())
             self.status.setText("Computing viewshed...")
