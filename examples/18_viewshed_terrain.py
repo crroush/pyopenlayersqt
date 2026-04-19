@@ -183,6 +183,8 @@ def _observer_viewshed_mask(
     obs_x: int,
     obs_y: int,
     obs_h_m: float,
+    meters_per_px: float,
+    refraction_coeff: float = 0.13,
 ) -> np.ndarray:
     h, w = elev_grid.shape
     mask = np.zeros((h, w), dtype=bool)
@@ -201,10 +203,18 @@ def _observer_viewshed_mask(
         for x, y in _bresenham_line(obs_x, obs_y, tx, ty):
             if x == obs_x and y == obs_y:
                 continue
-            d = math.hypot(x - obs_x, y - obs_y)
-            if d <= 0.0:
+            d_px = math.hypot(x - obs_x, y - obs_y)
+            d_m = d_px * meters_per_px
+            if d_m <= 0.0:
                 continue
-            slope = (float(elev_grid[y, x]) - obs_h_m) / d
+            # Earth curvature drop with simple terrestrial refraction correction.
+            # Effective earth radius model: R_eff = R / (1 - k).
+            k = float(np.clip(refraction_coeff, 0.0, 0.5))
+            r_eff = EARTH_RADIUS_M / max(1e-6, (1.0 - k))
+            curvature_drop_m = (d_m * d_m) / (2.0 * r_eff)
+
+            terrain_effective = float(elev_grid[y, x]) - curvature_drop_m
+            slope = (terrain_effective - obs_h_m) / d_m
             if slope > max_slope:
                 mask[y, x] = True
                 max_slope = slope
@@ -228,6 +238,14 @@ def _compute_viewshed_rgba(
     # Slightly inside pixel centers.
     lon_axis = np.linspace(lon_min, lon_max, width_px, dtype=np.float64)
     lat_axis = np.linspace(lat_max, lat_min, height_px, dtype=np.float64)
+    lat_mid = (lat_min + lat_max) * 0.5
+    lon_mid = (lon_min + lon_max) * 0.5
+    width_m = _haversine_m(lat_mid, lon_min, lat_mid, lon_max)
+    height_m = _haversine_m(lat_min, lon_mid, lat_max, lon_mid)
+    meters_per_px = max(
+        width_m / max(1, width_px - 1),
+        height_m / max(1, height_px - 1),
+    )
 
     # Build DEM samples once on output grid.
     elev_grid = np.zeros((height_px, width_px), dtype=np.float32)
@@ -256,7 +274,14 @@ def _compute_viewshed_rgba(
         obs_y = int(np.clip(obs_y, 0, height_px - 1))
         obs_h_m = float(elev_grid[obs_y, obs_x] + obs.eye_alt_m)
 
-        vis_mask = _observer_viewshed_mask(elev_grid, obs_x, obs_y, obs_h_m)
+        vis_mask = _observer_viewshed_mask(
+            elev_grid,
+            obs_x,
+            obs_y,
+            obs_h_m,
+            meters_per_px=meters_per_px,
+            refraction_coeff=0.13,
+        )
         hidden_mask = ~vis_mask
 
         if render_mode == "visible":
