@@ -21,6 +21,7 @@ import numpy as np
 from PIL import Image
 from PySide6 import QtWidgets
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QColor
 
 from pyopenlayersqt import OLMapWidget, PointStyle, RasterStyle, XYZTileOptions
 
@@ -318,7 +319,7 @@ class ViewshedWindow(QtWidgets.QMainWindow):
         self.table.setItem(row, 3, QtWidgets.QTableWidgetItem(f"{obs.eye_alt_m:.1f}"))
 
         color_item = QtWidgets.QTableWidgetItem(obs.color)
-        color_item.setBackground(QtWidgets.QColor(obs.color))
+        color_item.setBackground(QColor(obs.color))
         self.table.setItem(row, 4, color_item)
 
         self._refresh_observer_points()
