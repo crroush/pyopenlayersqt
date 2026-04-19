@@ -20,7 +20,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 from PIL import Image
 from PySide6 import QtWidgets
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor
 
 from pyopenlayersqt import OLMapWidget, PointStyle, RasterStyle
@@ -273,6 +273,10 @@ def _compute_viewshed_rgba(
 
 
 class ViewshedWindow(QtWidgets.QMainWindow):
+    workerProgress = Signal(str, int)  # message, pct (-1 means keep current)
+    workerSuccess = Signal(bytes, object, int, int, float)  # png, bounds, n_obs, z, extent_km
+    workerError = Signal(str)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Viewshed (AWS Terrain)")
@@ -288,6 +292,9 @@ class ViewshedWindow(QtWidgets.QMainWindow):
         self._extent_pending = False
         self._map_ready = False
         self.map_widget.ready.connect(self._on_map_ready)
+        self.workerProgress.connect(self._on_worker_progress)
+        self.workerSuccess.connect(self._on_worker_success)
+        self.workerError.connect(self._on_worker_error)
 
         root = QtWidgets.QWidget()
         self.setCentralWidget(root)
@@ -360,6 +367,37 @@ class ViewshedWindow(QtWidgets.QMainWindow):
         self._map_ready = True
         if not self._worker_running:
             self.status.setText("Ready")
+
+    def _on_worker_progress(self, message: str, pct: int):
+        self.status.setText(message)
+        if pct >= 0:
+            self.progress.setValue(int(np.clip(pct, 0, 100)))
+
+    def _on_worker_success(
+        self,
+        png: bytes,
+        bounds: object,
+        observer_count: int,
+        zoom: int,
+        extent_range_km: float,
+    ):
+        if self.viewshed_layer is None:
+            self.viewshed_layer = self.map_widget.add_raster_image(
+                png, bounds=bounds, style=RasterStyle(opacity=0.75), name="viewshed"
+            )
+        else:
+            self.viewshed_layer.set_image(png, bounds=bounds)
+        self.status.setText(
+            f"Viewshed complete | observers={observer_count} | z={zoom} | "
+            f"extent_diag={extent_range_km:.1f}km"
+        )
+        self.progress.setValue(100)
+        self._worker_running = False
+
+    def _on_worker_error(self, message: str):
+        self.status.setText(f"Viewshed failed: {message}")
+        self.progress.setValue(0)
+        self._worker_running = False
 
     def _set_color_button_style(self):
         self.color_btn.setStyleSheet(f"background: {self.current_color};")
@@ -496,12 +534,7 @@ class ViewshedWindow(QtWidgets.QMainWindow):
             def worker():
                 try:
                     def post_status(msg: str, pct: Optional[int] = None):
-                        def apply_status(m=msg, p=pct):
-                            self.status.setText(m)
-                            if p is not None:
-                                self.progress.setValue(int(np.clip(p, 0, 100)))
-
-                        QTimer.singleShot(0, apply_status)
+                        self.workerProgress.emit(msg, -1 if pct is None else int(pct))
 
                     zoom = max(8, min(12, int(ext.get("zoom", 10)) + 1))
                     post_status(f"Preparing DEM at z={zoom}...", 5)
@@ -526,29 +559,11 @@ class ViewshedWindow(QtWidgets.QMainWindow):
                         (float(ext["lat_min"]), float(ext["lon_min"])),
                         (float(ext["lat_max"]), float(ext["lon_max"])),
                     ]
-
-                    def apply_result():
-                        if self.viewshed_layer is None:
-                            self.viewshed_layer = self.map_widget.add_raster_image(
-                                png, bounds=bounds, style=RasterStyle(opacity=0.75), name="viewshed"
-                            )
-                        else:
-                            self.viewshed_layer.set_image(png, bounds=bounds)
-                        self.status.setText(
-                            f"Viewshed complete | observers={len(observers)} | z={zoom} | "
-                            f"size={size} | extent_diag={extent_range_km:.1f}km"
-                        )
-                        self.progress.setValue(100)
-                        self._worker_running = False
-
-                    QTimer.singleShot(0, apply_result)
+                    self.workerSuccess.emit(
+                        png, bounds, len(observers), zoom, float(extent_range_km)
+                    )
                 except Exception as exc:
-                    def apply_error():
-                        self.status.setText(f"Viewshed failed: {exc}")
-                        self.progress.setValue(0)
-                        self._worker_running = False
-
-                    QTimer.singleShot(0, apply_error)
+                    self.workerError.emit(str(exc))
 
             threading.Thread(target=worker, daemon=True).start()
 
