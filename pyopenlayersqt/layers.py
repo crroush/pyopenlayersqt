@@ -13,6 +13,7 @@ from .models import (
     PolygonStyle,
     RasterStyle,
     WMSOptions,
+    XYZTileOptions,
 )
 
 
@@ -435,6 +436,16 @@ class WMSLayer(BaseLayer):
         self._map_widget._send(
             {"type": "wms.set_params", "layer_id": self.id, "params": dict(params)}
         )
+
+
+class XYZTileLayer(BaseLayer):
+    """Generic XYZ tile layer."""
+
+    _layer_type_prefix = "xyz"
+
+    def __init__(self, widget: Any, layer_id: str, opt: XYZTileOptions, name: str = ""):
+        super().__init__(widget, layer_id, name=name or layer_id)
+        self.opt = opt
 
 
 class RasterLayer(BaseLayer):
