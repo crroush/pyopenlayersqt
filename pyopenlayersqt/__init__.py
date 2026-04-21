@@ -6,6 +6,7 @@ from .models import (
     EllipseStyle,
     RasterStyle,
     WMSOptions,
+    XYZTileOptions,
     FeatureSelection,
     MeasurementUpdate,
     LatLon,
@@ -17,6 +18,7 @@ from .models import (
 from .layers import (
     FastPointsLayer,
     FastGeoPointsLayer,
+    XYZTileLayer,
 )
 
 from .features_table import (
@@ -36,6 +38,7 @@ __all__ = [
     "EllipseStyle",
     "RasterStyle",
     "WMSOptions",
+    "XYZTileOptions",
     "FeatureSelection",
     "MeasurementUpdate",
     "LatLon",
@@ -44,6 +47,7 @@ __all__ = [
     "FastPointsLayer",
     "FastGeoPointsStyle",
     "FastGeoPointsLayer",
+    "XYZTileLayer",
     # Reusable Qt widgets
     "FeatureTableWidget",
     "ContextMenuActionSpec",

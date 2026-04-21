@@ -1951,6 +1951,23 @@ function cmd_countries_set_visible(msg) {
     state.layerByObj.set(layer, msg.layer_id);
   }
 
+  function cmd_add_xyz(msg) {
+    const xyz = msg.xyz || {};
+    const source = new ol.source.XYZ({
+      url: xyz.url,
+      minZoom: Number.isFinite(xyz.min_zoom) ? xyz.min_zoom : 0,
+      maxZoom: Number.isFinite(xyz.max_zoom) ? xyz.max_zoom : 19,
+      attributions: xyz.attribution || undefined,
+      transition: 0,
+      crossOrigin: "anonymous",
+    });
+    const layer = new ol.layer.Tile({ source });
+    layer.setOpacity(typeof xyz.opacity === "number" ? xyz.opacity : 1.0);
+    state.map.addLayer(layer);
+    state.layers.set(msg.layer_id, { type: "xyz", layer, source, selectable: false });
+    state.layerByObj.set(layer, msg.layer_id);
+  }
+
   function cmd_add_raster(msg) {
     const extent = extent_from_bounds(msg.bounds);
     const source = new ol.source.ImageStatic({
@@ -2087,6 +2104,18 @@ function cmd_countries_set_visible(msg) {
     e.source.updateParams(msg.params || {});
   }
 
+  function cmd_xyz_set_visible(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "xyz") return;
+    e.layer.setVisible(!!msg.visible);
+  }
+
+  function cmd_xyz_set_opacity(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "xyz") return;
+    if (typeof msg.opacity === "number") e.layer.setOpacity(msg.opacity);
+  }
+
   function cmd_raster_set_image(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "raster") return;
@@ -2141,6 +2170,7 @@ function cmd_countries_set_visible(msg) {
     switch (t) {
       case "layer.add_vector": return cmd_add_vector(msg);
       case "layer.add_wms": return cmd_add_wms(msg);
+      case "layer.add_xyz": return cmd_add_xyz(msg);
       case "layer.add_raster": return cmd_add_raster(msg);
       case "layer.remove": return cmd_layer_remove(msg);
       case "layer.opacity": return cmd_layer_opacity(msg);
@@ -2156,6 +2186,8 @@ function cmd_countries_set_visible(msg) {
       case "vector.set_selectable": return cmd_vector_set_selectable(msg);
 
       case "wms.set_params": return cmd_wms_set_params(msg);
+      case "xyz.set_visible": return cmd_xyz_set_visible(msg);
+      case "xyz.set_opacity": return cmd_xyz_set_opacity(msg);
       case "raster.set_image": return cmd_raster_set_image(msg);
 
       case "select.set": return cmd_select_set(msg);
