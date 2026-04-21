@@ -158,32 +158,13 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2.0 * EARTH_RADIUS_M * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
 
 
-def _bresenham_line(x0: int, y0: int, x1: int, y1: int):
-    x, y = x0, y0
-    dx = abs(x1 - x0)
-    dy = -abs(y1 - y0)
-    sx = 1 if x0 < x1 else -1
-    sy = 1 if y0 < y1 else -1
-    err = dx + dy
-    while True:
-        yield x, y
-        if x == x1 and y == y1:
-            break
-        e2 = 2 * err
-        if e2 >= dy:
-            err += dy
-            x += sx
-        if e2 <= dx:
-            err += dx
-            y += sy
-
-
 def _observer_viewshed_mask(
     elev_grid: np.ndarray,
     obs_x: int,
     obs_y: int,
     obs_h_m: float,
-    meters_per_px: float,
+    meters_per_px_x: float,
+    meters_per_px_y: float,
     refraction_coeff: float = 0.13,
 ) -> np.ndarray:
     h, w = elev_grid.shape
@@ -193,32 +174,49 @@ def _observer_viewshed_mask(
     k = float(np.clip(refraction_coeff, 0.0, 0.5))
     r_eff = EARTH_RADIUS_M / max(1e-6, (1.0 - k))
 
+    def bilinear(z: np.ndarray, x: float, y: float) -> float:
+        x = float(np.clip(x, 0.0, w - 1.001))
+        y = float(np.clip(y, 0.0, h - 1.001))
+        x0 = int(math.floor(x))
+        y0 = int(math.floor(y))
+        x1 = min(x0 + 1, w - 1)
+        y1 = min(y0 + 1, h - 1)
+        tx = x - x0
+        ty = y - y0
+        z00 = float(z[y0, x0])
+        z10 = float(z[y0, x1])
+        z01 = float(z[y1, x0])
+        z11 = float(z[y1, x1])
+        z0 = z00 * (1.0 - tx) + z10 * tx
+        z1 = z01 * (1.0 - tx) + z11 * tx
+        return z0 * (1.0 - ty) + z1 * ty
+
     for ty in range(h):
         for tx in range(w):
             if tx == obs_x and ty == obs_y:
                 continue
 
-            line = list(_bresenham_line(obs_x, obs_y, tx, ty))
-            if len(line) < 2:
-                mask[ty, tx] = True
-                continue
-
-            target_h = float(elev_grid[ty, tx])
-            total_d_px = math.hypot(tx - obs_x, ty - obs_y)
-            total_d_m = total_d_px * meters_per_px
+            dx = tx - obs_x
+            dy = ty - obs_y
+            total_d_m = math.hypot(dx * meters_per_px_x, dy * meters_per_px_y)
             if total_d_m <= 0.0:
                 mask[ty, tx] = True
                 continue
 
+            target_h = float(elev_grid[ty, tx])
             visible = True
-            last_idx = len(line) - 1
-            for i, (lx, ly) in enumerate(line[1:-1], start=1):
-                t = i / last_idx
+            # Franklin-Ray style exact LOS sampling on continuous interpolated surface.
+            steps = int(max(abs(dx), abs(dy)) * 2)
+            steps = max(2, steps)
+            for i in range(1, steps):
+                t = i / steps
                 d_m = total_d_m * t
 
                 los_h = obs_h_m + (target_h - obs_h_m) * t
                 curvature_drop_m = (d_m * d_m) / (2.0 * r_eff)
-                terrain_h = float(elev_grid[ly, lx]) - curvature_drop_m
+                sx = obs_x + dx * t
+                sy = obs_y + dy * t
+                terrain_h = bilinear(elev_grid, sx, sy) - curvature_drop_m
                 if terrain_h > los_h:
                     visible = False
                     break
@@ -248,10 +246,8 @@ def _compute_viewshed_rgba(
     lon_mid = (lon_min + lon_max) * 0.5
     width_m = _haversine_m(lat_mid, lon_min, lat_mid, lon_max)
     height_m = _haversine_m(lat_min, lon_mid, lat_max, lon_mid)
-    meters_per_px = max(
-        width_m / max(1, width_px - 1),
-        height_m / max(1, height_px - 1),
-    )
+    meters_per_px_x = width_m / max(1, width_px - 1)
+    meters_per_px_y = height_m / max(1, height_px - 1)
 
     # Build DEM samples once on output grid.
     elev_grid = np.zeros((height_px, width_px), dtype=np.float32)
@@ -285,7 +281,8 @@ def _compute_viewshed_rgba(
             obs_x,
             obs_y,
             obs_h_m,
-            meters_per_px=meters_per_px,
+            meters_per_px_x=meters_per_px_x,
+            meters_per_px_y=meters_per_px_y,
             refraction_coeff=0.13,
         )
         hidden_mask = ~vis_mask
