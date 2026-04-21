@@ -350,6 +350,28 @@ class WMSOptions:
         return {"url": self.url, "params": dict(self.params), "opacity": float(self.opacity)}
 
 
+@dataclass(frozen=True)
+class XYZTileOptions:
+    """XYZ tile layer options (generic tile server overlay/base)."""
+
+    url: str
+    opacity: float = 1.0
+    min_zoom: int = 0
+    max_zoom: int = 19
+    attribution: Optional[str] = None
+
+    def to_js(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = {
+            "url": self.url,
+            "opacity": float(self.opacity),
+            "min_zoom": int(self.min_zoom),
+            "max_zoom": int(self.max_zoom),
+        }
+        if self.attribution is not None:
+            out["attribution"] = str(self.attribution)
+        return out
+
+
 @dataclass
 class FeatureSelection:
     """

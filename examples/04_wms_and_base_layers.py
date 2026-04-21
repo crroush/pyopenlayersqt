@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""WMS Layer, Base Layer Opacity, and OSM URL Override.
+"""WMS + OSM + Terrain layers together, with URL/opacity controls.
 
 This example demonstrates:
 - Adding WMS (Web Map Service) layers to overlay data
-- Adjusting OpenStreetMap base layer opacity
-- Changing the OpenStreetMap tile URL from the GUI for validation
+- Keeping OpenStreetMap and WMS enabled while adding terrain tiles as another layer
+- Changing OSM base URL and terrain URL from the GUI
 - Layer visibility and opacity controls
 - Using public WMS endpoints
 
@@ -17,7 +17,7 @@ from PySide6 import QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
-from pyopenlayersqt import OLMapWidget, WMSOptions, PointStyle
+from pyopenlayersqt import OLMapWidget, WMSOptions, XYZTileOptions, PointStyle
 
 
 class WMSExample(QtWidgets.QMainWindow):
@@ -25,14 +25,16 @@ class WMSExample(QtWidgets.QMainWindow):
 
     DEFAULT_OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     ALT_OSM_URL = "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
+    AWS_TERRAIN_URL = "https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png"
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("WMS Layer, Base Layer Opacity, and OSM URL Override")
+        self.setWindowTitle("WMS Layer, Base Layer Opacity, and Tile URL Override")
         self.resize(1200, 800)
 
         self.map_widget = None
         self.wms_layer = None
+        self.terrain_layer = None
 
         # Layout
         container = QtWidgets.QWidget()
@@ -49,8 +51,8 @@ class WMSExample(QtWidgets.QMainWindow):
         panel = QtWidgets.QWidget()
         layout = QtWidgets.QHBoxLayout(panel)
 
-        # OSM URL controls
-        osm_group = QtWidgets.QGroupBox("OSM URL Override")
+        # Base tile URL controls
+        osm_group = QtWidgets.QGroupBox("OSM Base URL Override")
         osm_layout = QtWidgets.QHBoxLayout(osm_group)
         osm_layout.addWidget(QtWidgets.QLabel("URL:"))
 
@@ -68,6 +70,24 @@ class WMSExample(QtWidgets.QMainWindow):
         osm_layout.addWidget(apply_btn)
 
         layout.addWidget(osm_group)
+
+        # Terrain controls
+        terrain_group = QtWidgets.QGroupBox("Terrain Tile Layer")
+        terrain_layout = QtWidgets.QHBoxLayout(terrain_group)
+        self.terrain_enabled = QtWidgets.QCheckBox("Enabled")
+        self.terrain_enabled.setChecked(True)
+        self.terrain_enabled.toggled.connect(self._on_terrain_enabled_changed)
+        terrain_layout.addWidget(self.terrain_enabled)
+
+        terrain_layout.addWidget(QtWidgets.QLabel("URL:"))
+        self.terrain_url_input = QtWidgets.QLineEdit(self.AWS_TERRAIN_URL)
+        self.terrain_url_input.setMinimumWidth(420)
+        terrain_layout.addWidget(self.terrain_url_input)
+
+        apply_terrain_btn = QtWidgets.QPushButton("Apply Terrain URL")
+        apply_terrain_btn.clicked.connect(self._on_apply_terrain_url)
+        terrain_layout.addWidget(apply_terrain_btn)
+        layout.addWidget(terrain_group)
 
         # WMS opacity control
         wms_group = QtWidgets.QGroupBox("WMS Layer Opacity")
@@ -95,6 +115,18 @@ class WMSExample(QtWidgets.QMainWindow):
         base_layout.addWidget(self.base_label)
         layout.addWidget(base_group)
 
+        terrain_opacity_group = QtWidgets.QGroupBox("Terrain Layer Opacity")
+        terrain_opacity_layout = QtWidgets.QHBoxLayout(terrain_opacity_group)
+        terrain_opacity_layout.addWidget(QtWidgets.QLabel("Opacity:"))
+        self.terrain_slider = QtWidgets.QSlider(Qt.Horizontal)
+        self.terrain_slider.setRange(0, 100)
+        self.terrain_slider.setValue(70)
+        self.terrain_slider.valueChanged.connect(self._on_terrain_opacity_changed)
+        terrain_opacity_layout.addWidget(self.terrain_slider)
+        self.terrain_label = QtWidgets.QLabel("0.70")
+        terrain_opacity_layout.addWidget(self.terrain_label)
+        layout.addWidget(terrain_opacity_group)
+
         layout.addStretch(1)
         return panel
 
@@ -106,6 +138,7 @@ class WMSExample(QtWidgets.QMainWindow):
             self.map_widget.deleteLater()
             self.map_widget = None
             self.wms_layer = None
+            self.terrain_layer = None
 
         self.map_widget = OLMapWidget(center=(39.0, -98.0), zoom=4, osm_url=osm_url)
         self.layout.addWidget(self.map_widget, stretch=1)
@@ -121,6 +154,7 @@ class WMSExample(QtWidgets.QMainWindow):
             opacity=self.wms_slider.value() / 100.0,
         )
         self.wms_layer = self.map_widget.add_wms(wms_options, name="us_states")
+        self._add_or_replace_terrain_layer()
 
         # Add some reference points
         vector_layer = self.map_widget.add_vector_layer("markers", selectable=False)
@@ -160,6 +194,35 @@ class WMSExample(QtWidgets.QMainWindow):
         opacity = value / 100.0
         self.base_label.setText(f"{opacity:.2f}")
         self.map_widget.set_base_opacity(opacity)
+
+    def _add_or_replace_terrain_layer(self):
+        if self.terrain_layer:
+            self.terrain_layer.remove()
+            self.terrain_layer = None
+        if not self.terrain_enabled.isChecked():
+            return
+
+        terrain_url = self.terrain_url_input.text().strip() or self.AWS_TERRAIN_URL
+        terrain_opt = XYZTileOptions(
+            url=terrain_url,
+            opacity=self.terrain_slider.value() / 100.0,
+            min_zoom=0,
+            max_zoom=15,
+            attribution="Mapzen terrain tiles (AWS Open Data)",
+        )
+        self.terrain_layer = self.map_widget.add_xyz_tiles(terrain_opt, name="terrain")
+
+    def _on_apply_terrain_url(self):
+        self._add_or_replace_terrain_layer()
+
+    def _on_terrain_enabled_changed(self, _checked: bool):
+        self._add_or_replace_terrain_layer()
+
+    def _on_terrain_opacity_changed(self, value: int):
+        opacity = value / 100.0
+        self.terrain_label.setText(f"{opacity:.2f}")
+        if self.terrain_layer:
+            self.terrain_layer.set_opacity(opacity)
 
 
 def main():
