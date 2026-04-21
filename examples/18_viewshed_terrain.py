@@ -190,34 +190,40 @@ def _observer_viewshed_mask(
     mask = np.zeros((h, w), dtype=bool)
     mask[obs_y, obs_x] = True
 
-    boundary = []
-    for x in range(w):
-        boundary.append((x, 0))
-        boundary.append((x, h - 1))
-    for y in range(1, h - 1):
-        boundary.append((0, y))
-        boundary.append((w - 1, y))
+    k = float(np.clip(refraction_coeff, 0.0, 0.5))
+    r_eff = EARTH_RADIUS_M / max(1e-6, (1.0 - k))
 
-    for i, (tx, ty) in enumerate(boundary):
-        max_slope = -1e9
-        for x, y in _bresenham_line(obs_x, obs_y, tx, ty):
-            if x == obs_x and y == obs_y:
+    for ty in range(h):
+        for tx in range(w):
+            if tx == obs_x and ty == obs_y:
                 continue
-            d_px = math.hypot(x - obs_x, y - obs_y)
-            d_m = d_px * meters_per_px
-            if d_m <= 0.0:
-                continue
-            # Earth curvature drop with simple terrestrial refraction correction.
-            # Effective earth radius model: R_eff = R / (1 - k).
-            k = float(np.clip(refraction_coeff, 0.0, 0.5))
-            r_eff = EARTH_RADIUS_M / max(1e-6, (1.0 - k))
-            curvature_drop_m = (d_m * d_m) / (2.0 * r_eff)
 
-            terrain_effective = float(elev_grid[y, x]) - curvature_drop_m
-            slope = (terrain_effective - obs_h_m) / d_m
-            if slope > max_slope:
-                mask[y, x] = True
-                max_slope = slope
+            line = list(_bresenham_line(obs_x, obs_y, tx, ty))
+            if len(line) < 2:
+                mask[ty, tx] = True
+                continue
+
+            target_h = float(elev_grid[ty, tx])
+            total_d_px = math.hypot(tx - obs_x, ty - obs_y)
+            total_d_m = total_d_px * meters_per_px
+            if total_d_m <= 0.0:
+                mask[ty, tx] = True
+                continue
+
+            visible = True
+            last_idx = len(line) - 1
+            for i, (lx, ly) in enumerate(line[1:-1], start=1):
+                t = i / last_idx
+                d_m = total_d_m * t
+
+                los_h = obs_h_m + (target_h - obs_h_m) * t
+                curvature_drop_m = (d_m * d_m) / (2.0 * r_eff)
+                terrain_h = float(elev_grid[ly, lx]) - curvature_drop_m
+                if terrain_h > los_h:
+                    visible = False
+                    break
+
+            mask[ty, tx] = visible
     return mask
 
 
