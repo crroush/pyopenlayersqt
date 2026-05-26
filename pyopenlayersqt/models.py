@@ -350,6 +350,21 @@ class WMSOptions:
         return {"url": self.url, "params": dict(self.params), "opacity": float(self.opacity)}
 
 
+@dataclass(frozen=True)
+class TileLayerOptions:
+    """Generic XYZ/OSM tile layer options."""
+    url: Optional[str] = None
+    opacity: float = 1.0
+    attribution: Optional[str] = None
+
+    def to_js(self) -> Dict[str, Any]:
+        return {
+            "url": self.url,
+            "opacity": float(self.opacity),
+            "attribution": self.attribution,
+        }
+
+
 @dataclass
 class FeatureSelection:
     """
