@@ -114,6 +114,7 @@ See the [examples directory](examples/) for more working examples:
 - `15_load_data_and_zoom.py` - Load features, then click a button to auto-zoom to loaded data
 - `16_metadata_only_table_linking.py` - 100k FastGeo parent map objects linked to metadata-only child rows (3-5 per parent)
 - `17_map_right_click_context_menu.py` - Right-click anywhere on the map for a custom menu (create new points or open dialogs for existing points)
+- `18_gradient_track_speed.py` - Polyline/track speed visualization with segment color gradients from matplotlib colormaps
 
 ## Core Components
 
@@ -307,6 +308,34 @@ vector.add_line(
         stroke_color=QColor("dodgerblue"),
         stroke_width=2.0
     )
+)
+
+# Add gradient lines (e.g., speed along a track)
+# per-segment values are converted to smooth per-vertex interpolation
+vector.add_gradient_line(
+    coords=[(lat1, lon1), (lat2, lon2), (lat3, lon3), (lat4, lon4)],
+    values=[8.5, 12.1, 5.9],  # per-segment values (smoothed through vertices)
+    feature_id="track_speed",
+    cmap="turbo",
+    vmin=0.0,
+    vmax=20.0,
+    style=PolygonStyle(stroke_width=4.0),
+    properties={"metric": "speed_mps"},
+    interpolate_steps=64,
+)
+
+# Optional: pass explicit segment colors instead of cmap
+# vector.add_gradient_line(..., segment_colors=["blue", "green", "red"])
+
+
+# Smooth transitions: pass per-vertex values and interpolate between points
+vector.add_gradient_line(
+    coords=[(lat1, lon1), (lat2, lon2), (lat3, lon3)],
+    values=[5.0, 12.0, 20.0],  # per-vertex values
+    cmap="plasma",
+    vmin=0.0,
+    vmax=25.0,
+    interpolate_steps=64,
 )
 
 # Add circles (radius in meters)

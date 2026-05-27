@@ -101,6 +101,41 @@ def _latlon_chunk_to_lonlat_list(coords: Sequence[LatLon]) -> list[list[float]]:
         raise ValueError("coords must be a sequence of (lat, lon) pairs")
     return arr[:, [1, 0]].tolist()
 
+
+
+def _resolve_colormap_rgba(
+    values: Sequence[float],
+    cmap: Union[str, Any] = "viridis",
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+) -> List[tuple[int, int, int, int]]:
+    """Map scalar values to RGBA colors using a matplotlib colormap."""
+    arr = np.asarray(values, dtype=float)
+    if arr.ndim != 1 or arr.size == 0:
+        raise ValueError("values must be a non-empty 1D sequence")
+
+    lo = float(np.min(arr) if vmin is None else vmin)
+    hi = float(np.max(arr) if vmax is None else vmax)
+    if hi < lo:
+        raise ValueError("vmax must be >= vmin")
+
+    if hi == lo:
+        norm = np.zeros_like(arr, dtype=float)
+    else:
+        norm = np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
+
+    try:
+        import matplotlib.cm as mcm
+    except ImportError as e:
+        raise ImportError(
+            "matplotlib is required for colormap-based line coloring. "
+            "Install matplotlib or pass explicit segment colors."
+        ) from e
+
+    cmap_obj = mcm.get_cmap(cmap) if isinstance(cmap, str) else cmap
+    rgba = np.asarray(cmap_obj(norm))
+    out = np.clip(np.rint(rgba * 255.0), 0, 255).astype(np.uint8)
+    return [tuple(map(int, row)) for row in out]
 def _pack_rgba_colors(colors: List[Union[tuple[int, int, int, int], str, Any]]) -> List[int]:
     """Convert list of colors to packed 32-bit integers.
     
@@ -122,6 +157,96 @@ def _pack_rgba_colors(colors: List[Union[tuple[int, int, int, int], str, Any]]) 
             ((r & 255) << 24) | ((g & 255) << 16) | ((b & 255) << 8) | (a & 255)
         )
     return packed
+
+
+def _expand_gradient_coords(
+    coords: Sequence[LatLon], interpolate_steps: int
+) -> tuple[List[LatLon], int]:
+    coord_pairs = list(coords)
+    seg_count = len(coord_pairs) - 1
+    if interpolate_steps == 1:
+        return coord_pairs, seg_count
+
+    expanded: List[LatLon] = [coord_pairs[0]]
+    for i in range(seg_count):
+        lat0, lon0 = coord_pairs[i]
+        lat1, lon1 = coord_pairs[i + 1]
+        for step in range(1, interpolate_steps + 1):
+            t = step / float(interpolate_steps)
+            expanded.append((lat0 + (lat1 - lat0) * t, lon0 + (lon1 - lon0) * t))
+    return expanded, seg_count
+
+
+def _rendered_values_from_input(
+    values: Optional[Sequence[float]],
+    coord_pairs: Sequence[LatLon],
+    seg_count: int,
+    interpolate_steps: int,
+) -> List[float]:
+    if values is None:
+        return []
+
+    raw_vals = np.asarray(values, dtype=float)
+    if raw_vals.size == len(coord_pairs):
+        vertex_values = [float(v) for v in raw_vals]
+    elif raw_vals.size == seg_count:
+        vertex_values = [0.0] * len(coord_pairs)
+        vertex_values[0] = float(raw_vals[0])
+        vertex_values[-1] = float(raw_vals[-1])
+        for i in range(1, len(coord_pairs) - 1):
+            vertex_values[i] = 0.5 * (float(raw_vals[i - 1]) + float(raw_vals[i]))
+    else:
+        raise ValueError(
+            "values length must equal len(coords)-1 (per segment) "
+            "or len(coords) (per vertex)"
+        )
+
+    if interpolate_steps == 1:
+        return [
+            0.5 * (vertex_values[i] + vertex_values[i + 1])
+            for i in range(seg_count)
+        ]
+
+    rendered_values: List[float] = []
+    for i in range(seg_count):
+        v0 = float(vertex_values[i])
+        v1 = float(vertex_values[i + 1])
+        for step in range(1, interpolate_steps + 1):
+            tmid = (step - 0.5) / float(interpolate_steps)
+            rendered_values.append(v0 + (v1 - v0) * tmid)
+    return rendered_values
+
+
+def _resolve_gradient_segment_colors(
+    segment_colors: Optional[Sequence[Union[tuple[int, int, int, int], str, Any]]],
+    rendered_values: Sequence[float],
+    seg_count: int,
+    rendered_seg_count: int,
+    interpolate_steps: int,
+    cmap: Union[str, Any],
+    vmin: Optional[float],
+    vmax: Optional[float],
+    values: Optional[Sequence[float]],
+) -> List[tuple[int, int, int, int]]:
+    if segment_colors is None:
+        if values is None:
+            raise ValueError("values is required when segment_colors is not provided")
+        return _resolve_colormap_rgba(rendered_values, cmap=cmap, vmin=vmin, vmax=vmax)
+
+    if len(segment_colors) == rendered_seg_count:
+        return [_normalize_color(c) for c in segment_colors]
+
+    if len(segment_colors) == seg_count:
+        rgba_colors: List[tuple[int, int, int, int]] = []
+        for color in segment_colors:
+            rgba = _normalize_color(color)
+            rgba_colors.extend([rgba] * interpolate_steps)
+        return rgba_colors
+
+    raise ValueError(
+        "segment_colors length must equal len(coords)-1 "
+        "(one per input segment) or rendered segment count"
+    )
 
 
 class BaseLayer:
@@ -376,6 +501,85 @@ class VectorLayer(BaseLayer):
                 "type": "vector.add_line",
                 "layer_id": self.id,
                 "coords": [[float(lon), float(lat)] for (lat, lon) in coords],
+                "id": feature_id,
+                "style": style.to_js(),
+                "properties": properties or {},
+            }
+        )
+
+    def add_gradient_line(
+        # pylint: disable=too-many-arguments
+        self,
+        coords: Sequence[LatLon],
+        values: Optional[Sequence[float]] = None,
+        feature_id: str = "gradient_line0",
+        style: Optional[PolygonStyle] = None,
+        cmap: Union[str, Any] = "viridis",
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        segment_colors: Optional[Sequence[Union[tuple[int, int, int, int], str, Any]]] = None,
+        properties: Optional[Dict[str, Any]] = None,
+        interpolate_steps: int = 64,
+    ) -> None:
+        """Add a polyline rendered with per-segment colors (useful for speed tracks).
+
+        Args:
+            coords: Sequence of (lat, lon) vertices. Must contain at least 2 points.
+            values: Optional scalar values used for colormap mapping. Supports
+                either per-segment values (len(coords)-1) or per-vertex values
+                (len(coords)). Values are converted to per-vertex anchors and
+                smoothly interpolated when ``interpolate_steps > 1``.
+            feature_id: Base ID for created segment features.
+            style: Base stroke style (stroke_width and opacity are respected).
+            cmap: Matplotlib colormap name/object used when segment_colors is None.
+            vmin: Lower normalization bound for values.
+            vmax: Upper normalization bound for values.
+            segment_colors: Optional explicit colors (one per rendered segment).
+            properties: Optional feature properties copied to every segment.
+            interpolate_steps: Number of sub-segments per original segment for
+                gradient rendering (applies to both per-segment and per-vertex values).
+                Higher values make smoother gradients; default is 64 for visibly
+                continuous ramps on typical routes.
+        """
+        if len(coords) < 2:
+            raise ValueError("coords must contain at least 2 points")
+        if interpolate_steps < 1:
+            raise ValueError("interpolate_steps must be >= 1")
+
+        coord_pairs = list(coords)
+        expanded_coords, seg_count = _expand_gradient_coords(
+            coord_pairs, int(interpolate_steps)
+        )
+        rendered_seg_count = len(expanded_coords) - 1
+
+        rendered_values = _rendered_values_from_input(
+            values=values,
+            coord_pairs=coord_pairs,
+            seg_count=seg_count,
+            interpolate_steps=int(interpolate_steps),
+        )
+
+        rgba_colors = _resolve_gradient_segment_colors(
+            segment_colors=segment_colors,
+            rendered_values=rendered_values,
+            seg_count=seg_count,
+            rendered_seg_count=rendered_seg_count,
+            interpolate_steps=int(interpolate_steps),
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            values=values,
+        )
+
+        style = style or PolygonStyle()
+
+        self._map_widget._send(
+            {
+                "type": "vector.add_gradient_line",
+                "layer_id": self.id,
+                "coords": [[float(lon), float(lat)] for (lat, lon) in expanded_coords],
+                "values": rendered_values if values is not None else [],
+                "segment_colors": _pack_rgba_colors(rgba_colors),
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},
