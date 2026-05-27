@@ -2011,6 +2011,18 @@ function cmd_countries_set_visible(msg) {
     if (state.selectInteraction) state.selectInteraction.getFeatures().clear();
   }
 
+  function cmd_wms_set_opacity(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "wms") return;
+    if (typeof msg.opacity === "number") e.layer.setOpacity(msg.opacity);
+  }
+
+  function cmd_wms_set_visible(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "wms") return;
+    e.layer.setVisible(!!msg.visible);
+  }
+
   function cmd_tile_set_url(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "tile") return;
@@ -2019,6 +2031,12 @@ function cmd_countries_set_visible(msg) {
     e.layer.setSource(src);
     e.layer.setOpacity(old);
     e.source = src;
+  }
+
+  function cmd_tile_set_opacity(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "tile") return;
+    if (typeof msg.opacity === "number") e.layer.setOpacity(msg.opacity);
   }
 
   function cmd_tile_set_visible(msg) {
@@ -2192,7 +2210,10 @@ function cmd_countries_set_visible(msg) {
       case "vector.set_selectable": return cmd_vector_set_selectable(msg);
 
       case "wms.set_params": return cmd_wms_set_params(msg);
+      case "wms.set_opacity": return cmd_wms_set_opacity(msg);
+      case "wms.set_visible": return cmd_wms_set_visible(msg);
       case "tile.set_url": return cmd_tile_set_url(msg);
+      case "tile.set_opacity": return cmd_tile_set_opacity(msg);
       case "tile.set_visible": return cmd_tile_set_visible(msg);
       case "raster.set_image": return cmd_raster_set_image(msg);
 

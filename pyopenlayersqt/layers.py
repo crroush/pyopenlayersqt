@@ -425,6 +425,8 @@ class VectorLayer(BaseLayer):
 
 
 class WMSLayer(BaseLayer):
+    _layer_type_prefix = "wms"
+
     def __init__(self, widget: Any, layer_id: str, opt: WMSOptions, name: str = ""):
         super().__init__(widget, layer_id, name=name or layer_id)
         self.opt = opt
