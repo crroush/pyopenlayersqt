@@ -499,11 +499,24 @@ class VectorLayer(BaseLayer):
         rendered_seg_count = len(expanded_coords) - 1
 
         if segment_colors is None:
-            rgba_colors = _resolve_colormap_rgba(rendered_values, cmap=cmap, vmin=vmin, vmax=vmax)
+            rgba_colors = _resolve_colormap_rgba(
+                rendered_values, cmap=cmap, vmin=vmin, vmax=vmax
+            )
         else:
-            if len(segment_colors) != rendered_seg_count:
-                raise ValueError("segment_colors length must equal rendered segment count")
-            rgba_colors = [_normalize_color(c) for c in segment_colors]
+            if len(segment_colors) == rendered_seg_count:
+                rgba_colors = [_normalize_color(c) for c in segment_colors]
+            elif len(segment_colors) == seg_count:
+                # Allow one explicit color per original segment and expand across
+                # interpolation sub-segments.
+                rgba_colors = []
+                for color in segment_colors:
+                    rgba = _normalize_color(color)
+                    rgba_colors.extend([rgba] * int(interpolate_steps))
+            else:
+                raise ValueError(
+                    "segment_colors length must equal len(coords)-1 "
+                    "(one per input segment) or rendered segment count"
+                )
 
         style = style or PolygonStyle()
 
