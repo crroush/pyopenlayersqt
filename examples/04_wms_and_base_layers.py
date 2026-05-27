@@ -160,7 +160,16 @@ class WMSExample(QtWidgets.QMainWindow):
         self.map_widget = OLMapWidget(center=(39.0, -98.0), zoom=4, osm_url=osm_url)
         self.layout.addWidget(self.map_widget, stretch=1)
 
-        # Add a WMS layer (using a public demo server)
+        # Add managed generic tile layer first so WMS can be rendered above it.
+        self.tile_layer = self.map_widget.add_tile_layer(
+            TileLayerOptions(
+                url=self.osm_url_input.text().strip() or self.DEFAULT_OSM_URL,
+                opacity=self.tile_slider.value() / 100.0,
+                attribution="Managed generic tile layer",
+            ),
+            name="generic_tile",
+        )
+        # Add a WMS layer (using a public demo server) above the generic tile layer.
         wms_options = WMSOptions(
             url="https://ahocevar.com/geoserver/wms",
             params={
@@ -171,15 +180,6 @@ class WMSExample(QtWidgets.QMainWindow):
             opacity=self.wms_slider.value() / 100.0,
         )
         self.wms_layer = self.map_widget.add_wms(wms_options, name="us_states")
-        # Add a managed generic tile layer (overlays above base OSM)
-        self.tile_layer = self.map_widget.add_tile_layer(
-            TileLayerOptions(
-                url=self.osm_url_input.text().strip() or self.DEFAULT_OSM_URL,
-                opacity=self.tile_slider.value() / 100.0,
-                attribution="Managed generic tile layer",
-            ),
-            name="generic_tile",
-        )
 
         # Add some reference points
         vector_layer = self.map_widget.add_vector_layer("markers", selectable=False)
