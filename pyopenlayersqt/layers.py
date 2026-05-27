@@ -101,6 +101,41 @@ def _latlon_chunk_to_lonlat_list(coords: Sequence[LatLon]) -> list[list[float]]:
         raise ValueError("coords must be a sequence of (lat, lon) pairs")
     return arr[:, [1, 0]].tolist()
 
+
+
+def _resolve_colormap_rgba(
+    values: Sequence[float],
+    cmap: Union[str, Any] = "viridis",
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+) -> List[tuple[int, int, int, int]]:
+    """Map scalar values to RGBA colors using a matplotlib colormap."""
+    arr = np.asarray(values, dtype=float)
+    if arr.ndim != 1 or arr.size == 0:
+        raise ValueError("values must be a non-empty 1D sequence")
+
+    lo = float(np.min(arr) if vmin is None else vmin)
+    hi = float(np.max(arr) if vmax is None else vmax)
+    if hi < lo:
+        raise ValueError("vmax must be >= vmin")
+
+    if hi == lo:
+        norm = np.zeros_like(arr, dtype=float)
+    else:
+        norm = np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
+
+    try:
+        import matplotlib.cm as mcm
+    except ImportError as e:
+        raise ImportError(
+            "matplotlib is required for colormap-based line coloring. "
+            "Install matplotlib or pass explicit segment colors."
+        ) from e
+
+    cmap_obj = mcm.get_cmap(cmap) if isinstance(cmap, str) else cmap
+    rgba = np.asarray(cmap_obj(norm))
+    out = np.clip(np.rint(rgba * 255.0), 0, 255).astype(np.uint8)
+    return [tuple(map(int, row)) for row in out]
 def _pack_rgba_colors(colors: List[Union[tuple[int, int, int, int], str, Any]]) -> List[int]:
     """Convert list of colors to packed 32-bit integers.
     
@@ -376,6 +411,60 @@ class VectorLayer(BaseLayer):
                 "type": "vector.add_line",
                 "layer_id": self.id,
                 "coords": [[float(lon), float(lat)] for (lat, lon) in coords],
+                "id": feature_id,
+                "style": style.to_js(),
+                "properties": properties or {},
+            }
+        )
+
+    def add_gradient_line(
+        self,
+        coords: Sequence[LatLon],
+        values: Sequence[float],
+        feature_id: str = "gradient_line0",
+        style: Optional[PolygonStyle] = None,
+        cmap: Union[str, Any] = "viridis",
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        segment_colors: Optional[Sequence[Union[tuple[int, int, int, int], str, Any]]] = None,
+        properties: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Add a polyline rendered with per-segment colors (useful for speed tracks).
+
+        Args:
+            coords: Sequence of (lat, lon) vertices. Must contain at least 2 points.
+            values: Scalar values to map to segment colors. Length must be len(coords)-1.
+            feature_id: Base ID for created segment features.
+            style: Base stroke style (stroke_width and opacity are respected).
+            cmap: Matplotlib colormap name/object used when segment_colors is None.
+            vmin: Lower normalization bound for values.
+            vmax: Upper normalization bound for values.
+            segment_colors: Optional explicit colors (one per segment).
+            properties: Optional feature properties copied to every segment.
+        """
+        if len(coords) < 2:
+            raise ValueError("coords must contain at least 2 points")
+
+        seg_count = len(coords) - 1
+        if len(values) != seg_count:
+            raise ValueError("values length must equal len(coords) - 1")
+
+        if segment_colors is None:
+            rgba_colors = _resolve_colormap_rgba(values, cmap=cmap, vmin=vmin, vmax=vmax)
+        else:
+            if len(segment_colors) != seg_count:
+                raise ValueError("segment_colors length must equal len(coords) - 1")
+            rgba_colors = [_normalize_color(c) for c in segment_colors]
+
+        style = style or PolygonStyle()
+
+        self._map_widget._send(
+            {
+                "type": "vector.add_gradient_line",
+                "layer_id": self.id,
+                "coords": [[float(lon), float(lat)] for (lat, lon) in coords],
+                "values": [float(v) for v in values],
+                "segment_colors": _pack_rgba_colors(rgba_colors),
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},

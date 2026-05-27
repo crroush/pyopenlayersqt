@@ -2155,6 +2155,40 @@ function cmd_countries_set_visible(msg) {
     e.source.addFeature(f);
   }
 
+
+  function cmd_vector_add_gradient_line(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "vector") return;
+
+    const coords = msg.coords || [];
+    const packed = msg.segment_colors || [];
+    const baseStyle = msg.style || {};
+    const strokeWidth = Number(baseStyle.stroke_width || 3.0);
+    const baseProps = msg.properties || {};
+    const baseId = msg.id || "gradient_line0";
+
+    for (let i = 0; i < coords.length - 1; i++) {
+      const c0 = coords[i], c1 = coords[i + 1];
+      const segGeom = new ol.geom.LineString([
+        lonlat_to_3857(c0[0], c0[1]),
+        lonlat_to_3857(c1[0], c1[1])
+      ]);
+      const segFeature = new ol.Feature({ geometry: segGeom });
+      segFeature.setId(`${baseId}__seg_${i}`);
+      segFeature.set("_layer_id", msg.layer_id);
+      for (const [k, v] of Object.entries(baseProps)) segFeature.set(k, v);
+      segFeature.set("_gradient_parent", baseId);
+      segFeature.set("_gradient_segment_index", i);
+      if (msg.values && i < msg.values.length) segFeature.set("_gradient_value", msg.values[i]);
+
+      const color = unpack_rgba(packed[i] || 0xff3333ff);
+      segFeature.setStyle(new ol.style.Style({
+        stroke: new ol.style.Stroke({ color: color, width: strokeWidth })
+      }));
+      e.source.addFeature(segFeature);
+    }
+  }
+
   function cmd_vector_add_ellipse(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
@@ -2256,6 +2290,7 @@ function cmd_countries_set_visible(msg) {
       case "vector.add_circle": return cmd_vector_add_circle(msg);
       case "vector.add_ellipse": return cmd_vector_add_ellipse(msg);
       case "vector.add_line": return cmd_vector_add_line(msg);
+      case "vector.add_gradient_line": return cmd_vector_add_gradient_line(msg);
       case "vector.set_opacity": return cmd_vector_set_opacity(msg);
       case "vector.set_visible": return cmd_vector_set_visible(msg);
       case "vector.set_selectable": return cmd_vector_set_selectable(msg);
