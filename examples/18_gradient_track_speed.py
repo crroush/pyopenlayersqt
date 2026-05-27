@@ -44,6 +44,7 @@ def main() -> None:
         cmap="viridis",
         style=PolygonStyle(stroke_width=6.0, stroke_color=QColor("white")),
         properties={"metric": "speed_mph"},
+        interpolate_steps=96,
     )
 
     # Add endpoints for context

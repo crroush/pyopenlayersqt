@@ -428,7 +428,7 @@ class VectorLayer(BaseLayer):
         vmax: Optional[float] = None,
         segment_colors: Optional[Sequence[Union[tuple[int, int, int, int], str, Any]]] = None,
         properties: Optional[Dict[str, Any]] = None,
-        interpolate_steps: int = 8,
+        interpolate_steps: int = 64,
     ) -> None:
         """Add a polyline rendered with per-segment colors (useful for speed tracks).
 
@@ -444,8 +444,10 @@ class VectorLayer(BaseLayer):
             vmax: Upper normalization bound for values.
             segment_colors: Optional explicit colors (one per rendered segment).
             properties: Optional feature properties copied to every segment.
-            interpolate_steps: Number of sub-segments per original segment when
-                per-vertex values are supplied. Higher values make smoother gradients.
+            interpolate_steps: Number of sub-segments per original segment for
+                gradient rendering (applies to both per-segment and per-vertex values).
+                Higher values make smoother gradients; default is 64 for visibly
+                continuous ramps on typical routes.
         """
         if len(coords) < 2:
             raise ValueError("coords must contain at least 2 points")

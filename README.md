@@ -320,7 +320,8 @@ vector.add_gradient_line(
     vmin=0.0,
     vmax=20.0,
     style=PolygonStyle(stroke_width=4.0),
-    properties={"metric": "speed_mps"}
+    properties={"metric": "speed_mps"},
+    interpolate_steps=64,
 )
 
 # Optional: pass explicit segment colors instead of cmap
@@ -334,7 +335,7 @@ vector.add_gradient_line(
     cmap="plasma",
     vmin=0.0,
     vmax=25.0,
-    interpolate_steps=12,
+    interpolate_steps=64,
 )
 
 # Add circles (radius in meters)
