@@ -2181,7 +2181,8 @@ function cmd_countries_set_visible(msg) {
       segFeature.set("_gradient_segment_index", i);
       if (msg.values && i < msg.values.length) segFeature.set("_gradient_value", msg.values[i]);
 
-      const color = rgba_to_css(rgba_from_u32(packed[i] || 0xff3333ff));
+      const packedColor = (packed[i] ?? 0xff3333ff);
+      const color = rgba_to_css(rgba_from_u32(packedColor));
       segFeature.setStyle(new ol.style.Style({
         stroke: new ol.style.Stroke({ color: color, width: strokeWidth })
       }));

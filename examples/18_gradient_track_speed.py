@@ -51,7 +51,12 @@ def main() -> None:
     layer.add_points(
         [track_coords[0], track_coords[-1]],
         ids=["start", "end"],
-        style=PointStyle(radius=7.0, fill_color=QColor("white"), stroke_color=QColor("black"), stroke_width=1.5),
+        style=PointStyle(
+            radius=7.0,
+            fill_color=QColor("white"),
+            stroke_color=QColor("black"),
+            stroke_width=1.5,
+        ),
     )
 
     map_widget.setWindowTitle("Gradient Track Speed Example")

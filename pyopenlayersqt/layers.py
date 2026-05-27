@@ -418,6 +418,7 @@ class VectorLayer(BaseLayer):
         )
 
     def add_gradient_line(
+        # pylint: disable=too-many-arguments
         self,
         coords: Sequence[LatLon],
         values: Sequence[float],
@@ -472,11 +473,17 @@ class VectorLayer(BaseLayer):
             for i in range(1, len(coord_pairs) - 1):
                 vertex_values[i] = 0.5 * (float(raw_vals[i - 1]) + float(raw_vals[i]))
         else:
-            raise ValueError("values length must equal len(coords)-1 (per segment) or len(coords) (per vertex)")
+            raise ValueError(
+                "values length must equal len(coords)-1 (per segment) "
+                "or len(coords) (per vertex)"
+            )
 
         if int(interpolate_steps) == 1:
             expanded_coords = coord_pairs
-            rendered_values = [0.5 * (vertex_values[i] + vertex_values[i + 1]) for i in range(seg_count)]
+            rendered_values = [
+                0.5 * (vertex_values[i] + vertex_values[i + 1])
+                for i in range(seg_count)
+            ]
         else:
             for i in range(seg_count):
                 lat0, lon0 = coord_pairs[i]
