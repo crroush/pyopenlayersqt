@@ -1119,6 +1119,48 @@ function fp_install_interactions() {
 function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
 function p3857_to_lonlat(coord) { return ol.proj.toLonLat(coord); }
 
+function _pick_context_feature(pixel) {
+  const st = window._pyolqt_state;
+  if (!st || !st.map) return null;
+  let picked = null;
+  st.map.forEachFeatureAtPixel(pixel, function(feature, layer) {
+    if (picked) return picked;
+    if (!feature) return null;
+    const layer_id = feature.get('_layer_id') || st.layerByObj.get(layer) || null;
+    const feature_id = feature.getId();
+    if (!layer_id || feature_id == null) return null;
+    picked = {
+      layer_id: String(layer_id),
+      feature_id: String(feature_id),
+    };
+    return feature;
+  });
+  return picked;
+}
+
+function _install_context_menu_bridge() {
+  const st = window._pyolqt_state;
+  if (!st || !st.map || st.contextMenuInstalled) return;
+  const viewport = st.map.getViewport();
+  if (!viewport) return;
+  viewport.addEventListener('contextmenu', function(evt) {
+    evt.preventDefault();
+    const pixel = st.map.getEventPixel(evt);
+    const coord = st.map.getCoordinateFromPixel(pixel);
+    const lonlat = p3857_to_lonlat(coord);
+    const picked = _pick_context_feature(pixel) || {};
+    emitToPython('contextmenu', {
+      lon: lonlat[0],
+      lat: lonlat[1],
+      client_x: evt.clientX,
+      client_y: evt.clientY,
+      layer_id: picked.layer_id || null,
+      feature_id: picked.feature_id || null,
+    });
+  });
+  st.contextMenuInstalled = true;
+}
+
 // ---- Measurement Mode Functions ----
 
 // Calculate geodesic distance using Haversine formula
@@ -1923,6 +1965,7 @@ function cmd_countries_set_visible(msg) {
       }
     });
     fp_install_interactions();
+    _install_context_menu_bridge();
     emitReadyIfNeeded();
   }
 
