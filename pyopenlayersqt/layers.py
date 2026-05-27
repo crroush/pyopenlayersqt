@@ -159,6 +159,96 @@ def _pack_rgba_colors(colors: List[Union[tuple[int, int, int, int], str, Any]]) 
     return packed
 
 
+def _expand_gradient_coords(
+    coords: Sequence[LatLon], interpolate_steps: int
+) -> tuple[List[LatLon], int]:
+    coord_pairs = list(coords)
+    seg_count = len(coord_pairs) - 1
+    if interpolate_steps == 1:
+        return coord_pairs, seg_count
+
+    expanded: List[LatLon] = [coord_pairs[0]]
+    for i in range(seg_count):
+        lat0, lon0 = coord_pairs[i]
+        lat1, lon1 = coord_pairs[i + 1]
+        for step in range(1, interpolate_steps + 1):
+            t = step / float(interpolate_steps)
+            expanded.append((lat0 + (lat1 - lat0) * t, lon0 + (lon1 - lon0) * t))
+    return expanded, seg_count
+
+
+def _rendered_values_from_input(
+    values: Optional[Sequence[float]],
+    coord_pairs: Sequence[LatLon],
+    seg_count: int,
+    interpolate_steps: int,
+) -> List[float]:
+    if values is None:
+        return []
+
+    raw_vals = np.asarray(values, dtype=float)
+    if raw_vals.size == len(coord_pairs):
+        vertex_values = [float(v) for v in raw_vals]
+    elif raw_vals.size == seg_count:
+        vertex_values = [0.0] * len(coord_pairs)
+        vertex_values[0] = float(raw_vals[0])
+        vertex_values[-1] = float(raw_vals[-1])
+        for i in range(1, len(coord_pairs) - 1):
+            vertex_values[i] = 0.5 * (float(raw_vals[i - 1]) + float(raw_vals[i]))
+    else:
+        raise ValueError(
+            "values length must equal len(coords)-1 (per segment) "
+            "or len(coords) (per vertex)"
+        )
+
+    if interpolate_steps == 1:
+        return [
+            0.5 * (vertex_values[i] + vertex_values[i + 1])
+            for i in range(seg_count)
+        ]
+
+    rendered_values: List[float] = []
+    for i in range(seg_count):
+        v0 = float(vertex_values[i])
+        v1 = float(vertex_values[i + 1])
+        for step in range(1, interpolate_steps + 1):
+            tmid = (step - 0.5) / float(interpolate_steps)
+            rendered_values.append(v0 + (v1 - v0) * tmid)
+    return rendered_values
+
+
+def _resolve_gradient_segment_colors(
+    segment_colors: Optional[Sequence[Union[tuple[int, int, int, int], str, Any]]],
+    rendered_values: Sequence[float],
+    seg_count: int,
+    rendered_seg_count: int,
+    interpolate_steps: int,
+    cmap: Union[str, Any],
+    vmin: Optional[float],
+    vmax: Optional[float],
+    values: Optional[Sequence[float]],
+) -> List[tuple[int, int, int, int]]:
+    if segment_colors is None:
+        if values is None:
+            raise ValueError("values is required when segment_colors is not provided")
+        return _resolve_colormap_rgba(rendered_values, cmap=cmap, vmin=vmin, vmax=vmax)
+
+    if len(segment_colors) == rendered_seg_count:
+        return [_normalize_color(c) for c in segment_colors]
+
+    if len(segment_colors) == seg_count:
+        rgba_colors: List[tuple[int, int, int, int]] = []
+        for color in segment_colors:
+            rgba = _normalize_color(color)
+            rgba_colors.extend([rgba] * interpolate_steps)
+        return rgba_colors
+
+    raise ValueError(
+        "segment_colors length must equal len(coords)-1 "
+        "(one per input segment) or rendered segment count"
+    )
+
+
 class BaseLayer:
     """Base class for all layer types.
 
@@ -457,79 +547,29 @@ class VectorLayer(BaseLayer):
             raise ValueError("interpolate_steps must be >= 1")
 
         coord_pairs = list(coords)
-        seg_count = len(coord_pairs) - 1
-
-        expanded_coords: List[LatLon] = [coord_pairs[0]]
-        rendered_values: List[float] = []
-
-        if int(interpolate_steps) == 1:
-            expanded_coords = coord_pairs
-        else:
-            for i in range(seg_count):
-                lat0, lon0 = coord_pairs[i]
-                lat1, lon1 = coord_pairs[i + 1]
-                for step in range(1, int(interpolate_steps) + 1):
-                    t = step / float(interpolate_steps)
-                    expanded_coords.append(
-                        (lat0 + (lat1 - lat0) * t, lon0 + (lon1 - lon0) * t)
-                    )
-
+        expanded_coords, seg_count = _expand_gradient_coords(
+            coord_pairs, int(interpolate_steps)
+        )
         rendered_seg_count = len(expanded_coords) - 1
 
-        if values is not None:
-            raw_vals = np.asarray(values, dtype=float)
-            if raw_vals.size == len(coord_pairs):
-                vertex_values = [float(v) for v in raw_vals]
-            elif raw_vals.size == seg_count:
-                # Convert per-segment values into per-vertex anchors so colors can
-                # interpolate continuously through vertices instead of hard jumps.
-                vertex_values = [0.0] * len(coord_pairs)
-                vertex_values[0] = float(raw_vals[0])
-                vertex_values[-1] = float(raw_vals[-1])
-                for i in range(1, len(coord_pairs) - 1):
-                    vertex_values[i] = 0.5 * (float(raw_vals[i - 1]) + float(raw_vals[i]))
-            else:
-                raise ValueError(
-                    "values length must equal len(coords)-1 (per segment) "
-                    "or len(coords) (per vertex)"
-                )
+        rendered_values = _rendered_values_from_input(
+            values=values,
+            coord_pairs=coord_pairs,
+            seg_count=seg_count,
+            interpolate_steps=int(interpolate_steps),
+        )
 
-            if int(interpolate_steps) == 1:
-                rendered_values = [
-                    0.5 * (vertex_values[i] + vertex_values[i + 1])
-                    for i in range(seg_count)
-                ]
-            else:
-                for i in range(seg_count):
-                    v0 = float(vertex_values[i])
-                    v1 = float(vertex_values[i + 1])
-                    for step in range(1, int(interpolate_steps) + 1):
-                        tmid = (step - 0.5) / float(interpolate_steps)
-                        rendered_values.append(v0 + (v1 - v0) * tmid)
-
-        if segment_colors is None:
-            if values is None:
-                raise ValueError(
-                    "values is required when segment_colors is not provided"
-                )
-            rgba_colors = _resolve_colormap_rgba(
-                rendered_values, cmap=cmap, vmin=vmin, vmax=vmax
-            )
-        else:
-            if len(segment_colors) == rendered_seg_count:
-                rgba_colors = [_normalize_color(c) for c in segment_colors]
-            elif len(segment_colors) == seg_count:
-                # Allow one explicit color per original segment and expand across
-                # interpolation sub-segments.
-                rgba_colors = []
-                for color in segment_colors:
-                    rgba = _normalize_color(color)
-                    rgba_colors.extend([rgba] * int(interpolate_steps))
-            else:
-                raise ValueError(
-                    "segment_colors length must equal len(coords)-1 "
-                    "(one per input segment) or rendered segment count"
-                )
+        rgba_colors = _resolve_gradient_segment_colors(
+            segment_colors=segment_colors,
+            rendered_values=rendered_values,
+            seg_count=seg_count,
+            rendered_seg_count=rendered_seg_count,
+            interpolate_steps=int(interpolate_steps),
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            values=values,
+        )
 
         style = style or PolygonStyle()
 
