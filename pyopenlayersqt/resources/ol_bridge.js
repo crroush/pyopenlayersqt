@@ -1897,13 +1897,14 @@ function cmd_countries_set_visible(msg) {
       const outByLayer = new Map();
       for (const f of features) {
         const layer_id = f.get("_layer_id") || "";
-        const fid = f.getId() || "";
+        const fid = vector_logical_feature_id(f);
         if (!layer_id || !fid) continue;
         if (!outByLayer.has(layer_id)) outByLayer.set(layer_id, []);
         outByLayer.get(layer_id).push(String(fid));
       }
       for (const [layer_id, feature_ids] of outByLayer.entries()) {
-        emitToPython("selection", { layer_id, feature_ids, count: feature_ids.length });
+        const logical = Array.from(new Set(feature_ids));
+        emitToPython("selection", { layer_id, feature_ids: logical, count: logical.length });
       }
     });
 
@@ -1927,13 +1928,14 @@ function cmd_countries_set_visible(msg) {
       const outByLayer = new Map();
       for (const f of features) {
         const lid = f.get("_layer_id") || "";
-        const fid = f.getId() || "";
+        const fid = vector_logical_feature_id(f);
         if (!lid || !fid) continue;
         if (!outByLayer.has(lid)) outByLayer.set(lid, []);
         outByLayer.get(lid).push(String(fid));
       }
       for (const [lid, fids] of outByLayer.entries()) {
-        emitToPython("selection", { layer_id: lid, feature_ids: fids, count: fids.length });
+        const logical = Array.from(new Set(fids));
+        emitToPython("selection", { layer_id: lid, feature_ids: logical, count: logical.length });
       }
     });
 
@@ -2269,6 +2271,26 @@ function cmd_countries_set_visible(msg) {
     img.src = msg.url;
   }
 
+
+  function vector_features_for_id(source, featureId) {
+    const target = String(featureId);
+    const direct = source.getFeatureById(target);
+    if (direct) return [direct];
+
+    const out = [];
+    source.forEachFeature(function(f) {
+      if (String(f.get("_gradient_parent") || "") === target) out.push(f);
+    });
+    return out;
+  }
+
+  function vector_logical_feature_id(f) {
+    const parent = f.get("_gradient_parent");
+    if (parent != null && parent !== "") return String(parent);
+    const fid = f.getId();
+    return fid == null ? "" : String(fid);
+  }
+
   function cmd_select_set(msg) {
     if (!state.selectInteraction) return;
     const selected = state.selectInteraction.getFeatures();
@@ -2282,12 +2304,13 @@ function cmd_countries_set_visible(msg) {
     if (!e || e.type !== "vector") return;
 
     for (const fid of ids) {
-      const f = e.source.getFeatureById(String(fid));
-      if (f) selected.push(f);
+      const features = vector_features_for_id(e.source, String(fid));
+      for (const f of features) selected.push(f);
     }
     // emit selection via select handler
     const features = selected.getArray();
-    emitToPython("selection", { layer_id, feature_ids: features.map(f => String(f.getId())), count: features.length });
+    const logical = Array.from(new Set(features.map(vector_logical_feature_id).filter(Boolean)));
+    emitToPython("selection", { layer_id, feature_ids: logical, count: logical.length });
   }
 
   function dispatch(msg) {
@@ -2419,8 +2442,8 @@ function cmd_vector_remove_features(msg) {
   if (e.type !== "vector") return;
   const ids = msg.feature_ids || msg.ids || [];
   for (let i = 0; i < ids.length; i++) {
-    const f = e.source.getFeatureById(ids[i]);
-    if (f) e.source.removeFeature(f);
+    const features = vector_features_for_id(e.source, ids[i]);
+    for (const f of features) e.source.removeFeature(f);
   }
 }
 
@@ -2432,11 +2455,9 @@ function cmd_vector_update_styles(msg) {
   if (ids.length !== styles.length) return;
   
   for (let i = 0; i < ids.length; i++) {
-    const f = e.source.getFeatureById(String(ids[i]));
-    if (f) {
-      const style = style_from_simple(styles[i]);
-      f.setStyle(style);
-    }
+    const features = vector_features_for_id(e.source, String(ids[i]));
+    const style = style_from_simple(styles[i]);
+    for (const f of features) f.setStyle(style);
   }
 }
 })();
