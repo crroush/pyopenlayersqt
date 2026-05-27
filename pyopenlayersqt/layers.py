@@ -13,6 +13,7 @@ from .models import (
     PolygonStyle,
     RasterStyle,
     WMSOptions,
+    TileLayerOptions,
 )
 
 
@@ -424,6 +425,8 @@ class VectorLayer(BaseLayer):
 
 
 class WMSLayer(BaseLayer):
+    _layer_type_prefix = "wms"
+
     def __init__(self, widget: Any, layer_id: str, opt: WMSOptions, name: str = ""):
         super().__init__(widget, layer_id, name=name or layer_id)
         self.opt = opt
@@ -434,6 +437,29 @@ class WMSLayer(BaseLayer):
         )
         self._map_widget._send(
             {"type": "wms.set_params", "layer_id": self.id, "params": dict(params)}
+        )
+
+
+class TileLayer(BaseLayer):
+    _layer_type_prefix = "tile"
+
+    def __init__(
+        self, widget: Any, layer_id: str, opt: TileLayerOptions, name: str = ""
+    ):
+        super().__init__(widget, layer_id, name=name or layer_id)
+        self.opt = opt
+
+    def set_url(self, url: str) -> None:
+        self.opt = TileLayerOptions(
+            url=str(url), opacity=self.opt.opacity, attribution=self.opt.attribution
+        )
+        self._map_widget._send(
+            {
+                "type": "tile.set_url",
+                "layer_id": self.id,
+                "url": str(url),
+                "attribution": self.opt.attribution,
+            }
         )
 
 
