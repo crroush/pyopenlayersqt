@@ -310,11 +310,11 @@ vector.add_line(
     )
 )
 
-# Add per-segment gradient lines (e.g., speed along a track)
-# values length must be len(coords)-1
+# Add gradient lines (e.g., speed along a track)
+# per-segment values are converted to smooth per-vertex interpolation
 vector.add_gradient_line(
     coords=[(lat1, lon1), (lat2, lon2), (lat3, lon3), (lat4, lon4)],
-    values=[8.5, 12.1, 5.9],  # per-segment values
+    values=[8.5, 12.1, 5.9],  # per-segment values (smoothed through vertices)
     feature_id="track_speed",
     cmap="viridis",
     vmin=0.0,

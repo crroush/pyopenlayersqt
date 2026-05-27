@@ -435,8 +435,8 @@ class VectorLayer(BaseLayer):
         Args:
             coords: Sequence of (lat, lon) vertices. Must contain at least 2 points.
             values: Scalar values; supports either per-segment values (len(coords)-1)
-                or per-vertex values (len(coords)). Per-vertex values are smoothly
-                interpolated along each segment when ``interpolate_steps > 1``.
+                or per-vertex values (len(coords)). Values are converted to per-vertex
+                anchors and smoothly interpolated when ``interpolate_steps > 1``.
             feature_id: Base ID for created segment features.
             style: Base stroke style (stroke_width and opacity are respected).
             cmap: Matplotlib colormap name/object used when segment_colors is None.
@@ -460,21 +460,32 @@ class VectorLayer(BaseLayer):
         rendered_values: List[float] = []
 
         if raw_vals.size == len(coord_pairs):
+            vertex_values = [float(v) for v in raw_vals]
+        elif raw_vals.size == seg_count:
+            # Convert per-segment values into per-vertex anchors so colors can
+            # interpolate continuously through vertices instead of hard jumps.
+            vertex_values = [0.0] * len(coord_pairs)
+            vertex_values[0] = float(raw_vals[0])
+            vertex_values[-1] = float(raw_vals[-1])
+            for i in range(1, len(coord_pairs) - 1):
+                vertex_values[i] = 0.5 * (float(raw_vals[i - 1]) + float(raw_vals[i]))
+        else:
+            raise ValueError("values length must equal len(coords)-1 (per segment) or len(coords) (per vertex)")
+
+        if int(interpolate_steps) == 1:
+            expanded_coords = coord_pairs
+            rendered_values = [0.5 * (vertex_values[i] + vertex_values[i + 1]) for i in range(seg_count)]
+        else:
             for i in range(seg_count):
                 lat0, lon0 = coord_pairs[i]
                 lat1, lon1 = coord_pairs[i + 1]
-                v0 = float(raw_vals[i])
-                v1 = float(raw_vals[i + 1])
+                v0 = float(vertex_values[i])
+                v1 = float(vertex_values[i + 1])
                 for step in range(1, int(interpolate_steps) + 1):
                     t = step / float(interpolate_steps)
                     expanded_coords.append((lat0 + (lat1 - lat0) * t, lon0 + (lon1 - lon0) * t))
                     tmid = (step - 0.5) / float(interpolate_steps)
                     rendered_values.append(v0 + (v1 - v0) * tmid)
-        elif raw_vals.size == seg_count:
-            expanded_coords = coord_pairs
-            rendered_values = [float(v) for v in raw_vals]
-        else:
-            raise ValueError("values length must equal len(coords)-1 (per segment) or len(coords) (per vertex)")
 
         rendered_seg_count = len(expanded_coords) - 1
 
