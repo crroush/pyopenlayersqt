@@ -196,7 +196,8 @@ class RecoloringExample(QtWidgets.QMainWindow):
 
         # Instructions
         instructions = QtWidgets.QLabel(
-            "Select features (click or Ctrl+drag), including the gradient track, then click a color button to recolor them"
+            "Select features (click or Ctrl+drag), including the "
+            "gradient track, then click a color button to recolor them"
         )
         instructions.setStyleSheet("font-weight: bold; padding: 5px;")
         layout.addWidget(instructions)
