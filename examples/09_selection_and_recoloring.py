@@ -21,6 +21,7 @@ from PySide6.QtGui import QColor
 from pyopenlayersqt import (
     OLMapWidget,
     PointStyle,
+    PolygonStyle,
     FastPointsStyle,
     FastGeoPointsStyle,
 )
@@ -45,6 +46,7 @@ class RecoloringExample(QtWidgets.QMainWindow):
 
         # Add layers
         self._add_vector_layer()
+        self._add_gradient_track()
         self._add_fast_points_layer()
         self._add_geo_layer()
 
@@ -81,6 +83,30 @@ class RecoloringExample(QtWidgets.QMainWindow):
                     stroke_width=2.0
                 )
             )
+
+
+    def _add_gradient_track(self):
+        """Add selectable gradient line as a single logical feature ID."""
+        track_coords = [
+            (37.8078, -122.4177),
+            (37.8034, -122.4109),
+            (37.7986, -122.4072),
+            (37.7924, -122.4019),
+            (37.7873, -122.4052),
+            (37.7831, -122.4090),
+            (37.7791, -122.4148),
+            (37.7750, -122.4195),
+        ]
+        segment_speeds = [12, 18, 24, 28, 20, 14, 10]
+        self.vector_layer.add_gradient_line(
+            coords=track_coords,
+            values=segment_speeds,
+            feature_id="track_speed",
+            cmap="turbo",
+            style=PolygonStyle(stroke_width=7.0, stroke_opacity=0.8),
+            interpolate_steps=96,
+            properties={"kind": "gradient_track"},
+        )
 
     def _add_fast_points_layer(self):
         """Add fast points with per-point colors."""
@@ -170,7 +196,7 @@ class RecoloringExample(QtWidgets.QMainWindow):
 
         # Instructions
         instructions = QtWidgets.QLabel(
-            "Select features (click or Ctrl+drag), then click a color button to recolor them"
+            "Select features (click or Ctrl+drag), including the gradient track, then click a color button to recolor them"
         )
         instructions.setStyleSheet("font-weight: bold; padding: 5px;")
         layout.addWidget(instructions)
@@ -235,15 +261,25 @@ class RecoloringExample(QtWidgets.QMainWindow):
         for layer_id, feature_ids in self.selections.items():
             if layer_id == self.vector_layer.id:
                 # Vector layer: use update_feature_styles
-                styles = [
-                    PointStyle(
-                        radius=12.0,
-                        fill_color=color,
-                        stroke_color=QColor("black"),
-                        stroke_width=2.0
-                    )
-                    for _ in feature_ids
-                ]
+                styles = []
+                for fid in feature_ids:
+                    if fid == "track_speed":
+                        styles.append(
+                            PolygonStyle(
+                                stroke_color=color,
+                                stroke_width=7.0,
+                                stroke_opacity=0.8,
+                            )
+                        )
+                    else:
+                        styles.append(
+                            PointStyle(
+                                radius=12.0,
+                                fill_color=color,
+                                stroke_color=QColor("black"),
+                                stroke_width=2.0
+                            )
+                        )
                 self.vector_layer.update_feature_styles(feature_ids, styles)
 
             elif layer_id == self.fast_layer.id:
