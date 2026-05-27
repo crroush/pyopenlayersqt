@@ -30,10 +30,7 @@ class WMSExample(QtWidgets.QMainWindow):
 
     DEFAULT_OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     ALT_OSM_URL = "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
-    AWS_TERRAIN_URL = (
-        "https://maps.geo.{region}.amazonaws.com/v2/tiles/"
-        "terrain/{z}/{x}/{y}?key={api_key}"
-    )
+    AWS_TERRAIN_URL = "https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png"
 
     def __init__(self):
         super().__init__()
