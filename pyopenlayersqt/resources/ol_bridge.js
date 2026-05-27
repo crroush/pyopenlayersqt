@@ -2167,6 +2167,19 @@ function cmd_countries_set_visible(msg) {
     const baseProps = msg.properties || {};
     const baseId = msg.id || "gradient_line0";
 
+    // Respect base stroke opacity encoded in style.stroke (e.g. rgba(..., alpha)).
+    let baseStrokeAlpha = 1.0;
+    if (typeof baseStyle.stroke === "string") {
+      const m = baseStyle.stroke.match(/^rgba?\(([^)]+)\)$/i);
+      if (m) {
+        const parts = m[1].split(",").map((x) => x.trim());
+        if (parts.length >= 4) {
+          const a = Number(parts[3]);
+          if (Number.isFinite(a)) baseStrokeAlpha = Math.max(0, Math.min(1, a));
+        }
+      }
+    }
+
     for (let i = 0; i < coords.length - 1; i++) {
       const c0 = coords[i], c1 = coords[i + 1];
       const segGeom = new ol.geom.LineString([
@@ -2182,7 +2195,9 @@ function cmd_countries_set_visible(msg) {
       if (msg.values && i < msg.values.length) segFeature.set("_gradient_value", msg.values[i]);
 
       const packedColor = (packed[i] ?? 0xff3333ff);
-      const color = rgba_to_css(rgba_from_u32(packedColor));
+      const rgba = rgba_from_u32(packedColor);
+      rgba[3] = Math.round(rgba[3] * baseStrokeAlpha);
+      const color = rgba_to_css(rgba);
       segFeature.setStyle(new ol.style.Style({
         stroke: new ol.style.Stroke({ color: color, width: strokeWidth })
       }));
