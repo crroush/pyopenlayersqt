@@ -1966,7 +1966,13 @@ function cmd_countries_set_visible(msg) {
     const layer = new ol.layer.Tile({ source });
     layer.setOpacity(typeof tile.opacity === "number" ? tile.opacity : 1.0);
     state.map.addLayer(layer);
-    state.layers.set(msg.layer_id, { type: "tile", layer, source, selectable: false });
+    state.layers.set(msg.layer_id, {
+      type: "tile",
+      layer,
+      source,
+      selectable: false,
+      attribution: tile.attribution || null,
+    });
     state.layerByObj.set(layer, msg.layer_id);
   }
 
@@ -2027,10 +2033,12 @@ function cmd_countries_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "tile") return;
     const old = e.layer.getOpacity();
-    const src = _make_tile_source({ url: msg.url });
+    const attribution = (msg.attribution != null) ? msg.attribution : e.attribution;
+    const src = _make_tile_source({ url: msg.url, attribution });
     e.layer.setSource(src);
     e.layer.setOpacity(old);
     e.source = src;
+    e.attribution = attribution;
   }
 
   function cmd_tile_set_opacity(msg) {

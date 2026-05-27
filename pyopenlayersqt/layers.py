@@ -454,7 +454,12 @@ class TileLayer(BaseLayer):
             url=str(url), opacity=self.opt.opacity, attribution=self.opt.attribution
         )
         self._map_widget._send(
-            {"type": "tile.set_url", "layer_id": self.id, "url": str(url)}
+            {
+                "type": "tile.set_url",
+                "layer_id": self.id,
+                "url": str(url),
+                "attribution": self.opt.attribution,
+            }
         )
 
 
