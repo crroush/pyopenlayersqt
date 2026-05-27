@@ -428,32 +428,61 @@ class VectorLayer(BaseLayer):
         vmax: Optional[float] = None,
         segment_colors: Optional[Sequence[Union[tuple[int, int, int, int], str, Any]]] = None,
         properties: Optional[Dict[str, Any]] = None,
+        interpolate_steps: int = 8,
     ) -> None:
         """Add a polyline rendered with per-segment colors (useful for speed tracks).
 
         Args:
             coords: Sequence of (lat, lon) vertices. Must contain at least 2 points.
-            values: Scalar values to map to segment colors. Length must be len(coords)-1.
+            values: Scalar values; supports either per-segment values (len(coords)-1)
+                or per-vertex values (len(coords)). Per-vertex values are smoothly
+                interpolated along each segment when ``interpolate_steps > 1``.
             feature_id: Base ID for created segment features.
             style: Base stroke style (stroke_width and opacity are respected).
             cmap: Matplotlib colormap name/object used when segment_colors is None.
             vmin: Lower normalization bound for values.
             vmax: Upper normalization bound for values.
-            segment_colors: Optional explicit colors (one per segment).
+            segment_colors: Optional explicit colors (one per rendered segment).
             properties: Optional feature properties copied to every segment.
+            interpolate_steps: Number of sub-segments per original segment when
+                per-vertex values are supplied. Higher values make smoother gradients.
         """
         if len(coords) < 2:
             raise ValueError("coords must contain at least 2 points")
+        if interpolate_steps < 1:
+            raise ValueError("interpolate_steps must be >= 1")
 
-        seg_count = len(coords) - 1
-        if len(values) != seg_count:
-            raise ValueError("values length must equal len(coords) - 1")
+        coord_pairs = list(coords)
+        raw_vals = np.asarray(values, dtype=float)
+        seg_count = len(coord_pairs) - 1
+
+        expanded_coords: List[LatLon] = [coord_pairs[0]]
+        rendered_values: List[float] = []
+
+        if raw_vals.size == len(coord_pairs):
+            for i in range(seg_count):
+                lat0, lon0 = coord_pairs[i]
+                lat1, lon1 = coord_pairs[i + 1]
+                v0 = float(raw_vals[i])
+                v1 = float(raw_vals[i + 1])
+                for step in range(1, int(interpolate_steps) + 1):
+                    t = step / float(interpolate_steps)
+                    expanded_coords.append((lat0 + (lat1 - lat0) * t, lon0 + (lon1 - lon0) * t))
+                    tmid = (step - 0.5) / float(interpolate_steps)
+                    rendered_values.append(v0 + (v1 - v0) * tmid)
+        elif raw_vals.size == seg_count:
+            expanded_coords = coord_pairs
+            rendered_values = [float(v) for v in raw_vals]
+        else:
+            raise ValueError("values length must equal len(coords)-1 (per segment) or len(coords) (per vertex)")
+
+        rendered_seg_count = len(expanded_coords) - 1
 
         if segment_colors is None:
-            rgba_colors = _resolve_colormap_rgba(values, cmap=cmap, vmin=vmin, vmax=vmax)
+            rgba_colors = _resolve_colormap_rgba(rendered_values, cmap=cmap, vmin=vmin, vmax=vmax)
         else:
-            if len(segment_colors) != seg_count:
-                raise ValueError("segment_colors length must equal len(coords) - 1")
+            if len(segment_colors) != rendered_seg_count:
+                raise ValueError("segment_colors length must equal rendered segment count")
             rgba_colors = [_normalize_color(c) for c in segment_colors]
 
         style = style or PolygonStyle()
@@ -462,8 +491,8 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.add_gradient_line",
                 "layer_id": self.id,
-                "coords": [[float(lon), float(lat)] for (lat, lon) in coords],
-                "values": [float(v) for v in values],
+                "coords": [[float(lon), float(lat)] for (lat, lon) in expanded_coords],
+                "values": rendered_values,
                 "segment_colors": _pack_rgba_colors(rgba_colors),
                 "id": feature_id,
                 "style": style.to_js(),

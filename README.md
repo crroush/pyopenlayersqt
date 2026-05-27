@@ -314,7 +314,7 @@ vector.add_line(
 # values length must be len(coords)-1
 vector.add_gradient_line(
     coords=[(lat1, lon1), (lat2, lon2), (lat3, lon3), (lat4, lon4)],
-    values=[8.5, 12.1, 5.9],
+    values=[8.5, 12.1, 5.9],  # per-segment values
     feature_id="track_speed",
     cmap="viridis",
     vmin=0.0,
@@ -325,6 +325,17 @@ vector.add_gradient_line(
 
 # Optional: pass explicit segment colors instead of cmap
 # vector.add_gradient_line(..., segment_colors=["blue", "green", "red"])
+
+
+# Smooth transitions: pass per-vertex values and interpolate between points
+vector.add_gradient_line(
+    coords=[(lat1, lon1), (lat2, lon2), (lat3, lon3)],
+    values=[5.0, 12.0, 20.0],  # per-vertex values
+    cmap="plasma",
+    vmin=0.0,
+    vmax=25.0,
+    interpolate_steps=12,
+)
 
 # Add circles (radius in meters)
 vector.add_circle(
