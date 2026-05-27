@@ -87,7 +87,10 @@ class WMSExample(QtWidgets.QMainWindow):
         wms_layout.addWidget(QtWidgets.QLabel("Dataset:"))
         self.wms_combo = QtWidgets.QComboBox()
         self.wms_combo.addItem("US States (topp:states)", "topp:states")
-        self.wms_combo.addItem("Tasmania Water Bodies (topp:tasmania_water_bodies)", "topp:tasmania_water_bodies")
+        self.wms_combo.addItem(
+            "Tasmania Water Bodies (topp:tasmania_water_bodies)",
+            "topp:tasmania_water_bodies",
+        )
         self.wms_combo.currentIndexChanged.connect(self._on_wms_layer_changed)
         wms_layout.addWidget(self.wms_combo, stretch=1)
         layout.addWidget(wms_group)
