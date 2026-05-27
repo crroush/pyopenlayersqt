@@ -113,6 +113,7 @@ See the [examples directory](examples/) for more working examples:
 - `14_delayed_render_interrupt.py` - Debounced, interruptible process-based heatmap rendering
 - `15_load_data_and_zoom.py` - Load features, then click a button to auto-zoom to loaded data
 - `16_metadata_only_table_linking.py` - 100k FastGeo parent map objects linked to metadata-only child rows (3-5 per parent)
+- `17_map_right_click_context_menu.py` - Right-click anywhere on the map for a custom menu (create new points or open dialogs for existing points)
 
 ## Core Components
 
@@ -1180,6 +1181,46 @@ def on_js_event(event_type, payload_json):
 
 map_widget.jsEvent.connect(on_js_event)
 ```
+
+### Right-click map context menu (custom app actions)
+
+The map emits a `contextmenu` JavaScript event when users right-click anywhere on
+the map. The payload includes map coordinates and (if applicable) the clicked
+feature id/layer id, so you can open a custom Qt menu.
+
+```python
+import json
+from PySide6 import QtCore, QtWidgets
+
+def on_js_event(event_type, payload_json):
+    if event_type != "contextmenu":
+        return
+    payload = json.loads(payload_json)
+    lat = payload["lat"]
+    lon = payload["lon"]
+    feature_id = payload.get("feature_id")
+
+    menu = QtWidgets.QMenu()
+    create_action = menu.addAction("Create point here")
+    if feature_id:
+        open_action = menu.addAction(f"Open dialog for {feature_id}")
+
+    # map client coordinates -> global screen coordinates
+    global_pos = map_widget.mapToGlobal(
+        QtCore.QPoint(int(payload["client_x"]), int(payload["client_y"]))
+    )
+    chosen = menu.exec(global_pos)
+
+    if chosen == create_action:
+        create_point(lat, lon)
+    elif feature_id and chosen == open_action:
+        open_point_dialog(feature_id)
+
+map_widget.jsEvent.connect(on_js_event)
+```
+
+For a complete runnable demo, see
+[examples/17_map_right_click_context_menu.py](examples/17_map_right_click_context_menu.py).
 
 ## Performance Tips
 
