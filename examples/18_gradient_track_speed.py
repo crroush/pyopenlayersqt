@@ -36,12 +36,12 @@ def main() -> None:
     # Per-segment speed values (mph), one value for each segment
     segment_speeds = [12, 18, 24, 28, 20, 14, 10, 16, 22]
 
-    # Draw gradient line using matplotlib colormap (blue->green->yellow)
+    # Draw gradient line using "turbo" colormap (slow=blue, fast=red)
     layer.add_gradient_line(
         coords=track_coords,
         values=segment_speeds,
         feature_id="track_speed",
-        cmap="viridis",
+        cmap="turbo",
         style=PolygonStyle(stroke_width=6.0, stroke_color=QColor("white")),
         properties={"metric": "speed_mph"},
         interpolate_steps=96,

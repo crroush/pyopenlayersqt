@@ -316,7 +316,7 @@ vector.add_gradient_line(
     coords=[(lat1, lon1), (lat2, lon2), (lat3, lon3), (lat4, lon4)],
     values=[8.5, 12.1, 5.9],  # per-segment values (smoothed through vertices)
     feature_id="track_speed",
-    cmap="viridis",
+    cmap="turbo",
     vmin=0.0,
     vmax=20.0,
     style=PolygonStyle(stroke_width=4.0),
