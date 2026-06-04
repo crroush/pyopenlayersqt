@@ -1572,10 +1572,23 @@ function cmd_measure_clear(msg) {
   const VECTOR_SELECTION_RGBA = [0, 255, 255, 255];
   const VECTOR_SELECTION_CSS = rgba_to_css(VECTOR_SELECTION_RGBA);
 
+  function can_tint_icon_src(src, crossOrigin) {
+    const lowerSrc = String(src).toLowerCase();
+    if (crossOrigin != null) return true;
+    if (lowerSrc.startsWith("data:") || lowerSrc.startsWith("blob:")) return true;
+    try {
+      return new URL(src, window.location.href).origin === window.location.origin;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function style_from_simple(s, selected) {
     selected = !!selected;
     if (typeof s.icon_src === "string" && s.icon_src.length > 0) {
       const baseScale = (typeof s.scale === "number" ? s.scale : 1.0);
+      const crossOrigin = s.cross_origin;
+      const canTint = selected && can_tint_icon_src(s.icon_src, crossOrigin);
       const iconOptions = {
         src: s.icon_src,
         scale: selected ? baseScale * 1.15 : baseScale,
@@ -1590,11 +1603,23 @@ function cmd_measure_clear(msg) {
           : 0.0),
         rotateWithView: !!s.rotate_with_view,
       };
-      if (selected) iconOptions.color = VECTOR_SELECTION_CSS;
-      if (s.cross_origin != null) iconOptions.crossOrigin = s.cross_origin;
-      return new ol.style.Style({
+      if (canTint) iconOptions.color = VECTOR_SELECTION_CSS;
+      if (crossOrigin != null) iconOptions.crossOrigin = crossOrigin;
+      const iconStyle = new ol.style.Style({
         image: new ol.style.Icon(iconOptions),
       });
+      if (!selected || canTint) return iconStyle;
+      const haloRadius = Math.max(8, 12 * Math.max(1, baseScale));
+      return [
+        new ol.style.Style({
+          image: new ol.style.Circle({
+            radius: haloRadius,
+            fill: new ol.style.Fill({ color: "rgba(0,255,255,0.35)" }),
+            stroke: new ol.style.Stroke({ color: VECTOR_SELECTION_CSS, width: 2 }),
+          }),
+        }),
+        iconStyle,
+      ];
     }
 
     const stroke = new ol.style.Stroke({

@@ -302,7 +302,10 @@ vector.add_icon_points(
     coords=[(lat, lon)],
     icon="https://example.com/pin.svg",
     ids=["remote_marker"],
-    rotation_deg=45.0  # clockwise degrees from true north (up on an unrotated map)
+    rotation_deg=45.0,  # clockwise degrees from true north (up on an unrotated map)
+    # Optional: enables selection tinting when the remote server permits CORS.
+    # Without it, remote icons still render with a selection halo.
+    cross_origin="anonymous"
 )
 
 # Add polygons
@@ -678,7 +681,7 @@ geo_style = FastGeoPointsStyle(
 **Key Features:**
 - **QColor Support in ALL Styles**: Pass `QColor` objects directly to any color parameter in PointStyle, CircleStyle, PolygonStyle, EllipseStyle, FastPointsStyle, and FastGeoPointsStyle - no need for `.name()`
 - **Color Names Everywhere**: Use color names like `"red"`, `"Green"`, `"steelblue"` directly in all Style classes
-- **Custom Icon Markers**: Use `VectorLayer.add_icon_points(icon=...)` to place points rendered with a local image path, URL, data URI, or image bytes; local files and bytes are served to the embedded browser automatically, and selected icons are tinted with the vector selection color
+- **Custom Icon Markers**: Use `VectorLayer.add_icon_points(icon=...)` to place points rendered with a local image path, URL, data URI, or image bytes; local files and bytes are served to the embedded browser automatically, and selected icons use the vector selection color (tinting for same-origin/data/CORS-enabled icons, halo fallback for other remote URLs)
 - **Multiple Formats**: Color styles accept QColor objects, color names, hex strings, and CSS strings (RGBA tuples are deprecated)
 - **Backward Compatible**: Existing code using RGBA tuples or hex colors continues to work
 - **Z-Ordering**: Selected points and ellipses are automatically drawn on top in dense areas
