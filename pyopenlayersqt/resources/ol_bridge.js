@@ -1569,11 +1569,16 @@ function cmd_measure_clear(msg) {
     return [bl[0], bl[1], tr[0], tr[1]];
   }
 
-  function style_from_simple(s) {
+  const VECTOR_SELECTION_RGBA = [0, 255, 255, 255];
+  const VECTOR_SELECTION_CSS = rgba_to_css(VECTOR_SELECTION_RGBA);
+
+  function style_from_simple(s, selected) {
+    selected = !!selected;
     if (typeof s.icon_src === "string" && s.icon_src.length > 0) {
+      const baseScale = (typeof s.scale === "number" ? s.scale : 1.0);
       const iconOptions = {
         src: s.icon_src,
-        scale: (typeof s.scale === "number" ? s.scale : 1.0),
+        scale: selected ? baseScale * 1.15 : baseScale,
         opacity: (typeof s.opacity === "number" ? s.opacity : 1.0),
         anchor: (Array.isArray(s.anchor) && s.anchor.length === 2)
           ? s.anchor
@@ -1585,6 +1590,7 @@ function cmd_measure_clear(msg) {
           : 0.0),
         rotateWithView: !!s.rotate_with_view,
       };
+      if (selected) iconOptions.color = VECTOR_SELECTION_CSS;
       if (s.cross_origin != null) iconOptions.crossOrigin = s.cross_origin;
       return new ol.style.Style({
         image: new ol.style.Icon(iconOptions),
@@ -1592,19 +1598,31 @@ function cmd_measure_clear(msg) {
     }
 
     const stroke = new ol.style.Stroke({
-      color: s.stroke || "rgba(0,0,0,1)",
-      width: s.stroke_width || 1,
+      color: selected ? VECTOR_SELECTION_CSS : (s.stroke || "rgba(0,0,0,1)"),
+      width: selected
+        ? Math.max(2, (s.stroke_width || 1) + 1)
+        : (s.stroke_width || 1),
     });
     const fill = new ol.style.Fill({
-      color: s.fill || "rgba(0,0,0,0)",
+      color: selected ? "rgba(0,255,255,0.35)" : (s.fill || "rgba(0,0,0,0)"),
     });
 
     if (typeof s.radius === "number") {
       return new ol.style.Style({
-        image: new ol.style.Circle({ radius: s.radius, fill, stroke }),
+        image: new ol.style.Circle({
+          radius: selected ? s.radius + 2 : s.radius,
+          fill,
+          stroke,
+        }),
       });
     }
     return new ol.style.Style({ stroke, fill });
+  }
+
+  function selected_style_for_feature(feature) {
+    const styleSpec = feature && feature.get ? feature.get("_pyolqt_style") : null;
+    if (styleSpec) return style_from_simple(styleSpec, true);
+    return style_from_simple({}, true);
   }
 
   function circle_polygon_lonlat(centerLonLat, radius_m, segments) {
@@ -1904,6 +1922,7 @@ function cmd_countries_set_visible(msg) {
       condition: (evt) => ol.events.condition.singleClick(evt),
       toggleCondition: (evt) => ol.events.condition.platformModifierKeyOnly(evt),
       multi: true,
+      style: selected_style_for_feature,
       layers: (layer) => {
         const layer_id = state.layerByObj.get(layer);
         if (!layer_id) return false;
@@ -2132,6 +2151,7 @@ function cmd_countries_set_visible(msg) {
       f.setId(ids[i] || ("pt" + i));
       f.set("_layer_id", msg.layer_id);
       if (props[i]) for (const [k, v] of Object.entries(props[i])) f.set(k, v);
+      f.set("_pyolqt_style", msg.style || {});
       f.setStyle(style);
       e.source.addFeature(f);
     }
@@ -2147,6 +2167,7 @@ function cmd_countries_set_visible(msg) {
     f.setId(msg.id || "poly0");
     f.set("_layer_id", msg.layer_id);
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
+    f.set("_pyolqt_style", msg.style || {});
     f.setStyle(style_from_simple(msg.style || {}));
     e.source.addFeature(f);
   }
@@ -2159,6 +2180,7 @@ function cmd_countries_set_visible(msg) {
     f.setId(msg.id || "circle0");
     f.set("_layer_id", msg.layer_id);
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
+    f.set("_pyolqt_style", msg.style || {});
     f.setStyle(style_from_simple(msg.style || {}));
     e.source.addFeature(f);
   }
@@ -2174,6 +2196,7 @@ function cmd_countries_set_visible(msg) {
     f.setId(msg.id || "line0");
     f.set("_layer_id", msg.layer_id);
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
+    f.set("_pyolqt_style", msg.style || {});
     f.setStyle(style_from_simple(msg.style || {}));
     e.source.addFeature(f);
   }
@@ -2236,6 +2259,7 @@ function cmd_countries_set_visible(msg) {
     f.setId(msg.id || "ell0");
     f.set("_layer_id", msg.layer_id);
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
+    f.set("_pyolqt_style", msg.style || {});
     f.setStyle(style_from_simple(msg.style || {}));
     e.source.addFeature(f);
   }
@@ -2477,8 +2501,12 @@ function cmd_vector_update_styles(msg) {
   
   for (let i = 0; i < ids.length; i++) {
     const features = vector_features_for_id(e.source, String(ids[i]));
-    const style = style_from_simple(styles[i]);
-    for (const f of features) f.setStyle(style);
+    const styleSpec = styles[i] || {};
+    const style = style_from_simple(styleSpec);
+    for (const f of features) {
+      f.set("_pyolqt_style", styleSpec);
+      f.setStyle(style);
+    }
   }
 }
 })();

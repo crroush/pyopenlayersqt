@@ -678,7 +678,7 @@ geo_style = FastGeoPointsStyle(
 **Key Features:**
 - **QColor Support in ALL Styles**: Pass `QColor` objects directly to any color parameter in PointStyle, CircleStyle, PolygonStyle, EllipseStyle, FastPointsStyle, and FastGeoPointsStyle - no need for `.name()`
 - **Color Names Everywhere**: Use color names like `"red"`, `"Green"`, `"steelblue"` directly in all Style classes
-- **Custom Icon Markers**: Use `VectorLayer.add_icon_points(icon=...)` to place points rendered with a local image path, URL, data URI, or image bytes; local files and bytes are served to the embedded browser automatically
+- **Custom Icon Markers**: Use `VectorLayer.add_icon_points(icon=...)` to place points rendered with a local image path, URL, data URI, or image bytes; local files and bytes are served to the embedded browser automatically, and selected icons are tinted with the vector selection color
 - **Multiple Formats**: Color styles accept QColor objects, color names, hex strings, and CSS strings (RGBA tuples are deprecated)
 - **Backward Compatible**: Existing code using RGBA tuples or hex colors continues to work
 - **Z-Ordering**: Selected points and ellipses are automatically drawn on top in dense areas
