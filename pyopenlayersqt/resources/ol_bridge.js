@@ -28,6 +28,9 @@ const state = {
     qtBridge: null,
     selectInteraction: null,
     dragBox: null,
+    modifyInteraction: null,
+    translateInteraction: null,
+    movableFeatures: null,
     base_layer: null,
     viewInteracting: false,
     // Measurement mode state
@@ -1984,6 +1987,33 @@ function cmd_countries_set_visible(msg) {
     });
     state.map.addInteraction(state.dragBox);
 
+    state.translateInteraction = new ol.interaction.Translate({
+      layers: (layer) => {
+        const layer_id = state.layerByObj.get(layer);
+        if (!layer_id) return false;
+        const e = state.layers.get(layer_id);
+        return !!(e && e.type === "vector" && e.movable);
+      },
+      filter: (feature, layer) => vector_feature_is_movable(feature, layer),
+      condition: (evt) => ol.events.condition.primaryAction(evt),
+      hitTolerance: 6,
+    });
+    state.map.addInteraction(state.translateInteraction);
+    state.translateInteraction.on("translateend", function(evt) {
+      emit_vector_features_changed(evt.features, "translate");
+    });
+
+    state.movableFeatures = new ol.Collection();
+    state.modifyInteraction = new ol.interaction.Modify({
+      features: state.movableFeatures,
+      condition: (evt) => ol.events.condition.primaryAction(evt),
+      pixelTolerance: 10,
+    });
+    state.map.addInteraction(state.modifyInteraction);
+    state.modifyInteraction.on("modifyend", function(evt) {
+      emit_vector_features_changed(evt.features, "modify");
+    });
+
     state.dragBox.on("boxend", function () {
       const extent = state.dragBox.getGeometry().getExtent();
       const selected = state.selectInteraction.getFeatures();
@@ -2047,12 +2077,85 @@ function cmd_countries_set_visible(msg) {
     return e;
   }
 
+  function vector_feature_is_movable(feature, layer) {
+    if (!feature) return false;
+    const layer_id = feature.get("_layer_id") || (layer ? state.layerByObj.get(layer) : null);
+    if (!layer_id) return false;
+    const e = state.layers.get(layer_id);
+    if (!e || e.type !== "vector" || !e.movable) return false;
+    return feature.get("_pyolqt_movable") !== false;
+  }
+
+  function vector_set_feature_movable(feature, movable) {
+    if (!feature) return;
+    feature.set("_pyolqt_movable", movable !== false);
+    if (!state.movableFeatures) return;
+    const arr = state.movableFeatures.getArray();
+    const present = arr.indexOf(feature) !== -1;
+    const shouldHave = vector_feature_is_movable(feature, null);
+    if (shouldHave && !present) state.movableFeatures.push(feature);
+    if (!shouldHave && present) state.movableFeatures.remove(feature);
+  }
+
+  function vector_add_feature(entry, feature, movable) {
+    feature.set("_pyolqt_movable", movable !== false);
+    entry.source.addFeature(feature);
+    vector_set_feature_movable(feature, movable);
+  }
+
+  function vector_remove_feature_from_movable(feature) {
+    if (!state.movableFeatures || !feature) return;
+    if (state.movableFeatures.getArray().indexOf(feature) !== -1) {
+      state.movableFeatures.remove(feature);
+    }
+  }
+
+  function vector_clear_layer_movable(entry) {
+    if (!state.movableFeatures || !entry || entry.type !== "vector") return;
+    const toRemove = [];
+    state.movableFeatures.forEach(function(feature) {
+      if ((feature.get("_layer_id") || "") === entry.layer_id) toRemove.push(feature);
+    });
+    for (const feature of toRemove) state.movableFeatures.remove(feature);
+  }
+
+  function geometry_to_lonlat_payload(geometry) {
+    if (!geometry) return null;
+    const type = geometry.getType();
+    const convert = (coord) => {
+      const ll = ol.proj.toLonLat(coord);
+      return [ll[1], ll[0]];
+    };
+    if (type === "Point") return { type, coordinates: convert(geometry.getCoordinates()) };
+    if (type === "LineString") return { type, coordinates: geometry.getCoordinates().map(convert) };
+    if (type === "Polygon") return { type, coordinates: geometry.getCoordinates().map((ring) => ring.map(convert)) };
+    return { type };
+  }
+
+  function emit_vector_features_changed(features, reason) {
+    if (!features) return;
+    const seen = new Set();
+    features.forEach(function(feature) {
+      const layer_id = feature.get("_layer_id") || "";
+      const feature_id = vector_logical_feature_id(feature);
+      const key = layer_id + ":" + feature_id;
+      if (!layer_id || !feature_id || seen.has(key)) return;
+      seen.add(key);
+      emitToPython("vector_feature_changed", {
+        layer_id,
+        feature_id,
+        reason,
+        geometry: geometry_to_lonlat_payload(feature.getGeometry()),
+      });
+    });
+  }
+
   function cmd_add_vector(msg) {
     const source = new ol.source.Vector();
     const layer = new ol.layer.Vector({ source });
     layer.setOpacity(1.0);
     state.map.addLayer(layer);
-    state.layers.set(msg.layer_id, { type: "vector", layer, source, selectable: !!msg.selectable });
+    state.layers.set(msg.layer_id, { type: "vector", layer, source, selectable: !!msg.selectable, movable: !!msg.movable, layer_id: msg.layer_id });
     state.layerByObj.set(layer, msg.layer_id);
   }
 
@@ -2109,6 +2212,7 @@ function cmd_countries_set_visible(msg) {
   function cmd_layer_remove(msg) {
     const e = state.layers.get(msg.layer_id);
     if (!e) return;
+    vector_clear_layer_movable(e);
     state.map.removeLayer(e.layer);
     state.layerByObj.delete(e.layer);
     state.layers.delete(msg.layer_id);
@@ -2128,6 +2232,7 @@ function cmd_countries_set_visible(msg) {
   function cmd_vector_clear(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
+    vector_clear_layer_movable(e);
     e.source.clear();
     if (state.selectInteraction) state.selectInteraction.getFeatures().clear();
   }
@@ -2183,7 +2288,8 @@ function cmd_countries_set_visible(msg) {
       if (props[i]) for (const [k, v] of Object.entries(props[i])) f.set(k, v);
       f.set("_pyolqt_style", msg.style || {});
       f.setStyle(style);
-      e.source.addFeature(f);
+      const movable = Array.isArray(msg.movable) ? msg.movable[i] : msg.movable;
+      vector_add_feature(e, f, movable);
     }
   }
 
@@ -2199,7 +2305,7 @@ function cmd_countries_set_visible(msg) {
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
     f.set("_pyolqt_style", msg.style || {});
     f.setStyle(style_from_simple(msg.style || {}));
-    e.source.addFeature(f);
+    vector_add_feature(e, f, msg.movable);
   }
 
   function cmd_vector_add_circle(msg) {
@@ -2212,7 +2318,7 @@ function cmd_countries_set_visible(msg) {
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
     f.set("_pyolqt_style", msg.style || {});
     f.setStyle(style_from_simple(msg.style || {}));
-    e.source.addFeature(f);
+    vector_add_feature(e, f, msg.movable);
   }
 
   function cmd_vector_add_line(msg) {
@@ -2228,7 +2334,7 @@ function cmd_countries_set_visible(msg) {
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
     f.set("_pyolqt_style", msg.style || {});
     f.setStyle(style_from_simple(msg.style || {}));
-    e.source.addFeature(f);
+    vector_add_feature(e, f, msg.movable);
   }
 
 
@@ -2277,7 +2383,7 @@ function cmd_countries_set_visible(msg) {
       segFeature.setStyle(new ol.style.Style({
         stroke: new ol.style.Stroke({ color: color, width: strokeWidth })
       }));
-      e.source.addFeature(segFeature);
+      vector_add_feature(e, segFeature, msg.movable);
     }
   }
 
@@ -2291,7 +2397,7 @@ function cmd_countries_set_visible(msg) {
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
     f.set("_pyolqt_style", msg.style || {});
     f.setStyle(style_from_simple(msg.style || {}));
-    e.source.addFeature(f);
+    vector_add_feature(e, f, msg.movable);
   }
 
   function cmd_vector_set_opacity(msg) {
@@ -2310,6 +2416,26 @@ function cmd_countries_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
     e.selectable = !!msg.selectable;
+  }
+
+  function cmd_vector_set_movable(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "vector") return;
+    e.movable = !!msg.movable;
+    e.source.forEachFeature(function(feature) {
+      vector_set_feature_movable(feature, feature.get("_pyolqt_movable") !== false);
+    });
+  }
+
+  function cmd_vector_set_features_movable(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "vector") return;
+    const ids = msg.feature_ids || msg.ids || [];
+    const movable = msg.movable !== false;
+    for (const id of ids) {
+      const features = vector_features_for_id(e.source, String(id));
+      for (const feature of features) vector_set_feature_movable(feature, movable);
+    }
   }
 
   function cmd_wms_set_params(msg) {
@@ -2408,6 +2534,8 @@ function cmd_countries_set_visible(msg) {
       case "vector.set_opacity": return cmd_vector_set_opacity(msg);
       case "vector.set_visible": return cmd_vector_set_visible(msg);
       case "vector.set_selectable": return cmd_vector_set_selectable(msg);
+      case "vector.set_movable": return cmd_vector_set_movable(msg);
+      case "vector.set_features_movable": return cmd_vector_set_features_movable(msg);
 
       case "wms.set_params": return cmd_wms_set_params(msg);
       case "wms.set_opacity": return cmd_wms_set_opacity(msg);

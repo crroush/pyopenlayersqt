@@ -181,6 +181,7 @@ class OLMapWidget(QWebEngineView):
     viewExtentChanged = Signal(object)
     jsEvent = Signal(str, str)
     measurementUpdated = Signal(object)
+    vectorFeatureChanged = Signal(object)
     ready = Signal()
     perfReceived = Signal(object)
 
@@ -697,6 +698,9 @@ class OLMapWidget(QWebEngineView):
             except Exception:
                 pass
 
+    def _handle_vector_feature_changed_event(self, payload_json: str) -> None:
+        self.vectorFeatureChanged.emit(self._parse_event_payload(payload_json))
+
     def _handle_perf_event(self, payload_json: str) -> None:
         obj = self._parse_event_payload(payload_json, default={"raw": payload_json})
         if self._perf_logging_enabled:
@@ -715,6 +719,7 @@ class OLMapWidget(QWebEngineView):
             "view_extent_changed": self._handle_view_extent_changed_event,
             "view_extent": self._handle_view_extent_event,
             "measurement": self._handle_measurement_event,
+            "vector_feature_changed": self._handle_vector_feature_changed_event,
             "perf": self._handle_perf_event,
         }
         if event_type == "ready":
@@ -835,7 +840,7 @@ class OLMapWidget(QWebEngineView):
         return Handle()
 
     def add_vector_layer(
-        self, name: str = "vector", selectable: bool = True
+        self, name: str = "vector", selectable: bool = True, movable: bool = False
     ) -> VectorLayer:
         layer_id = self._next_id("v")
         self._send(
@@ -844,6 +849,7 @@ class OLMapWidget(QWebEngineView):
                 "layer_id": layer_id,
                 "name": name,
                 "selectable": bool(selectable),
+                "movable": bool(movable),
             }
         )
         return VectorLayer(self, layer_id, name=name)
