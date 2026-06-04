@@ -243,8 +243,9 @@ class IconStyle:
     anchor: Icon anchor as fractions by default; ``(0.5, 1.0)`` pins the bottom center
         of the icon to the feature coordinate.
     anchor_x_units / anchor_y_units: OpenLayers anchor units (``"fraction"`` or ``"pixels"``).
-    rotation_deg: Clockwise degrees from true north (up on an unrotated map). Use ``rotate_with_view=True``
-        when the marker should stay aligned with map north if the view rotates.
+    rotation_deg: Clockwise degrees from true north (up on an unrotated map).
+        Use ``rotate_with_view=True`` when the marker should stay aligned with map
+        north if the view rotates.
     rotate_with_view: If True, icon rotates with the map view.
     cross_origin: Optional cross-origin setting for remote images (e.g. ``"anonymous"``).
     """

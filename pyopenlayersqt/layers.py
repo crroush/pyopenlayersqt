@@ -421,6 +421,7 @@ class VectorLayer(BaseLayer):
         )
 
     def add_icon_points(
+        # pylint: disable=too-many-arguments
         self,
         coords: Sequence[LatLon],
         icon: Any = None,
