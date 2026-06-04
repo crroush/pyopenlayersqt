@@ -424,6 +424,7 @@ class VectorLayer(BaseLayer):
         self,
         coords: Sequence[LatLon],
         icon: Any = None,
+        selected_icon: Any = None,
         ids: Optional[Sequence[str]] = None,
         style: Optional[IconStyle] = None,
         properties: Optional[Sequence[Dict[str, Any]]] = None,
@@ -440,6 +441,8 @@ class VectorLayer(BaseLayer):
             coords: Sequence of (lat, lon) tuples for each point.
             icon: URL, local image path, data URI, or image bytes. Local files and
                 bytes are cached and served automatically to the embedded browser.
+            selected_icon: Optional alternate icon to use while the feature is
+                selected. Accepts the same input forms as icon.
             ids: Optional sequence of feature IDs. Auto-generated if not provided.
             style: Optional advanced IconStyle. Most callers can use the direct
                 scale/opacity/anchor/rotation_deg arguments instead.
@@ -467,9 +470,18 @@ class VectorLayer(BaseLayer):
         if not icon_value:
             raise ValueError("icon must be a URL, local image path, data URI, or bytes")
 
+        selected_icon_value = (
+            selected_icon
+            if selected_icon is not None
+            else icon_style.selected_icon_src
+        )
         icon_style = replace(
             icon_style,
             icon_src=self._map_widget._icon_to_src(icon_value),
+            selected_icon_src=(
+                self._map_widget._icon_to_src(selected_icon_value)
+                if selected_icon_value else None
+            ),
         )
         self.add_points(
             coords=coords,

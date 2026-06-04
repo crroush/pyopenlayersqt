@@ -56,7 +56,9 @@ def main():
     )
 
     # 2. Custom icon markers: local path, bytes, data URI, and URL forms
-    icon_path = Path(__file__).with_name("assets") / "orange_pin.svg"
+    assets_dir = Path(__file__).with_name("assets")
+    icon_path = assets_dir / "orange_pin.svg"
+    selected_icon_path = assets_dir / "selected_pin.svg"
     icon_bytes = icon_path.read_bytes()
     icon_data_uri = (
         "data:image/svg+xml;base64,"
@@ -69,10 +71,11 @@ def main():
     layer.add_icon_points(
         [(37.8044, -122.2712)],  # Oakland
         icon=icon_path,
+        selected_icon=selected_icon_path,
         ids=["icon_path"],
         scale=0.9,
         anchor=(0.5, 1.0),
-        properties=[{"name": "Icon from local path"}],
+        properties=[{"name": "Icon from local path with selected icon"}],
     )
     layer.add_icon_points(
         [(37.8715, -122.2730)],  # Berkeley

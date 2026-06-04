@@ -1587,10 +1587,15 @@ function cmd_measure_clear(msg) {
     selected = !!selected;
     if (typeof s.icon_src === "string" && s.icon_src.length > 0) {
       const baseScale = (typeof s.scale === "number" ? s.scale : 1.0);
+      const selectedIconSrc = (
+        typeof s.selected_icon_src === "string" && s.selected_icon_src.length > 0
+      ) ? s.selected_icon_src : null;
+      const iconSrc = (selected && selectedIconSrc) ? selectedIconSrc : s.icon_src;
       const crossOrigin = s.cross_origin;
-      const canTint = selected && can_tint_icon_src(s.icon_src, crossOrigin);
+      const hasSelectedIcon = selected && !!selectedIconSrc;
+      const canTint = selected && !hasSelectedIcon && can_tint_icon_src(iconSrc, crossOrigin);
       const iconOptions = {
-        src: s.icon_src,
+        src: iconSrc,
         scale: selected ? baseScale * 1.15 : baseScale,
         opacity: (typeof s.opacity === "number" ? s.opacity : 1.0),
         anchor: (Array.isArray(s.anchor) && s.anchor.length === 2)
