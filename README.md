@@ -301,7 +301,8 @@ vector.add_icon_points(
 vector.add_icon_points(
     coords=[(lat, lon)],
     icon="https://example.com/pin.svg",
-    ids=["remote_marker"]
+    ids=["remote_marker"],
+    rotation_deg=45.0  # clockwise degrees from true north (up on an unrotated map)
 )
 
 # Add polygons
@@ -376,7 +377,7 @@ vector.add_ellipse(
 feature_ids = ["id1", "id2"]
 new_styles = [
     PointStyle(radius=8.0, fill_color=QColor("red"), fill_opacity=1.0),
-    IconStyle(icon_src="https://example.com/selected-pin.svg", scale=1.1),
+    PointStyle(radius=8.0, fill_color=QColor("green"), fill_opacity=1.0),
 ]
 vector.update_feature_styles(feature_ids, new_styles)
 
@@ -624,7 +625,8 @@ point_style = PointStyle(
 icon_style = IconStyle(
     scale=1.0,
     opacity=0.95,
-    anchor=(0.5, 1.0)  # bottom-center pin anchor
+    anchor=(0.5, 1.0),  # bottom-center pin anchor
+    rotation_deg=90.0    # clockwise degrees from true north (up on an unrotated map)
 )
 
 # You can also use color names directly

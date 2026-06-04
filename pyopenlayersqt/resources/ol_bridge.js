@@ -1580,7 +1580,9 @@ function cmd_measure_clear(msg) {
           : [0.5, 1.0],
         anchorXUnits: s.anchor_x_units || "fraction",
         anchorYUnits: s.anchor_y_units || "fraction",
-        rotation: (typeof s.rotation === "number" ? s.rotation : 0.0),
+        rotation: (typeof s.rotation_deg === "number"
+          ? s.rotation_deg * Math.PI / 180.0
+          : 0.0),
         rotateWithView: !!s.rotate_with_view,
       };
       if (s.cross_origin != null) iconOptions.crossOrigin = s.cross_origin;

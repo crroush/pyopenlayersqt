@@ -15,6 +15,7 @@ Features demonstrated:
 - Ellipses with custom dimensions
 """
 
+import base64
 import sys
 from pathlib import Path
 
@@ -54,15 +55,51 @@ def main():
         )
     )
 
-    # 2. Custom icon marker from a normal local image file
+    # 2. Custom icon markers: local path, bytes, data URI, and URL forms
     icon_path = Path(__file__).with_name("assets") / "orange_pin.svg"
+    icon_bytes = icon_path.read_bytes()
+    icon_data_uri = (
+        "data:image/svg+xml;base64,"
+        + base64.b64encode(icon_bytes).decode("ascii")
+    )
+    remote_icon_url = (
+        "https://upload.wikimedia.org/wikipedia/commons/8/88/Map_marker.svg"
+    )
+
     layer.add_icon_points(
         [(37.8044, -122.2712)],  # Oakland
         icon=icon_path,
-        ids=["icon1"],
+        ids=["icon_path"],
         scale=0.9,
         anchor=(0.5, 1.0),
-        properties=[{"name": "Custom icon marker"}],
+        properties=[{"name": "Icon from local path"}],
+    )
+    layer.add_icon_points(
+        [(37.8715, -122.2730)],  # Berkeley
+        icon=icon_bytes,
+        ids=["icon_bytes"],
+        scale=0.75,
+        anchor=(0.5, 1.0),
+        rotation_deg=30.0,  # clockwise degrees from true north (up on an unrotated map)
+        properties=[{"name": "Icon from bytes"}],
+    )
+    layer.add_icon_points(
+        [(37.6879, -122.4702)],  # Daly City
+        icon=icon_data_uri,
+        ids=["icon_data_uri"],
+        scale=0.75,
+        anchor=(0.5, 1.0),
+        rotation_deg=-30.0,
+        properties=[{"name": "Icon from data URI"}],
+    )
+    layer.add_icon_points(
+        [(37.5630, -122.3255)],  # San Mateo
+        icon=remote_icon_url,
+        ids=["icon_url"],
+        scale=0.08,
+        anchor=(0.5, 1.0),
+        cross_origin="anonymous",
+        properties=[{"name": "Icon from remote URL"}],
     )
 
     # 3. Circle with geodesic radius (5km)

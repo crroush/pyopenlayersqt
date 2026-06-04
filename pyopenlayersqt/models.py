@@ -240,7 +240,8 @@ class IconStyle:
     anchor: Icon anchor as fractions by default; ``(0.5, 1.0)`` pins the bottom center
         of the icon to the feature coordinate.
     anchor_x_units / anchor_y_units: OpenLayers anchor units (``"fraction"`` or ``"pixels"``).
-    rotation: Rotation in radians, clockwise.
+    rotation_deg: Clockwise degrees from true north (up on an unrotated map). Use ``rotate_with_view=True``
+        when the marker should stay aligned with map north if the view rotates.
     rotate_with_view: If True, icon rotates with the map view.
     cross_origin: Optional cross-origin setting for remote images (e.g. ``"anonymous"``).
     """
@@ -251,7 +252,7 @@ class IconStyle:
     anchor: Tuple[float, float] = (0.5, 1.0)
     anchor_x_units: str = "fraction"
     anchor_y_units: str = "fraction"
-    rotation: float = 0.0
+    rotation_deg: float = 0.0
     rotate_with_view: bool = False
     cross_origin: Optional[str] = None
 
@@ -263,7 +264,7 @@ class IconStyle:
             "anchor": [float(self.anchor[0]), float(self.anchor[1])],
             "anchor_x_units": str(self.anchor_x_units),
             "anchor_y_units": str(self.anchor_y_units),
-            "rotation": float(self.rotation),
+            "rotation_deg": float(self.rotation_deg),
             "rotate_with_view": bool(self.rotate_with_view),
             "cross_origin": self.cross_origin,
         }

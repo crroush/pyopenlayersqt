@@ -430,10 +430,9 @@ class VectorLayer(BaseLayer):
         scale: float = 1.0,
         opacity: float = 1.0,
         anchor: tuple[float, float] = (0.5, 1.0),
-        rotation: float = 0.0,
+        rotation_deg: float = 0.0,
         rotate_with_view: bool = False,
         cross_origin: Optional[str] = None,
-        icon_src: Any = None,
     ) -> None:
         """Add point features rendered with a custom icon.
 
@@ -443,25 +442,23 @@ class VectorLayer(BaseLayer):
                 bytes are cached and served automatically to the embedded browser.
             ids: Optional sequence of feature IDs. Auto-generated if not provided.
             style: Optional advanced IconStyle. Most callers can use the direct
-                scale/opacity/anchor/rotation arguments instead.
+                scale/opacity/anchor/rotation_deg arguments instead.
             properties: Optional properties dict for each icon point.
             scale: Icon scale multiplier.
             opacity: Icon opacity from 0.0 to 1.0.
             anchor: Icon anchor as fractions by default. ``(0.5, 1.0)`` pins the
                 bottom center of the icon to the feature coordinate.
-            rotation: Rotation in radians.
+            rotation_deg: Clockwise degrees from true north (up on an unrotated map). Use
+                ``rotate_with_view=True`` when the marker should stay aligned with
+                map north if the view rotates.
             rotate_with_view: If True, icon rotates with the map view.
             cross_origin: Optional cross-origin setting for remote images.
-            icon_src: Deprecated alias for icon.
         """
-        if icon is None:
-            icon = icon_src
-
         icon_style = style or IconStyle(
             scale=scale,
             opacity=opacity,
             anchor=anchor,
-            rotation=rotation,
+            rotation_deg=rotation_deg,
             rotate_with_view=rotate_with_view,
             cross_origin=cross_origin,
         )
