@@ -41,7 +41,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
 
 - **🗺️ Interactive Map Widget**: Fully-featured OpenLayers map embedded in PySide6/Qt
 - **⚡ High-Performance Rendering**: Fast points layers with spatial indexing for millions of points
-- **🎨 Rich Styling**: Customizable styles for points, polygons, circles, and ellipses
+- **🎨 Rich Styling**: Customizable styles for points, custom icon markers, polygons, circles, and ellipses
 - **🎨 QColor Support**: Use `QColor` objects or color names directly in styles - no `.name()` needed
 - **📍 Geolocation Support**: Fast geo-points layer with uncertainty ellipses
 - **🌐 WMS Integration**: Built-in Web Map Service layer support
@@ -270,7 +270,7 @@ Each layer type also has specialized methods for its specific use case, as detai
 For standard vector features with full styling control.
 
 ```python
-from pyopenlayersqt import PointStyle, PolygonStyle, CircleStyle, EllipseStyle
+from pyopenlayersqt import PointStyle, IconStyle, PolygonStyle, CircleStyle, EllipseStyle
 
 # Add a vector layer
 vector = map_widget.add_vector_layer("vector", selectable=True)
@@ -286,6 +286,24 @@ vector.add_points(
         stroke_color=QColor("black"),
         stroke_width=1.0
     )
+)
+
+# Add custom icon marker points
+vector.add_icon_points(
+    coords=[(lat, lon), ...],
+    icon_src="https://example.com/pin.svg",  # image URL, data URI, or browser-resolvable source
+    ids=["marker1", ...],
+    style=IconStyle(
+        scale=1.0,
+        anchor=(0.5, 1.0)  # bottom-center of the icon sits on the coordinate
+    )
+)
+
+# You can also pass IconStyle directly to add_points
+vector.add_points(
+    coords=[(lat, lon)],
+    ids=["custom_marker"],
+    style=IconStyle(icon_src="data:image/svg+xml;utf8,<svg ...></svg>")
 )
 
 # Add polygons
@@ -360,7 +378,7 @@ vector.add_ellipse(
 feature_ids = ["id1", "id2"]
 new_styles = [
     PointStyle(radius=8.0, fill_color=QColor("red"), fill_opacity=1.0),
-    PointStyle(radius=8.0, fill_color=QColor("green"), fill_opacity=1.0),
+    IconStyle(icon_src="https://example.com/selected-pin.svg", scale=1.1),
 ]
 vector.update_feature_styles(feature_ids, new_styles)
 
@@ -583,6 +601,7 @@ All style classes are immutable dataclasses with sensible defaults:
 ```python
 from pyopenlayersqt import (
     PointStyle,
+    IconStyle,
     PolygonStyle,
     CircleStyle,
     EllipseStyle,
@@ -600,6 +619,13 @@ point_style = PointStyle(
     stroke_color=QColor("black"),    # QColor object
     stroke_width=1.0,
     stroke_opacity=0.9
+)
+
+icon_style = IconStyle(
+    icon_src="https://example.com/pin.svg",  # image URL, data URI, or browser-resolvable source
+    scale=1.0,
+    opacity=0.95,
+    anchor=(0.5, 1.0)  # bottom-center pin anchor
 )
 
 # You can also use color names directly
@@ -651,7 +677,8 @@ geo_style = FastGeoPointsStyle(
 **Key Features:**
 - **QColor Support in ALL Styles**: Pass `QColor` objects directly to any color parameter in PointStyle, CircleStyle, PolygonStyle, EllipseStyle, FastPointsStyle, and FastGeoPointsStyle - no need for `.name()`
 - **Color Names Everywhere**: Use color names like `"red"`, `"Green"`, `"steelblue"` directly in all Style classes
-- **Multiple Formats**: All styles accept QColor objects, color names, hex strings, and CSS strings (RGBA tuples are deprecated)
+- **Custom Icon Markers**: Use `IconStyle` with `VectorLayer.add_icon_points()` (or `add_points(..., style=IconStyle(...))`) to place points rendered with image URLs, SVG/data URIs, or other browser-resolvable image sources
+- **Multiple Formats**: Color styles accept QColor objects, color names, hex strings, and CSS strings (RGBA tuples are deprecated)
 - **Backward Compatible**: Existing code using RGBA tuples or hex colors continues to work
 - **Z-Ordering**: Selected points and ellipses are automatically drawn on top in dense areas
 

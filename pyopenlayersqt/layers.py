@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
@@ -8,6 +9,7 @@ from .utils import clamp
 from .models import (
     CircleStyle,
     EllipseStyle,
+    IconStyle,
     LatLon,
     PointStyle,
     PolygonStyle,
@@ -356,7 +358,9 @@ class VectorLayer(BaseLayer):
     def update_feature_styles(
         self,
         feature_ids: Sequence[str],
-        styles: Sequence[PointStyle | PolygonStyle | CircleStyle | EllipseStyle],
+        styles: Sequence[
+            PointStyle | IconStyle | PolygonStyle | CircleStyle | EllipseStyle
+        ],
     ) -> None:
         """Update styles for specific features by ID.
 
@@ -365,7 +369,7 @@ class VectorLayer(BaseLayer):
         Args:
             feature_ids: List of feature IDs to update.
             styles: List of style objects, one per feature ID. Use the appropriate
-                    style type for each feature (PointStyle, PolygonStyle, etc.).
+                    style type for each feature (PointStyle, IconStyle, PolygonStyle, etc.).
         """
         if len(feature_ids) != len(styles):
             raise ValueError("feature_ids and styles must have the same length")
@@ -386,7 +390,7 @@ class VectorLayer(BaseLayer):
         self,
         coords: Sequence[LatLon],
         ids: Optional[Sequence[str]] = None,
-        style: Optional[PointStyle] = None,
+        style: Optional[PointStyle | IconStyle] = None,
         properties: Optional[Sequence[Dict[str, Any]]] = None,
     ) -> None:
         """Add point features to the layer.
@@ -394,7 +398,7 @@ class VectorLayer(BaseLayer):
         Args:
             coords: Sequence of (lat, lon) tuples for each point.
             ids: Optional sequence of feature IDs. Auto-generated if not provided.
-            style: Point styling. Uses default if not provided.
+            style: Point or icon styling. Uses default PointStyle if not provided.
             properties: Optional properties dict for each point.
         """
         style = style or PointStyle()
@@ -414,6 +418,34 @@ class VectorLayer(BaseLayer):
                 "style": style.to_js(),
                 "properties": props,
             }
+        )
+
+    def add_icon_points(
+        self,
+        coords: Sequence[LatLon],
+        icon_src: str,
+        ids: Optional[Sequence[str]] = None,
+        style: Optional[IconStyle] = None,
+        properties: Optional[Sequence[Dict[str, Any]]] = None,
+    ) -> None:
+        """Add point features rendered with a custom icon.
+
+        Args:
+            coords: Sequence of (lat, lon) tuples for each point.
+            icon_src: Image URL, data URI, or browser-resolvable image source.
+            ids: Optional sequence of feature IDs. Auto-generated if not provided.
+            style: Optional IconStyle for anchor, scale, opacity, and rotation. If
+                provided without an icon_src, the icon_src argument is used.
+            properties: Optional properties dict for each icon point.
+        """
+        icon_style = style or IconStyle(icon_src=icon_src)
+        if not icon_style.icon_src:
+            icon_style = replace(icon_style, icon_src=icon_src)
+        self.add_points(
+            coords=coords,
+            ids=ids,
+            style=icon_style,
+            properties=properties,
         )
 
     def add_polygon(

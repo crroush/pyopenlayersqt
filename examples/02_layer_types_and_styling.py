@@ -2,12 +2,13 @@
 """Layer Types and Styling with QColor
 
 This example demonstrates different layer types and styling options:
-- VectorLayer for points, circles, lines, polygons, and ellipses
+- VectorLayer for points, custom icon markers, circles, lines, polygons, and ellipses
 - Comprehensive QColor-based styling for all geometry types
 - Different stroke and fill options
 
 Features demonstrated:
 - Points with custom radius and colors
+- Custom icon markers anchored to map coordinates
 - Circles with geodesic radius
 - Lines/Polylines (non-closed paths)
 - Polygons with custom fill and stroke
@@ -15,6 +16,7 @@ Features demonstrated:
 """
 
 import sys
+from urllib.parse import quote
 
 from PySide6 import QtWidgets
 from PySide6.QtGui import QColor
@@ -22,6 +24,7 @@ from PySide6.QtGui import QColor
 from pyopenlayersqt import (
     OLMapWidget,
     PointStyle,
+    IconStyle,
     CircleStyle,
     PolygonStyle,
     EllipseStyle,
@@ -52,7 +55,25 @@ def main():
         )
     )
 
-    # 2. Circle with geodesic radius (5km)
+    # 2. Custom icon marker using an inline SVG data URI
+    pin_svg = quote("""
+    <svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'>
+      <path d='M24 45S9 28.5 9 17a15 15 0 1 1 30 0c0 11.5-15 28-15 28z' fill='#ff7f0e' stroke='#7a3b00' stroke-width='2'/>
+      <circle cx='24' cy='17' r='6' fill='white'/>
+    </svg>
+    """.strip())
+    layer.add_icon_points(
+        [(37.8044, -122.2712)],  # Oakland
+        icon_src=f"data:image/svg+xml;utf8,{pin_svg}",
+        ids=["icon1"],
+        style=IconStyle(
+            scale=0.9,
+            anchor=(0.5, 1.0),
+        ),
+        properties=[{"name": "Custom SVG icon marker"}],
+    )
+
+    # 3. Circle with geodesic radius (5km)
     layer.add_circle(
         center=(37.8044, -122.2712),  # Oakland
         radius_m=5000,  # 5 kilometers
@@ -67,7 +88,7 @@ def main():
         )
     )
 
-    # 3. Line/Polyline (non-closed path)
+    # 4. Line/Polyline (non-closed path)
     line_coords = [
         (37.7749, -122.4194),  # San Francisco
         (37.8044, -122.2712),  # Oakland
@@ -83,7 +104,7 @@ def main():
         )
     )
 
-    # 4. Polygon (simple triangle)
+    # 5. Polygon (simple triangle)
     polygon_ring = [
         (37.7000, -122.5000),
         (37.7000, -122.3500),
@@ -103,7 +124,7 @@ def main():
         )
     )
 
-    # 5. Ellipse (uncertainty visualization)
+    # 6. Ellipse (uncertainty visualization)
     layer.add_ellipse(
         center=(37.7500, -122.2000),  # East Bay
         sma_m=3000,  # Semi-major axis: 3km
@@ -120,7 +141,7 @@ def main():
         )
     )
 
-    # 6. Additional styled points using color names
+    # 7. Additional styled points using color names
     layer.add_points(
         [(37.7200, -122.4800)],
         ids=["point2"],

@@ -1570,6 +1570,25 @@ function cmd_measure_clear(msg) {
   }
 
   function style_from_simple(s) {
+    if (typeof s.icon_src === "string" && s.icon_src.length > 0) {
+      const iconOptions = {
+        src: s.icon_src,
+        scale: (typeof s.scale === "number" ? s.scale : 1.0),
+        opacity: (typeof s.opacity === "number" ? s.opacity : 1.0),
+        anchor: (Array.isArray(s.anchor) && s.anchor.length === 2)
+          ? s.anchor
+          : [0.5, 1.0],
+        anchorXUnits: s.anchor_x_units || "fraction",
+        anchorYUnits: s.anchor_y_units || "fraction",
+        rotation: (typeof s.rotation === "number" ? s.rotation : 0.0),
+        rotateWithView: !!s.rotate_with_view,
+      };
+      if (s.cross_origin != null) iconOptions.crossOrigin = s.cross_origin;
+      return new ol.style.Style({
+        image: new ol.style.Icon(iconOptions),
+      });
+    }
+
     const stroke = new ol.style.Stroke({
       color: s.stroke || "rgba(0,0,0,1)",
       width: s.stroke_width || 1,
