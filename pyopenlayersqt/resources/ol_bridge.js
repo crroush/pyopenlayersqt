@@ -1569,21 +1569,90 @@ function cmd_measure_clear(msg) {
     return [bl[0], bl[1], tr[0], tr[1]];
   }
 
-  function style_from_simple(s) {
+  const VECTOR_SELECTION_RGBA = [0, 255, 255, 255];
+  const VECTOR_SELECTION_CSS = rgba_to_css(VECTOR_SELECTION_RGBA);
+
+  function can_tint_icon_src(src, crossOrigin) {
+    const lowerSrc = String(src).toLowerCase();
+    if (crossOrigin != null) return true;
+    if (lowerSrc.startsWith("data:") || lowerSrc.startsWith("blob:")) return true;
+    try {
+      return new URL(src, window.location.href).origin === window.location.origin;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function style_from_simple(s, selected) {
+    selected = !!selected;
+    if (typeof s.icon_src === "string" && s.icon_src.length > 0) {
+      const baseScale = (typeof s.scale === "number" ? s.scale : 1.0);
+      const selectedIconSrc = (
+        typeof s.selected_icon_src === "string" && s.selected_icon_src.length > 0
+      ) ? s.selected_icon_src : null;
+      const iconSrc = (selected && selectedIconSrc) ? selectedIconSrc : s.icon_src;
+      const crossOrigin = s.cross_origin;
+      const hasSelectedIcon = selected && !!selectedIconSrc;
+      const canTint = selected && !hasSelectedIcon && can_tint_icon_src(iconSrc, crossOrigin);
+      const iconOptions = {
+        src: iconSrc,
+        scale: selected ? baseScale * 1.15 : baseScale,
+        opacity: (typeof s.opacity === "number" ? s.opacity : 1.0),
+        anchor: (Array.isArray(s.anchor) && s.anchor.length === 2)
+          ? s.anchor
+          : [0.5, 1.0],
+        anchorXUnits: s.anchor_x_units || "fraction",
+        anchorYUnits: s.anchor_y_units || "fraction",
+        rotation: (typeof s.rotation_deg === "number"
+          ? s.rotation_deg * Math.PI / 180.0
+          : 0.0),
+        rotateWithView: !!s.rotate_with_view,
+      };
+      if (canTint) iconOptions.color = VECTOR_SELECTION_CSS;
+      if (crossOrigin != null) iconOptions.crossOrigin = crossOrigin;
+      const iconStyle = new ol.style.Style({
+        image: new ol.style.Icon(iconOptions),
+      });
+      if (!selected || canTint) return iconStyle;
+      const haloRadius = Math.max(8, 12 * Math.max(1, baseScale));
+      return [
+        new ol.style.Style({
+          image: new ol.style.Circle({
+            radius: haloRadius,
+            fill: new ol.style.Fill({ color: "rgba(0,255,255,0.35)" }),
+            stroke: new ol.style.Stroke({ color: VECTOR_SELECTION_CSS, width: 2 }),
+          }),
+        }),
+        iconStyle,
+      ];
+    }
+
     const stroke = new ol.style.Stroke({
-      color: s.stroke || "rgba(0,0,0,1)",
-      width: s.stroke_width || 1,
+      color: selected ? VECTOR_SELECTION_CSS : (s.stroke || "rgba(0,0,0,1)"),
+      width: selected
+        ? Math.max(2, (s.stroke_width || 1) + 1)
+        : (s.stroke_width || 1),
     });
     const fill = new ol.style.Fill({
-      color: s.fill || "rgba(0,0,0,0)",
+      color: selected ? "rgba(0,255,255,0.35)" : (s.fill || "rgba(0,0,0,0)"),
     });
 
     if (typeof s.radius === "number") {
       return new ol.style.Style({
-        image: new ol.style.Circle({ radius: s.radius, fill, stroke }),
+        image: new ol.style.Circle({
+          radius: selected ? s.radius + 2 : s.radius,
+          fill,
+          stroke,
+        }),
       });
     }
     return new ol.style.Style({ stroke, fill });
+  }
+
+  function selected_style_for_feature(feature) {
+    const styleSpec = feature && feature.get ? feature.get("_pyolqt_style") : null;
+    if (styleSpec) return style_from_simple(styleSpec, true);
+    return style_from_simple({}, true);
   }
 
   function circle_polygon_lonlat(centerLonLat, radius_m, segments) {
@@ -1883,6 +1952,7 @@ function cmd_countries_set_visible(msg) {
       condition: (evt) => ol.events.condition.singleClick(evt),
       toggleCondition: (evt) => ol.events.condition.platformModifierKeyOnly(evt),
       multi: true,
+      style: selected_style_for_feature,
       layers: (layer) => {
         const layer_id = state.layerByObj.get(layer);
         if (!layer_id) return false;
@@ -2111,6 +2181,7 @@ function cmd_countries_set_visible(msg) {
       f.setId(ids[i] || ("pt" + i));
       f.set("_layer_id", msg.layer_id);
       if (props[i]) for (const [k, v] of Object.entries(props[i])) f.set(k, v);
+      f.set("_pyolqt_style", msg.style || {});
       f.setStyle(style);
       e.source.addFeature(f);
     }
@@ -2126,6 +2197,7 @@ function cmd_countries_set_visible(msg) {
     f.setId(msg.id || "poly0");
     f.set("_layer_id", msg.layer_id);
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
+    f.set("_pyolqt_style", msg.style || {});
     f.setStyle(style_from_simple(msg.style || {}));
     e.source.addFeature(f);
   }
@@ -2138,6 +2210,7 @@ function cmd_countries_set_visible(msg) {
     f.setId(msg.id || "circle0");
     f.set("_layer_id", msg.layer_id);
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
+    f.set("_pyolqt_style", msg.style || {});
     f.setStyle(style_from_simple(msg.style || {}));
     e.source.addFeature(f);
   }
@@ -2153,6 +2226,7 @@ function cmd_countries_set_visible(msg) {
     f.setId(msg.id || "line0");
     f.set("_layer_id", msg.layer_id);
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
+    f.set("_pyolqt_style", msg.style || {});
     f.setStyle(style_from_simple(msg.style || {}));
     e.source.addFeature(f);
   }
@@ -2215,6 +2289,7 @@ function cmd_countries_set_visible(msg) {
     f.setId(msg.id || "ell0");
     f.set("_layer_id", msg.layer_id);
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
+    f.set("_pyolqt_style", msg.style || {});
     f.setStyle(style_from_simple(msg.style || {}));
     e.source.addFeature(f);
   }
@@ -2456,8 +2531,12 @@ function cmd_vector_update_styles(msg) {
   
   for (let i = 0; i < ids.length; i++) {
     const features = vector_features_for_id(e.source, String(ids[i]));
-    const style = style_from_simple(styles[i]);
-    for (const f of features) f.setStyle(style);
+    const styleSpec = styles[i] || {};
+    const style = style_from_simple(styleSpec);
+    for (const f of features) {
+      f.set("_pyolqt_style", styleSpec);
+      f.setStyle(style);
+    }
   }
 }
 })();

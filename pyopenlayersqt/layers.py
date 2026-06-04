@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
@@ -8,6 +9,7 @@ from .utils import clamp
 from .models import (
     CircleStyle,
     EllipseStyle,
+    IconStyle,
     LatLon,
     PointStyle,
     PolygonStyle,
@@ -356,7 +358,9 @@ class VectorLayer(BaseLayer):
     def update_feature_styles(
         self,
         feature_ids: Sequence[str],
-        styles: Sequence[PointStyle | PolygonStyle | CircleStyle | EllipseStyle],
+        styles: Sequence[
+            PointStyle | IconStyle | PolygonStyle | CircleStyle | EllipseStyle
+        ],
     ) -> None:
         """Update styles for specific features by ID.
 
@@ -365,7 +369,7 @@ class VectorLayer(BaseLayer):
         Args:
             feature_ids: List of feature IDs to update.
             styles: List of style objects, one per feature ID. Use the appropriate
-                    style type for each feature (PointStyle, PolygonStyle, etc.).
+                    style type for each feature (PointStyle, IconStyle, PolygonStyle, etc.).
         """
         if len(feature_ids) != len(styles):
             raise ValueError("feature_ids and styles must have the same length")
@@ -386,7 +390,7 @@ class VectorLayer(BaseLayer):
         self,
         coords: Sequence[LatLon],
         ids: Optional[Sequence[str]] = None,
-        style: Optional[PointStyle] = None,
+        style: Optional[PointStyle | IconStyle] = None,
         properties: Optional[Sequence[Dict[str, Any]]] = None,
     ) -> None:
         """Add point features to the layer.
@@ -394,7 +398,7 @@ class VectorLayer(BaseLayer):
         Args:
             coords: Sequence of (lat, lon) tuples for each point.
             ids: Optional sequence of feature IDs. Auto-generated if not provided.
-            style: Point styling. Uses default if not provided.
+            style: Point or icon styling. Uses default PointStyle if not provided.
             properties: Optional properties dict for each point.
         """
         style = style or PointStyle()
@@ -414,6 +418,77 @@ class VectorLayer(BaseLayer):
                 "style": style.to_js(),
                 "properties": props,
             }
+        )
+
+    def add_icon_points(
+        # pylint: disable=too-many-arguments
+        self,
+        coords: Sequence[LatLon],
+        icon: Any = None,
+        selected_icon: Any = None,
+        ids: Optional[Sequence[str]] = None,
+        style: Optional[IconStyle] = None,
+        properties: Optional[Sequence[Dict[str, Any]]] = None,
+        scale: float = 1.0,
+        opacity: float = 1.0,
+        anchor: tuple[float, float] = (0.5, 1.0),
+        rotation_deg: float = 0.0,
+        rotate_with_view: bool = False,
+        cross_origin: Optional[str] = None,
+    ) -> None:
+        """Add point features rendered with a custom icon.
+
+        Args:
+            coords: Sequence of (lat, lon) tuples for each point.
+            icon: URL, local image path, data URI, or image bytes. Local files and
+                bytes are cached and served automatically to the embedded browser.
+            selected_icon: Optional alternate icon to use while the feature is
+                selected. Accepts the same input forms as icon.
+            ids: Optional sequence of feature IDs. Auto-generated if not provided.
+            style: Optional advanced IconStyle. Most callers can use the direct
+                scale/opacity/anchor/rotation_deg arguments instead.
+            properties: Optional properties dict for each icon point.
+            scale: Icon scale multiplier.
+            opacity: Icon opacity from 0.0 to 1.0.
+            anchor: Icon anchor as fractions by default. ``(0.5, 1.0)`` pins the
+                bottom center of the icon to the feature coordinate.
+            rotation_deg: Clockwise degrees from true north (up on an unrotated map). Use
+                ``rotate_with_view=True`` when the marker should stay aligned with
+                map north if the view rotates.
+            rotate_with_view: If True, icon rotates with the map view.
+            cross_origin: Optional cross-origin setting for remote images.
+        """
+        icon_style = style or IconStyle(
+            scale=scale,
+            opacity=opacity,
+            anchor=anchor,
+            rotation_deg=rotation_deg,
+            rotate_with_view=rotate_with_view,
+            cross_origin=cross_origin,
+        )
+
+        icon_value = icon if icon is not None else icon_style.icon_src
+        if not icon_value:
+            raise ValueError("icon must be a URL, local image path, data URI, or bytes")
+
+        selected_icon_value = (
+            selected_icon
+            if selected_icon is not None
+            else icon_style.selected_icon_src
+        )
+        icon_style = replace(
+            icon_style,
+            icon_src=self._map_widget._icon_to_src(icon_value),
+            selected_icon_src=(
+                self._map_widget._icon_to_src(selected_icon_value)
+                if selected_icon_value else None
+            ),
+        )
+        self.add_points(
+            coords=coords,
+            ids=ids,
+            style=icon_style,
+            properties=properties,
         )
 
     def add_polygon(

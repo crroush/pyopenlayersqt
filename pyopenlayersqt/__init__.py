@@ -1,6 +1,7 @@
 from .widget import OLMapWidget
 from .models import (
     PointStyle,
+    IconStyle,
     PolygonStyle,
     CircleStyle,
     EllipseStyle,
@@ -32,6 +33,7 @@ from .selection_linking import DualSelectLink, MultiSelectLink, TableLink
 __all__ = [
     "OLMapWidget",
     "PointStyle",
+    "IconStyle",
     "PolygonStyle",
     "CircleStyle",
     "EllipseStyle",

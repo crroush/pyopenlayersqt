@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -52,6 +53,19 @@ def _to_jsonable(obj: Any) -> Any:
         return {str(k): _to_jsonable(v) for k, v in obj.items()}
     return str(obj)
 
+
+def _guess_image_suffix(data: bytes, fallback: str = ".png") -> str:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return ".gif"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return ".webp"
+    if data.lstrip().startswith(b"<svg") or b"<svg" in data[:256].lower():
+        return ".svg"
+    return fallback
 
 def _default_overlays_dir(app_name: str = "pyopenlayersqt") -> Path:
     """
@@ -253,6 +267,53 @@ class OLMapWidget(QWebEngineView):
         if self._osm_url:
             map_url += f"?pyolqt_osm_url={quote(self._osm_url, safe='')}"
         self.setUrl(QUrl(map_url))
+
+    def _cache_icon_file(self, source_path: Path) -> str:
+        """Copy a local icon file into the widget's HTTP-served cache."""
+        icon_dir = self._overlays_dir / "icons"
+        icon_dir.mkdir(parents=True, exist_ok=True)
+        data = source_path.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()[:16]
+        suffix = source_path.suffix or _guess_image_suffix(data)
+        out_name = f"icon_{digest}{suffix}"
+        out_path = icon_dir / out_name
+        if not out_path.exists():
+            out_path.write_bytes(data)
+        return f"{self._base_url}/_overlays/icons/{quote(out_name, safe='')}"
+
+    def _cache_icon_bytes(self, data: bytes) -> str:
+        """Write image bytes into the widget's HTTP-served cache."""
+        icon_dir = self._overlays_dir / "icons"
+        icon_dir.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(data).hexdigest()[:16]
+        suffix = _guess_image_suffix(data)
+        out_name = f"icon_{digest}{suffix}"
+        out_path = icon_dir / out_name
+        if not out_path.exists():
+            out_path.write_bytes(data)
+        return f"{self._base_url}/_overlays/icons/{quote(out_name, safe='')}"
+
+    def _icon_to_src(self, icon: Any) -> str:
+        """Normalize a user-friendly icon value to a browser-loadable URL."""
+        if isinstance(icon, (bytes, bytearray, memoryview)):
+            return self._cache_icon_bytes(bytes(icon))
+
+        if isinstance(icon, os.PathLike):
+            return self._cache_icon_file(Path(icon).expanduser().resolve())
+
+        raw = str(icon).strip()
+        if not raw:
+            raise ValueError("icon must be a non-empty URL, file path, data URI, or bytes")
+
+        lowered = raw.lower()
+        if lowered.startswith(("http://", "https://", "data:", "file:", "qrc:")):
+            return raw
+
+        path = Path(raw).expanduser()
+        if path.exists():
+            return self._cache_icon_file(path.resolve())
+
+        return raw
 
     # ---------- lifecycle ----------
 

@@ -2,19 +2,22 @@
 """Layer Types and Styling with QColor
 
 This example demonstrates different layer types and styling options:
-- VectorLayer for points, circles, lines, polygons, and ellipses
+- VectorLayer for points, custom icon markers, circles, lines, polygons, and ellipses
 - Comprehensive QColor-based styling for all geometry types
 - Different stroke and fill options
 
 Features demonstrated:
 - Points with custom radius and colors
+- Custom icon markers anchored to map coordinates
 - Circles with geodesic radius
 - Lines/Polylines (non-closed paths)
 - Polygons with custom fill and stroke
 - Ellipses with custom dimensions
 """
 
+import base64
 import sys
+from pathlib import Path
 
 from PySide6 import QtWidgets
 from PySide6.QtGui import QColor
@@ -52,7 +55,57 @@ def main():
         )
     )
 
-    # 2. Circle with geodesic radius (5km)
+    # 2. Custom icon markers: local path, bytes, data URI, and URL forms
+    assets_dir = Path(__file__).with_name("assets")
+    icon_path = assets_dir / "orange_pin.svg"
+    selected_icon_path = assets_dir / "selected_pin.svg"
+    icon_bytes = icon_path.read_bytes()
+    icon_data_uri = (
+        "data:image/svg+xml;base64,"
+        + base64.b64encode(icon_bytes).decode("ascii")
+    )
+    remote_icon_url = (
+        "https://upload.wikimedia.org/wikipedia/commons/8/88/Map_marker.svg"
+    )
+
+    layer.add_icon_points(
+        [(37.8044, -122.2712)],  # Oakland
+        icon=icon_path,
+        selected_icon=selected_icon_path,
+        ids=["icon_path"],
+        scale=0.9,
+        anchor=(0.5, 1.0),
+        properties=[{"name": "Icon from local path with selected icon"}],
+    )
+    layer.add_icon_points(
+        [(37.8715, -122.2730)],  # Berkeley
+        icon=icon_bytes,
+        ids=["icon_bytes"],
+        scale=0.75,
+        anchor=(0.5, 1.0),
+        rotation_deg=30.0,  # clockwise degrees from true north (up on an unrotated map)
+        properties=[{"name": "Icon from bytes"}],
+    )
+    layer.add_icon_points(
+        [(37.6879, -122.4702)],  # Daly City
+        icon=icon_data_uri,
+        ids=["icon_data_uri"],
+        scale=0.75,
+        anchor=(0.5, 1.0),
+        rotation_deg=-30.0,
+        properties=[{"name": "Icon from data URI"}],
+    )
+    layer.add_icon_points(
+        [(37.5630, -122.3255)],  # San Mateo
+        icon=remote_icon_url,
+        ids=["icon_url"],
+        scale=0.08,
+        anchor=(0.5, 1.0),
+        cross_origin="anonymous",
+        properties=[{"name": "Icon from remote URL"}],
+    )
+
+    # 3. Circle with geodesic radius (5km)
     layer.add_circle(
         center=(37.8044, -122.2712),  # Oakland
         radius_m=5000,  # 5 kilometers
@@ -67,7 +120,7 @@ def main():
         )
     )
 
-    # 3. Line/Polyline (non-closed path)
+    # 4. Line/Polyline (non-closed path)
     line_coords = [
         (37.7749, -122.4194),  # San Francisco
         (37.8044, -122.2712),  # Oakland
@@ -83,7 +136,7 @@ def main():
         )
     )
 
-    # 4. Polygon (simple triangle)
+    # 5. Polygon (simple triangle)
     polygon_ring = [
         (37.7000, -122.5000),
         (37.7000, -122.3500),
@@ -103,7 +156,7 @@ def main():
         )
     )
 
-    # 5. Ellipse (uncertainty visualization)
+    # 6. Ellipse (uncertainty visualization)
     layer.add_ellipse(
         center=(37.7500, -122.2000),  # East Bay
         sma_m=3000,  # Semi-major axis: 3km
@@ -120,7 +173,7 @@ def main():
         )
     )
 
-    # 6. Additional styled points using color names
+    # 7. Additional styled points using color names
     layer.add_points(
         [(37.7200, -122.4800)],
         ids=["point2"],
