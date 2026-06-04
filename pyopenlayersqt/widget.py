@@ -37,6 +37,7 @@ from .models import (
     TileLayerOptions,
     FastPointsStyle,
     FastGeoPointsStyle,
+    VectorVertexEditing,
 )
 
 PKG_DIR = Path(__file__).resolve().parent
@@ -844,7 +845,7 @@ class OLMapWidget(QWebEngineView):
         name: str = "vector",
         selectable: bool = True,
         movable: bool = False,
-        vertex_editing: str = "move",
+        vertex_editing: VectorVertexEditing = VectorVertexEditing.MOVE,
     ) -> VectorLayer:
         layer_id = self._next_id("v")
         self._send(
@@ -854,7 +855,7 @@ class OLMapWidget(QWebEngineView):
                 "name": name,
                 "selectable": bool(selectable),
                 "movable": bool(movable),
-                "vertex_editing": str(vertex_editing),
+                "vertex_editing": VectorLayer._vertex_editing_value(vertex_editing),
             }
         )
         return VectorLayer(self, layer_id, name=name)
