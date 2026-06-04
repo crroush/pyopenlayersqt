@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Movable and Locked Vector Features
 
-This example demonstrates editable vector objects:
-- Drag movable objects to reposition the whole feature.
-- Drag vertices to reshape movable lines/polygons; circles/ellipses stay shape-safe.
-- Locked points/features stay fixed even when the layer is movable.
+This example demonstrates editable vector objects for every vector feature type:
+- Points and icon points can be movable or locked.
+- Lines, polygons, and gradient lines can move existing vertices, or opt out of
+  vertex adjustment entirely.
+- Circles and ellipses can move as whole objects without becoming arbitrary polygons.
 - Feature movement emits ``vectorFeatureChanged`` with the updated geometry.
 """
 
 import json
 import sys
+from pathlib import Path
 
 from PySide6 import QtWidgets
 from PySide6.QtGui import QColor
@@ -17,6 +19,7 @@ from PySide6.QtGui import QColor
 from pyopenlayersqt import (
     CircleStyle,
     EllipseStyle,
+    IconStyle,
     OLMapWidget,
     PointStyle,
     PolygonStyle,
@@ -42,11 +45,12 @@ class MovableVectorFeaturesExample(QtWidgets.QMainWindow):
 
         instructions = QtWidgets.QLabel(
             "Movable Vector Feature Demo\n"
-            "• Drag any blue/purple/orange/green feature body to move the whole object.\n"
-            "• Drag existing line vertices; the green polygon also allows inserting/deleting vertices.\n"
+            "• Includes points, icon points, lines, gradient lines, polygons, circles, and ellipses.\n"
+            "• Drag feature bodies to move whole objects.\n"
+            "• Drag orange line and green polygon vertices to move only their existing vertices.\n"
+            "• The gradient line and navy polygon are body-only: movable, but vertices cannot be adjusted.\n"
             "• Circles and ellipses move as whole shapes, but are not reshaped as arbitrary polygons.\n"
-            "• Red points and the red polygon are locked and cannot be moved.\n"
-            "• Use set_features_movable(...) and set_features_vertex_editing(...) for per-feature control."
+            "• Red points and the red polygon are locked and cannot be moved."
         )
         instructions.setWordWrap(True)
 
@@ -116,13 +120,42 @@ class MovableVectorFeaturesExample(QtWidgets.QMainWindow):
             ],
         )
 
+        icon_path = Path(__file__).parent / "assets" / "orange_pin.svg"
+        self.vector_layer.add_icon_points(
+            [(37.805, -122.415), (37.745, -122.455)],
+            icon=str(icon_path),
+            ids=["movable_icon_point", "locked_icon_point"],
+            movable=[True, False],
+            style=IconStyle(scale=0.08),
+            properties=[
+                {"label": "movable icon point"},
+                {"label": "locked icon point"},
+            ],
+        )
+
         self.vector_layer.add_line(
             [(37.72, -122.51), (37.76, -122.49), (37.79, -122.52)],
             feature_id="movable_line",
             movable=True,
             vertex_editing="move",
             style=PolygonStyle(stroke_color=QColor("darkorange"), stroke_width=5),
-            properties={"label": "movable line"},
+            properties={"label": "movable line existing vertices only"},
+        )
+
+        self.vector_layer.add_gradient_line(
+            [
+                (37.735, -122.31),
+                (37.755, -122.285),
+                (37.785, -122.30),
+                (37.81, -122.275),
+            ],
+            values=[0.0, 0.5, 1.0, 0.25],
+            feature_id="movable_gradient_line",
+            movable=True,
+            vertex_editing="none",
+            style=PolygonStyle(stroke_width=6),
+            properties={"label": "movable gradient line body only"},
+            interpolate_steps=8,
         )
 
         self.vector_layer.add_polygon(
@@ -132,15 +165,33 @@ class MovableVectorFeaturesExample(QtWidgets.QMainWindow):
                 (37.815, -122.39),
                 (37.79, -122.43),
             ],
-            feature_id="movable_polygon",
+            feature_id="movable_polygon_vertices",
             movable=True,
-            vertex_editing="modify",
+            vertex_editing="move",
             style=PolygonStyle(
                 stroke_color=QColor("seagreen"),
                 stroke_width=3,
                 fill_color=QColor(46, 139, 87, 70),
             ),
-            properties={"label": "movable polygon"},
+            properties={"label": "movable polygon existing vertices only"},
+        )
+
+        self.vector_layer.add_polygon(
+            [
+                (37.735, -122.39),
+                (37.765, -122.365),
+                (37.745, -122.335),
+                (37.715, -122.36),
+            ],
+            feature_id="movable_polygon_body_only",
+            movable=True,
+            vertex_editing="none",
+            style=PolygonStyle(
+                stroke_color=QColor("navy"),
+                stroke_width=3,
+                fill_color=QColor(0, 0, 128, 50),
+            ),
+            properties={"label": "movable polygon body only"},
         )
 
         self.vector_layer.add_polygon(
@@ -191,10 +242,11 @@ class MovableVectorFeaturesExample(QtWidgets.QMainWindow):
         )
 
     def _on_feature_changed(self, change):
-        geometry_type = (change.get("geometry") or {}).get("type", "unknown")
-        coords = (change.get("geometry") or {}).get("coordinates")
-        coords_json = json.dumps(coords)
-        summary = coords_json[:140] + ("..." if len(coords_json) > 140 else "")
+        geometry = change.get("geometry") or {}
+        geometry_type = geometry.get("type", "unknown")
+        details = geometry.get("coordinates") if "coordinates" in geometry else geometry
+        details_json = json.dumps(details)
+        summary = details_json[:140] + ("..." if len(details_json) > 140 else "")
         self.status.setText(
             f"{change.get('reason')} updated {change.get('feature_id')} "
             f"({geometry_type}): {summary}"

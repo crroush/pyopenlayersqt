@@ -33,6 +33,7 @@ const state = {
     translateInteraction: null,
     vertexMoveFeatures: null,
     vertexModifyFeatures: null,
+    gradientTranslateDeltas: new Map(),
     base_layer: null,
     viewInteracting: false,
     // Measurement mode state
@@ -2001,7 +2002,15 @@ function cmd_countries_set_visible(msg) {
       hitTolerance: 6,
     });
     state.map.addInteraction(state.translateInteraction);
+    state.translateInteraction.on("translatestart", function() {
+      state.gradientTranslateDeltas.clear();
+    });
+    state.translateInteraction.on("translating", function(evt) {
+      translate_gradient_siblings(evt.features, evt.coordinate, evt.startCoordinate);
+    });
     state.translateInteraction.on("translateend", function(evt) {
+      translate_gradient_siblings(evt.features, evt.coordinate, evt.startCoordinate);
+      state.gradientTranslateDeltas.clear();
       emit_vector_features_changed(evt.features, "translate");
     });
 
@@ -2236,6 +2245,39 @@ function cmd_countries_set_visible(msg) {
       });
     });
   }
+  function translate_gradient_siblings(features, coordinate, startCoordinate) {
+    if (!features || !coordinate || !startCoordinate) return;
+    const totalDx = coordinate[0] - startCoordinate[0];
+    const totalDy = coordinate[1] - startCoordinate[1];
+    if (!Number.isFinite(totalDx) || !Number.isFinite(totalDy)) return;
+
+    const moved = new Set(features.getArray ? features.getArray() : []);
+    const handledParents = new Set();
+    features.forEach(function(feature) {
+      const parent = feature.get("_gradient_parent");
+      if (parent == null || parent === "") return;
+      const layer_id = feature.get("_layer_id") || "";
+      const key = layer_id + ":" + parent;
+      if (handledParents.has(key)) return;
+      handledParents.add(key);
+
+      const previous = state.gradientTranslateDeltas.get(key) || [0, 0];
+      const dx = totalDx - previous[0];
+      const dy = totalDy - previous[1];
+      if (dx === 0 && dy === 0) return;
+      state.gradientTranslateDeltas.set(key, [totalDx, totalDy]);
+
+      const e = state.layers.get(layer_id);
+      if (!e || e.type !== "vector") return;
+      e.source.forEachFeature(function(candidate) {
+        if (moved.has(candidate)) return;
+        if (String(candidate.get("_gradient_parent") || "") !== String(parent)) return;
+        const geom = candidate.getGeometry();
+        if (geom && typeof geom.translate === "function") geom.translate(dx, dy);
+      });
+    });
+  }
+
 
   function cmd_add_vector(msg) {
     const source = new ol.source.Vector();
