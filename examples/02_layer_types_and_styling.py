@@ -16,7 +16,7 @@ Features demonstrated:
 """
 
 import sys
-from urllib.parse import quote
+from pathlib import Path
 
 from PySide6 import QtWidgets
 from PySide6.QtGui import QColor
@@ -24,7 +24,6 @@ from PySide6.QtGui import QColor
 from pyopenlayersqt import (
     OLMapWidget,
     PointStyle,
-    IconStyle,
     CircleStyle,
     PolygonStyle,
     EllipseStyle,
@@ -55,22 +54,15 @@ def main():
         )
     )
 
-    # 2. Custom icon marker using an inline SVG data URI
-    pin_svg = quote("""
-    <svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'>
-      <path d='M24 45S9 28.5 9 17a15 15 0 1 1 30 0c0 11.5-15 28-15 28z' fill='#ff7f0e' stroke='#7a3b00' stroke-width='2'/>
-      <circle cx='24' cy='17' r='6' fill='white'/>
-    </svg>
-    """.strip())
+    # 2. Custom icon marker from a normal local image file
+    icon_path = Path(__file__).with_name("assets") / "orange_pin.svg"
     layer.add_icon_points(
         [(37.8044, -122.2712)],  # Oakland
-        icon_src=f"data:image/svg+xml;utf8,{pin_svg}",
+        icon=icon_path,
         ids=["icon1"],
-        style=IconStyle(
-            scale=0.9,
-            anchor=(0.5, 1.0),
-        ),
-        properties=[{"name": "Custom SVG icon marker"}],
+        scale=0.9,
+        anchor=(0.5, 1.0),
+        properties=[{"name": "Custom icon marker"}],
     )
 
     # 3. Circle with geodesic radius (5km)

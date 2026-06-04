@@ -288,22 +288,20 @@ vector.add_points(
     )
 )
 
-# Add custom icon marker points
+# Add custom icon marker points from a local file, URL, data URI, or bytes
 vector.add_icon_points(
     coords=[(lat, lon), ...],
-    icon_src="https://example.com/pin.svg",  # image URL, data URI, or browser-resolvable source
+    icon="assets/pin.png",  # local path; copied/served automatically
     ids=["marker1", ...],
-    style=IconStyle(
-        scale=1.0,
-        anchor=(0.5, 1.0)  # bottom-center of the icon sits on the coordinate
-    )
+    scale=1.0,
+    anchor=(0.5, 1.0)  # bottom-center of the icon sits on the coordinate
 )
 
-# You can also pass IconStyle directly to add_points
-vector.add_points(
+# URLs work too
+vector.add_icon_points(
     coords=[(lat, lon)],
-    ids=["custom_marker"],
-    style=IconStyle(icon_src="data:image/svg+xml;utf8,<svg ...></svg>")
+    icon="https://example.com/pin.svg",
+    ids=["remote_marker"]
 )
 
 # Add polygons
@@ -621,8 +619,9 @@ point_style = PointStyle(
     stroke_opacity=0.9
 )
 
+# For most icon markers, pass direct arguments to VectorLayer.add_icon_points().
+# IconStyle is available only when you need to reuse advanced icon settings.
 icon_style = IconStyle(
-    icon_src="https://example.com/pin.svg",  # image URL, data URI, or browser-resolvable source
     scale=1.0,
     opacity=0.95,
     anchor=(0.5, 1.0)  # bottom-center pin anchor
@@ -677,7 +676,7 @@ geo_style = FastGeoPointsStyle(
 **Key Features:**
 - **QColor Support in ALL Styles**: Pass `QColor` objects directly to any color parameter in PointStyle, CircleStyle, PolygonStyle, EllipseStyle, FastPointsStyle, and FastGeoPointsStyle - no need for `.name()`
 - **Color Names Everywhere**: Use color names like `"red"`, `"Green"`, `"steelblue"` directly in all Style classes
-- **Custom Icon Markers**: Use `IconStyle` with `VectorLayer.add_icon_points()` (or `add_points(..., style=IconStyle(...))`) to place points rendered with image URLs, SVG/data URIs, or other browser-resolvable image sources
+- **Custom Icon Markers**: Use `VectorLayer.add_icon_points(icon=...)` to place points rendered with a local image path, URL, data URI, or image bytes; local files and bytes are served to the embedded browser automatically
 - **Multiple Formats**: Color styles accept QColor objects, color names, hex strings, and CSS strings (RGBA tuples are deprecated)
 - **Backward Compatible**: Existing code using RGBA tuples or hex colors continues to work
 - **Z-Ordering**: Selected points and ellipses are automatically drawn on top in dense areas

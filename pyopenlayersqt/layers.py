@@ -423,24 +423,57 @@ class VectorLayer(BaseLayer):
     def add_icon_points(
         self,
         coords: Sequence[LatLon],
-        icon_src: str,
+        icon: Any = None,
         ids: Optional[Sequence[str]] = None,
         style: Optional[IconStyle] = None,
         properties: Optional[Sequence[Dict[str, Any]]] = None,
+        scale: float = 1.0,
+        opacity: float = 1.0,
+        anchor: tuple[float, float] = (0.5, 1.0),
+        rotation: float = 0.0,
+        rotate_with_view: bool = False,
+        cross_origin: Optional[str] = None,
+        icon_src: Any = None,
     ) -> None:
         """Add point features rendered with a custom icon.
 
         Args:
             coords: Sequence of (lat, lon) tuples for each point.
-            icon_src: Image URL, data URI, or browser-resolvable image source.
+            icon: URL, local image path, data URI, or image bytes. Local files and
+                bytes are cached and served automatically to the embedded browser.
             ids: Optional sequence of feature IDs. Auto-generated if not provided.
-            style: Optional IconStyle for anchor, scale, opacity, and rotation. If
-                provided without an icon_src, the icon_src argument is used.
+            style: Optional advanced IconStyle. Most callers can use the direct
+                scale/opacity/anchor/rotation arguments instead.
             properties: Optional properties dict for each icon point.
+            scale: Icon scale multiplier.
+            opacity: Icon opacity from 0.0 to 1.0.
+            anchor: Icon anchor as fractions by default. ``(0.5, 1.0)`` pins the
+                bottom center of the icon to the feature coordinate.
+            rotation: Rotation in radians.
+            rotate_with_view: If True, icon rotates with the map view.
+            cross_origin: Optional cross-origin setting for remote images.
+            icon_src: Deprecated alias for icon.
         """
-        icon_style = style or IconStyle(icon_src=icon_src)
-        if not icon_style.icon_src:
-            icon_style = replace(icon_style, icon_src=icon_src)
+        if icon is None:
+            icon = icon_src
+
+        icon_style = style or IconStyle(
+            scale=scale,
+            opacity=opacity,
+            anchor=anchor,
+            rotation=rotation,
+            rotate_with_view=rotate_with_view,
+            cross_origin=cross_origin,
+        )
+
+        icon_value = icon if icon is not None else icon_style.icon_src
+        if not icon_value:
+            raise ValueError("icon must be a URL, local image path, data URI, or bytes")
+
+        icon_style = replace(
+            icon_style,
+            icon_src=self._map_widget._icon_to_src(icon_value),
+        )
         self.add_points(
             coords=coords,
             ids=ids,
