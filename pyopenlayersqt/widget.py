@@ -840,7 +840,11 @@ class OLMapWidget(QWebEngineView):
         return Handle()
 
     def add_vector_layer(
-        self, name: str = "vector", selectable: bool = True, movable: bool = False
+        self,
+        name: str = "vector",
+        selectable: bool = True,
+        movable: bool = False,
+        vertex_editing: str = "move",
     ) -> VectorLayer:
         layer_id = self._next_id("v")
         self._send(
@@ -850,6 +854,7 @@ class OLMapWidget(QWebEngineView):
                 "name": name,
                 "selectable": bool(selectable),
                 "movable": bool(movable),
+                "vertex_editing": str(vertex_editing),
             }
         )
         return VectorLayer(self, layer_id, name=name)

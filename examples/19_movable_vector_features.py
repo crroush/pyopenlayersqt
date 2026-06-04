@@ -3,7 +3,7 @@
 
 This example demonstrates editable vector objects:
 - Drag movable objects to reposition the whole feature.
-- Drag vertices to reshape movable lines and polygon-like shapes.
+- Drag vertices to reshape movable lines/polygons; circles/ellipses stay shape-safe.
 - Locked points/features stay fixed even when the layer is movable.
 - Feature movement emits ``vectorFeatureChanged`` with the updated geometry.
 """
@@ -43,9 +43,10 @@ class MovableVectorFeaturesExample(QtWidgets.QMainWindow):
         instructions = QtWidgets.QLabel(
             "Movable Vector Feature Demo\n"
             "• Drag any blue/purple/orange/green feature body to move the whole object.\n"
-            "• Drag a line/polygon/circle/ellipse vertex handle to reshape it.\n"
+            "• Drag existing line vertices; the green polygon also allows inserting/deleting vertices.\n"
+            "• Circles and ellipses move as whole shapes, but are not reshaped as arbitrary polygons.\n"
             "• Red points and the red polygon are locked and cannot be moved.\n"
-            "• Use VectorLayer.set_features_movable([...], False/True) to lock or unlock existing features."
+            "• Use set_features_movable(...) and set_features_vertex_editing(...) for per-feature control."
         )
         instructions.setWordWrap(True)
 
@@ -58,7 +59,7 @@ class MovableVectorFeaturesExample(QtWidgets.QMainWindow):
 
     def _add_demo_features(self):
         self.vector_layer = self.map_widget.add_vector_layer(
-            "movable_shapes", selectable=True, movable=True
+            "movable_shapes", selectable=True, movable=True, vertex_editing="move"
         )
 
         # Points: three movable, two locked.
@@ -119,6 +120,7 @@ class MovableVectorFeaturesExample(QtWidgets.QMainWindow):
             [(37.72, -122.51), (37.76, -122.49), (37.79, -122.52)],
             feature_id="movable_line",
             movable=True,
+            vertex_editing="move",
             style=PolygonStyle(stroke_color=QColor("darkorange"), stroke_width=5),
             properties={"label": "movable line"},
         )
@@ -132,6 +134,7 @@ class MovableVectorFeaturesExample(QtWidgets.QMainWindow):
             ],
             feature_id="movable_polygon",
             movable=True,
+            vertex_editing="modify",
             style=PolygonStyle(
                 stroke_color=QColor("seagreen"),
                 stroke_width=3,
