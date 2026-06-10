@@ -41,7 +41,7 @@ A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt a
 
 - **🗺️ Interactive Map Widget**: Fully-featured OpenLayers map embedded in PySide6/Qt
 - **⚡ High-Performance Rendering**: Fast points layers with spatial indexing for millions of points
-- **🎨 Rich Styling**: Customizable styles for points, polygons, circles, and ellipses
+- **🎨 Rich Styling**: Customizable styles for points, custom icon markers, polygons, circles, and ellipses
 - **🎨 QColor Support**: Use `QColor` objects or color names directly in styles - no `.name()` needed
 - **📍 Geolocation Support**: Fast geo-points layer with uncertainty ellipses
 - **🌐 WMS Integration**: Built-in Web Map Service layer support
@@ -270,7 +270,7 @@ Each layer type also has specialized methods for its specific use case, as detai
 For standard vector features with full styling control.
 
 ```python
-from pyopenlayersqt import PointStyle, PolygonStyle, CircleStyle, EllipseStyle
+from pyopenlayersqt import PointStyle, IconStyle, PolygonStyle, CircleStyle, EllipseStyle
 
 # Add a vector layer
 vector = map_widget.add_vector_layer("vector", selectable=True)
@@ -286,6 +286,41 @@ vector.add_points(
         stroke_color=QColor("black"),
         stroke_width=1.0
     )
+)
+
+# Add custom icon marker points from any supported icon input form
+vector.add_icon_points(
+    coords=[(lat, lon), ...],
+    icon="assets/pin.png",  # local path; copied/served automatically
+    selected_icon="assets/pin-selected.png",  # optional selected-state icon
+    ids=["marker1", ...],
+    scale=1.0,
+    anchor=(0.5, 1.0)  # bottom-center of the icon sits on the coordinate
+)
+
+# All supported icon input forms
+from pathlib import Path
+import base64
+from PySide6.QtCore import QByteArray
+
+pin_path = Path("assets/pin.svg")
+pin_bytes = pin_path.read_bytes()
+pin_data_uri = "data:image/svg+xml;base64," + base64.b64encode(pin_bytes).decode("ascii")
+
+vector.add_icon_points([(lat, lon)], icon=pin_path)              # Path / os.PathLike
+vector.add_icon_points([(lat, lon)], icon=str(pin_path))         # Local path string
+vector.add_icon_points([(lat, lon)], icon=pin_bytes)             # bytes
+vector.add_icon_points([(lat, lon)], icon=bytearray(pin_bytes))  # bytearray
+vector.add_icon_points([(lat, lon)], icon=memoryview(pin_bytes))  # memoryview
+vector.add_icon_points([(lat, lon)], icon=QByteArray(pin_bytes))  # Qt QByteArray
+vector.add_icon_points([(lat, lon)], icon=pin_data_uri)          # data URI
+vector.add_icon_points(
+    [(lat, lon)],
+    icon="https://example.com/pin.svg",                         # HTTP(S) URL
+    rotation_deg=45.0,
+    # Optional: enables selection tinting when the remote server permits CORS.
+    # Without it, remote icons still render with a selection halo.
+    cross_origin="anonymous"
 )
 
 # Add polygons
@@ -583,6 +618,7 @@ All style classes are immutable dataclasses with sensible defaults:
 ```python
 from pyopenlayersqt import (
     PointStyle,
+    IconStyle,
     PolygonStyle,
     CircleStyle,
     EllipseStyle,
@@ -600,6 +636,16 @@ point_style = PointStyle(
     stroke_color=QColor("black"),    # QColor object
     stroke_width=1.0,
     stroke_opacity=0.9
+)
+
+# For most icon markers, pass direct arguments to VectorLayer.add_icon_points().
+# IconStyle is available only when you need to reuse advanced icon settings.
+icon_style = IconStyle(
+    selected_icon_src="https://example.com/pin-selected.svg",
+    scale=1.0,
+    opacity=0.95,
+    anchor=(0.5, 1.0),  # bottom-center pin anchor
+    rotation_deg=90.0    # clockwise degrees from true north (up on an unrotated map)
 )
 
 # You can also use color names directly
@@ -651,7 +697,8 @@ geo_style = FastGeoPointsStyle(
 **Key Features:**
 - **QColor Support in ALL Styles**: Pass `QColor` objects directly to any color parameter in PointStyle, CircleStyle, PolygonStyle, EllipseStyle, FastPointsStyle, and FastGeoPointsStyle - no need for `.name()`
 - **Color Names Everywhere**: Use color names like `"red"`, `"Green"`, `"steelblue"` directly in all Style classes
-- **Multiple Formats**: All styles accept QColor objects, color names, hex strings, and CSS strings (RGBA tuples are deprecated)
+- **Custom Icon Markers**: Use `VectorLayer.add_icon_points(icon=..., selected_icon=...)` to place points rendered with a local image path, URL, data URI, bytes, bytearray, memoryview, or QByteArray; local files and bytes-like values are served to the embedded browser automatically, selected_icon overrides selection rendering when provided, and selected icons otherwise use the vector selection color (tinting for same-origin/data/CORS-enabled icons, halo fallback for other remote URLs)
+- **Multiple Formats**: Color styles accept QColor objects, color names, hex strings, and CSS strings (RGBA tuples are deprecated)
 - **Backward Compatible**: Existing code using RGBA tuples or hex colors continues to work
 - **Z-Ordering**: Selected points and ellipses are automatically drawn on top in dense areas
 
