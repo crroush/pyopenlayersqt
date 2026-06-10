@@ -288,27 +288,44 @@ vector.add_points(
     )
 )
 
-# Add custom icon marker points from a local file, URL, data URI, or bytes-like
-# value (bytes, bytearray, memoryview, and PySide6.QtCore.QByteArray are supported)
-vector.add_icon_points(
-    coords=[(lat, lon), ...],
-    icon="assets/pin.png",  # local path; copied/served automatically
-    selected_icon="assets/pin-selected.png",  # optional selected-state icon
-    ids=["marker1", ...],
-    scale=1.0,
-    anchor=(0.5, 1.0)  # bottom-center of the icon sits on the coordinate
-)
+# Add custom icon marker points. icon and selected_icon accept the same forms.
+from pathlib import Path
+import base64
+from PySide6.QtCore import QByteArray
 
-# URLs work too
-vector.add_icon_points(
-    coords=[(lat, lon)],
-    icon="https://example.com/pin.svg",
-    ids=["remote_marker"],
-    rotation_deg=45.0,  # clockwise degrees from true north (up on an unrotated map)
-    # Optional: enables selection tinting when the remote server permits CORS.
-    # Without it, remote icons still render with a selection halo.
-    cross_origin="anonymous"
-)
+icon_path = Path("assets/pin.svg")
+icon_bytes = icon_path.read_bytes()
+icon_sources = {
+    "path_object": icon_path,
+    "path_string": str(icon_path),
+    "bytes": icon_bytes,
+    "bytearray": bytearray(icon_bytes),
+    "memoryview": memoryview(icon_bytes),
+    "qbytearray": QByteArray(icon_bytes),
+    "data_uri": "data:image/svg+xml;base64,"
+                + base64.b64encode(icon_bytes).decode("ascii"),
+    "remote_url": "https://example.com/pin.svg",
+}
+# Supply one (latitude, longitude) coordinate for each source above.
+icon_coords = [(lat, lon), ...]
+
+for index, (source_name, icon_source) in enumerate(icon_sources.items()):
+    vector.add_icon_points(
+        coords=[icon_coords[index]],
+        icon=icon_source,
+        # Optional; accepts any source form listed above.
+        selected_icon=Path("assets/pin-selected.svg") if index == 0 else None,
+        ids=[f"icon_{source_name}"],
+        properties=[{"icon_source": source_name}],
+        scale=1.0,
+        opacity=0.95,
+        anchor=(0.5, 1.0),  # bottom-center sits on the coordinate
+        rotation_deg=45.0,  # clockwise degrees from true north
+        rotate_with_view=False,
+        # Useful for remote URLs when their server permits CORS. Remote icons
+        # without CORS still render, but selection uses a halo instead of tinting.
+        cross_origin="anonymous" if source_name == "remote_url" else None,
+    )
 
 # Add polygons
 vector.add_polygon(
@@ -393,6 +410,44 @@ vector.remove_features(["id1", "poly1"])
 vector.clear()
 ```
 <img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/a9ec05ba-717b-494a-abab-eac30adb55fb" />
+
+##### Custom icon API
+
+`VectorLayer.add_icon_points()` accepts these values for both `icon` and
+`selected_icon`:
+
+| Source value | Behavior |
+| --- | --- |
+| `pathlib.Path` or another `os.PathLike` | The local file is copied into the widget's HTTP-served icon cache. |
+| String path to an existing local file | The local file is copied into the widget's HTTP-served icon cache. |
+| `bytes`, `bytearray`, `memoryview`, or `PySide6.QtCore.QByteArray` | The image data is written into the widget's HTTP-served icon cache. |
+| `http://` or `https://` URL | The browser loads the remote image directly. |
+| `data:`, `file:`, or `qrc:` URI | The browser loads the URI directly. |
+
+The icon cache detects PNG, JPEG, GIF, WebP, and SVG image data. A string that
+is neither a recognized URI nor an existing local path is passed through to the
+browser unchanged.
+
+`add_icon_points()` uses the following arguments:
+
+| Argument | Description |
+| --- | --- |
+| `coords` | Sequence of `(latitude, longitude)` coordinates. |
+| `icon` | Required icon source unless `style.icon_src` supplies one. |
+| `selected_icon` | Optional replacement icon shown while selected; accepts every `icon` source form. |
+| `ids` | Optional feature IDs; generated automatically when omitted. |
+| `properties` | Optional property dictionary for each point. |
+| `scale` | Image scale multiplier; defaults to `1.0`. |
+| `opacity` | Image opacity from `0.0` to `1.0`; defaults to `1.0`. |
+| `anchor` | Image anchor fractions; `(0.5, 1.0)` places the bottom-center on the coordinate. |
+| `rotation_deg` | Clockwise rotation in degrees from true north. |
+| `rotate_with_view` | When true, rotates the icon with the map view. |
+| `cross_origin` | Optional OpenLayers cross-origin value, such as `"anonymous"`, for remote images. |
+| `style` | Optional reusable `IconStyle`. When supplied, its style settings take precedence over the direct scale, opacity, anchor, rotation, and cross-origin arguments. The `icon` and `selected_icon` arguments still override `style.icon_src` and `style.selected_icon_src`. |
+
+For a runnable map showing path objects, path strings, each byte-like type, a
+data URI, and a remote URL, see
+[`examples/02_layer_types_and_styling.py`](examples/02_layer_types_and_styling.py).
 
 #### FastPointsLayer
 
@@ -613,6 +668,7 @@ from pyopenlayersqt import (
     FastPointsStyle,
     FastGeoPointsStyle
 )
+from pathlib import Path
 from PySide6.QtGui import QColor
 
 # Vector styles use QColor objects or color names (recommended)
@@ -625,15 +681,26 @@ point_style = PointStyle(
     stroke_opacity=0.9
 )
 
-# For most icon markers, pass direct arguments to VectorLayer.add_icon_points().
-# IconStyle is available only when you need to reuse advanced icon settings.
+# For most icon markers, pass style settings directly to add_icon_points().
+# Use IconStyle when you need to reuse settings or use pixel anchor units.
 icon_style = IconStyle(
-    selected_icon_src="https://example.com/pin-selected.svg",
     scale=1.0,
     opacity=0.95,
-    anchor=(0.5, 1.0),  # bottom-center pin anchor
-    rotation_deg=90.0    # clockwise degrees from true north (up on an unrotated map)
+    anchor=(16.0, 32.0),
+    anchor_x_units="pixels",
+    anchor_y_units="pixels",
+    rotation_deg=90.0,  # clockwise degrees from true north
+    rotate_with_view=False,
+    cross_origin="anonymous",
 )
+vector.add_icon_points(
+    coords=[(lat, lon)],
+    icon=Path("assets/pin.svg"),
+    selected_icon=Path("assets/pin-selected.svg"),
+    style=icon_style,
+)
+# When style is supplied, its settings take precedence over direct scale, opacity,
+# anchor, rotation_deg, rotate_with_view, and cross_origin arguments.
 
 # You can also use color names directly
 polygon_style = PolygonStyle(
