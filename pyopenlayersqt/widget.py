@@ -294,8 +294,8 @@ class OLMapWidget(QWebEngineView):
         return f"{self._base_url}/_overlays/icons/{quote(out_name, safe='')}"
 
     def _icon_to_src(self, icon: Any) -> str:
-        """Normalize a user-friendly icon value to a browser-loadable URL."""
-        if isinstance(icon, (bytes, bytearray, memoryview)):
+        """Normalize a path, URL, or supported byte container for the browser."""
+        if isinstance(icon, (bytes, bytearray, memoryview, QtCore.QByteArray)):
             return self._cache_icon_bytes(bytes(icon))
 
         if isinstance(icon, os.PathLike):
@@ -303,7 +303,9 @@ class OLMapWidget(QWebEngineView):
 
         raw = str(icon).strip()
         if not raw:
-            raise ValueError("icon must be a non-empty URL, file path, data URI, or bytes")
+            raise ValueError(
+                "icon must be a non-empty URL, file path, data URI, or bytes-like value"
+            )
 
         lowered = raw.lower()
         if lowered.startswith(("http://", "https://", "data:", "file:", "qrc:")):
