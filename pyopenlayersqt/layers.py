@@ -440,8 +440,10 @@ class VectorLayer(BaseLayer):
 
         Args:
             coords: Sequence of (lat, lon) tuples for each point.
-            icon: URL, local image path, data URI, or image bytes. Local files and
-                bytes are cached and served automatically to the embedded browser.
+            icon: URL, local image path, data URI, or image bytes. Supported byte
+                containers are bytes, bytearray, memoryview, and QByteArray. Local
+                files and bytes are cached and served automatically to the embedded
+                browser.
             selected_icon: Optional alternate icon to use while the feature is
                 selected. Accepts the same input forms as icon.
             ids: Optional sequence of feature IDs. Auto-generated if not provided.
@@ -469,7 +471,7 @@ class VectorLayer(BaseLayer):
 
         icon_value = icon if icon is not None else icon_style.icon_src
         if not icon_value:
-            raise ValueError("icon must be a URL, local image path, data URI, or bytes")
+            raise ValueError("icon must be a URL, local image path, data URI, or bytes-like value")
 
         selected_icon_value = (
             selected_icon

@@ -8,7 +8,7 @@ This example demonstrates different layer types and styling options:
 
 Features demonstrated:
 - Points with custom radius and colors
-- Custom icon markers anchored to map coordinates
+- Custom icon markers from every supported path, byte-like, and URL form
 - Circles with geodesic radius
 - Lines/Polylines (non-closed paths)
 - Polygons with custom fill and stroke
@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 from PySide6 import QtWidgets
+from PySide6.QtCore import QByteArray
 from PySide6.QtGui import QColor
 
 from pyopenlayersqt import (
@@ -55,7 +56,7 @@ def main():
         )
     )
 
-    # 2. Custom icon markers: local path, bytes, data URI, and URL forms
+    # 2. Custom icon markers: every supported path, byte, and URL form
     assets_dir = Path(__file__).with_name("assets")
     icon_path = assets_dir / "orange_pin.svg"
     selected_icon_path = assets_dir / "selected_pin.svg"
@@ -68,33 +69,58 @@ def main():
         "https://upload.wikimedia.org/wikipedia/commons/8/88/Map_marker.svg"
     )
 
-    layer.add_icon_points(
-        [(37.8044, -122.2712)],  # Oakland
-        icon=icon_path,
-        selected_icon=selected_icon_path,
-        ids=["icon_path"],
-        scale=0.9,
-        anchor=(0.5, 1.0),
-        properties=[{"name": "Icon from local path with selected icon"}],
-    )
-    layer.add_icon_points(
-        [(37.8715, -122.2730)],  # Berkeley
-        icon=icon_bytes,
-        ids=["icon_bytes"],
-        scale=0.75,
-        anchor=(0.5, 1.0),
-        rotation_deg=30.0,  # clockwise degrees from true north (up on an unrotated map)
-        properties=[{"name": "Icon from bytes"}],
-    )
-    layer.add_icon_points(
-        [(37.6879, -122.4702)],  # Daly City
-        icon=icon_data_uri,
-        ids=["icon_data_uri"],
-        scale=0.75,
-        anchor=(0.5, 1.0),
-        rotation_deg=-30.0,
-        properties=[{"name": "Icon from data URI"}],
-    )
+    icon_examples = [
+        (
+            (37.8044, -122.2712),
+            icon_path,
+            "path_object",
+            "Icon from pathlib.Path with selected icon",
+        ),
+        (
+            (37.8715, -122.2730),
+            str(icon_path),
+            "path_string",
+            "Icon from local path string",
+        ),
+        ((37.8300, -122.3500), icon_bytes, "bytes", "Icon from bytes"),
+        (
+            (37.7800, -122.3000),
+            bytearray(icon_bytes),
+            "bytearray",
+            "Icon from bytearray",
+        ),
+        (
+            (37.7300, -122.2700),
+            memoryview(icon_bytes),
+            "memoryview",
+            "Icon from memoryview",
+        ),
+        (
+            (37.6800, -122.3000),
+            QByteArray(icon_bytes),
+            "qbytearray",
+            "Icon from PySide6 QByteArray",
+        ),
+        (
+            (37.6879, -122.4702),
+            icon_data_uri,
+            "data_uri",
+            "Icon from data URI",
+        ),
+    ]
+
+    for index, (coord, icon, icon_id, name) in enumerate(icon_examples):
+        layer.add_icon_points(
+            [coord],
+            icon=icon,
+            selected_icon=selected_icon_path if index == 0 else None,
+            ids=[f"icon_{icon_id}"],
+            scale=0.75,
+            anchor=(0.5, 1.0),
+            rotation_deg=(index - 3) * 10.0,
+            properties=[{"name": name}],
+        )
+
     layer.add_icon_points(
         [(37.5630, -122.3255)],  # San Mateo
         icon=remote_icon_url,
