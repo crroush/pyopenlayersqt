@@ -419,11 +419,12 @@ function fp_make_canvas_layer(entry) {
       if (candidateCount > maxExactRenderPoints) {
         const drawStart = performance.now();
         const occupied = new Uint8Array(canvas.width * canvas.height);
-        const batches = new Map();
+        const unselectedPixelBatches = new Map();
+        const selectedPixelBatches = new Map();
         const maxPointsPerPath = 50000;
         let renderedPointCount = 0;
 
-        function getPixelBatch(fill, radius) {
+        function getPixelBatch(batches, fill, radius) {
           const key = fill + "|" + radius;
           let batch = batches.get(key);
           if (!batch) {
@@ -449,29 +450,33 @@ function fp_make_canvas_layer(entry) {
             const y = (extent[3] - entry.y[i]) * scaleY;
             const px = Math.floor(x), py = Math.floor(y);
             if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) continue;
-            const pixelIndex = py * canvas.width + px;
-            if (occupied[pixelIndex]) continue;
-            occupied[pixelIndex] = 1;
 
             const fid = entry.ids[i];
             const isSel = entry.selectedIds.has(fid);
+            if (!isSel) {
+              const pixelIndex = py * canvas.width + px;
+              if (occupied[pixelIndex]) continue;
+              occupied[pixelIndex] = 1;
+            }
+
             const radius = (isSel ? entry.style.selected_radius : entry.style.radius) * pixelRatio;
             let fill = defCss;
             const u = entry.color_u32[i];
             if (u !== 0) fill = rgba_to_css(rgba_from_u32(u));
             if (isSel) fill = selCss;
 
-            const batch = getPixelBatch(fill, radius);
+            const batch = getPixelBatch(isSel ? selectedPixelBatches : unselectedPixelBatches, fill, radius);
             batch.path.moveTo(x + radius, y);
             batch.path.arc(x, y, radius, 0, Math.PI * 2);
             batch.count += 1;
             renderedPointCount += 1;
-            if (batch.count >= maxPointsPerPath) flushPixelBatch(batch);
-            if (renderedPointCount >= occupied.length) break;
+            if (!isSel && batch.count >= maxPointsPerPath) flushPixelBatch(batch);
+            if (renderedPointCount >= occupied.length && entry.selectedIds.size === 0) break;
           }
-          if (renderedPointCount >= occupied.length) break;
+          if (renderedPointCount >= occupied.length && entry.selectedIds.size === 0) break;
         }
-        for (const batch of batches.values()) flushPixelBatch(batch);
+        for (const batch of unselectedPixelBatches.values()) flushPixelBatch(batch);
+        for (const batch of selectedPixelBatches.values()) flushPixelBatch(batch);
         const drawTime = performance.now() - drawStart;
         const totalTime = performance.now() - perfStart;
         emitToPython("perf", {
