@@ -415,8 +415,10 @@ function fp_make_canvas_layer(entry) {
       const defCss = rgba_to_css(entry.style.default_rgba);
       const selCss = rgba_to_css(entry.style.selected_rgba);
       const maxExactRenderPoints = 200000;
+      const maxAggregateZoom = 8;
+      const currentZoom = state.map.getView().getZoom();
 
-      if (candidateCount > maxExactRenderPoints) {
+      if (candidateCount > maxExactRenderPoints && currentZoom <= maxAggregateZoom) {
         const drawStart = performance.now();
         const pixelCount = canvas.width * canvas.height;
         const counts = new Uint32Array(pixelCount);
@@ -504,6 +506,8 @@ function fp_make_canvas_layer(entry) {
           accumulated_point_count: accumulatedPointCount,
           selected_point_count: selectedPointCount,
           occupied_pixel_count: occupiedPixelCount,
+          zoom: currentZoom,
+          max_aggregate_zoom: maxAggregateZoom,
           times: {
             query_ms: queryTime.toFixed(2),
             batch_ms: "0.00",
