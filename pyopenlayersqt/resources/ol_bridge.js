@@ -410,12 +410,40 @@ function fp_make_canvas_layer(entry) {
       const defCss = rgba_to_css(entry.style.default_rgba);
       const selCss = rgba_to_css(entry.style.selected_rgba);
 
-      // Performance optimization: batch points by color to reduce canvas API calls
-      // Group points by their fill color and radius to draw them together
-      // Draw unselected points first, then selected points on top for visibility
+      // Performance optimization: batch points by color/radius into canvas paths
+      // without materializing one JS object per point. Flush large unselected
+      // paths as they fill so multi-million point renders do not retain a huge
+      // array of {x, y} objects or a single enormous path in memory.
+      const maxPointsPerPath = 50000;
+      const unselectedBatches = new Map(); // key: "color|radius" -> { fill, radius, path, count }
+      const selectedBatches = new Map();
+
+      function getBatch(batches, fill, radius) {
+        const key = fill + "|" + radius;
+        let batch = batches.get(key);
+        if (!batch) {
+          batch = { fill, radius, path: new Path2D(), count: 0 };
+          batches.set(key, batch);
+        }
+        return batch;
+      }
+
+      function addPointToBatch(batch, x, y) {
+        batch.path.moveTo(x + batch.radius, y);
+        batch.path.arc(x, y, batch.radius, 0, Math.PI * 2);
+        batch.count += 1;
+      }
+
+      function flushBatch(batch) {
+        if (batch.count === 0) return;
+        ctx.fillStyle = batch.fill;
+        ctx.fill(batch.path);
+        batch.path = new Path2D();
+        batch.count = 0;
+      }
+
       const batchStart = performance.now();
-      const unselectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
-      const selectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
+      const drawStart = performance.now();
 
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
@@ -431,38 +459,24 @@ function fp_make_canvas_layer(entry) {
         if (u !== 0) fill = rgba_to_css(rgba_from_u32(u));
         if (isSel) fill = selCss;
 
-        const key = fill + "|" + radius;
         const batches = isSel ? selectedBatches : unselectedBatches;
-        let batch = batches.get(key);
-        if (!batch) {
-          batch = { fill, radius, points: [] };
-          batches.set(key, batch);
+        const batch = getBatch(batches, fill, radius);
+        addPointToBatch(batch, x, y);
+
+        if (!isSel && batch.count >= maxPointsPerPath) {
+          flushBatch(batch);
         }
-        batch.points.push({ x, y });
       }
       const batchTime = performance.now() - batchStart;
 
-      // Draw unselected batches first
-      const drawStart = performance.now();
+      // Draw remaining unselected batches first
       for (const batch of unselectedBatches.values()) {
-        ctx.fillStyle = batch.fill;
-        ctx.beginPath();
-        for (const pt of batch.points) {
-          ctx.moveTo(pt.x + batch.radius, pt.y);
-          ctx.arc(pt.x, pt.y, batch.radius, 0, Math.PI * 2);
-        }
-        ctx.fill();
+        flushBatch(batch);
       }
 
       // Draw selected batches on top
       for (const batch of selectedBatches.values()) {
-        ctx.fillStyle = batch.fill;
-        ctx.beginPath();
-        for (const pt of batch.points) {
-          ctx.moveTo(pt.x + batch.radius, pt.y);
-          ctx.arc(pt.x, pt.y, batch.radius, 0, Math.PI * 2);
-        }
-        ctx.fill();
+        flushBatch(batch);
       }
       const drawTime = performance.now() - drawStart;
       
