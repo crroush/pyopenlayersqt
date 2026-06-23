@@ -418,11 +418,14 @@ function fp_make_canvas_layer(entry) {
 
       if (candidateCount > maxExactRenderPoints) {
         const drawStart = performance.now();
-        const occupied = new Uint8Array(canvas.width * canvas.height);
-        const unselectedPixelBatches = new Map();
+        const pixelCount = canvas.width * canvas.height;
+        const counts = new Uint32Array(pixelCount);
+        const red = new Float32Array(pixelCount);
+        const green = new Float32Array(pixelCount);
+        const blue = new Float32Array(pixelCount);
         const selectedPixelBatches = new Map();
-        const maxPointsPerPath = 50000;
-        let renderedPointCount = 0;
+        let accumulatedPointCount = 0;
+        let selectedPointCount = 0;
 
         function getPixelBatch(batches, fill, radius) {
           const key = fill + "|" + radius;
@@ -453,29 +456,43 @@ function fp_make_canvas_layer(entry) {
 
             const fid = entry.ids[i];
             const isSel = entry.selectedIds.has(fid);
+            let rgba = entry.style.default_rgba;
+            const u = entry.color_u32[i];
+            if (u !== 0) rgba = rgba_from_u32(u);
+
             if (!isSel) {
               const pixelIndex = py * canvas.width + px;
-              if (occupied[pixelIndex]) continue;
-              occupied[pixelIndex] = 1;
+              counts[pixelIndex] += 1;
+              red[pixelIndex] += rgba[0];
+              green[pixelIndex] += rgba[1];
+              blue[pixelIndex] += rgba[2];
+              accumulatedPointCount += 1;
+              continue;
             }
 
-            const radius = (isSel ? entry.style.selected_radius : entry.style.radius) * pixelRatio;
-            let fill = defCss;
-            const u = entry.color_u32[i];
-            if (u !== 0) fill = rgba_to_css(rgba_from_u32(u));
-            if (isSel) fill = selCss;
-
-            const batch = getPixelBatch(isSel ? selectedPixelBatches : unselectedPixelBatches, fill, radius);
+            const radius = entry.style.selected_radius * pixelRatio;
+            const batch = getPixelBatch(selectedPixelBatches, selCss, radius);
             batch.path.moveTo(x + radius, y);
             batch.path.arc(x, y, radius, 0, Math.PI * 2);
             batch.count += 1;
-            renderedPointCount += 1;
-            if (!isSel && batch.count >= maxPointsPerPath) flushPixelBatch(batch);
-            if (renderedPointCount >= occupied.length && entry.selectedIds.size === 0) break;
+            selectedPointCount += 1;
           }
-          if (renderedPointCount >= occupied.length && entry.selectedIds.size === 0) break;
         }
-        for (const batch of unselectedPixelBatches.values()) flushPixelBatch(batch);
+
+        const imageData = ctx.createImageData(canvas.width, canvas.height);
+        const data = imageData.data;
+        let occupiedPixelCount = 0;
+        for (let idx = 0; idx < counts.length; idx++) {
+          const count = counts[idx];
+          if (count === 0) continue;
+          const offset = idx * 4;
+          data[offset] = Math.round(red[idx] / count);
+          data[offset + 1] = Math.round(green[idx] / count);
+          data[offset + 2] = Math.round(blue[idx] / count);
+          data[offset + 3] = Math.min(255, 32 + Math.round(Math.log1p(count) * 48));
+          occupiedPixelCount += 1;
+        }
+        ctx.putImageData(imageData, 0, 0);
         for (const batch of selectedPixelBatches.values()) flushPixelBatch(batch);
         const drawTime = performance.now() - drawStart;
         const totalTime = performance.now() - perfStart;
@@ -483,8 +500,10 @@ function fp_make_canvas_layer(entry) {
           layer_id: entry.layer_id,
           operation: "fast_points_render",
           point_count: candidateCount,
-          pixel_dedupe_render: true,
-          rendered_point_count: renderedPointCount,
+          pixel_aggregate_render: true,
+          accumulated_point_count: accumulatedPointCount,
+          selected_point_count: selectedPointCount,
+          occupied_pixel_count: occupiedPixelCount,
           times: {
             query_ms: queryTime.toFixed(2),
             batch_ms: "0.00",
