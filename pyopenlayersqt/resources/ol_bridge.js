@@ -394,10 +394,6 @@ function fp_make_canvas_layer(entry) {
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.floor(size[0] * pixelRatio));
       canvas.height = Math.max(1, Math.floor(size[1] * pixelRatio));
-      if (state.viewInteracting) {
-        return canvas;
-      }
-
       const ctx = canvas.getContext("2d", { willReadFrequently: !!window.OL_WILL_READ_FREQUENTLY });
       if (!ctx) return canvas;
 
@@ -420,55 +416,21 @@ function fp_make_canvas_layer(entry) {
       const batchStart = performance.now();
       const unselectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
       const selectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
-      const pixelRenderMaxZoom = (entry.style.pixel_render_max_zoom == null ? 8.0 : Number(entry.style.pixel_render_max_zoom));
-      const currentZoom = state.map.getView().getZoom();
-      const pixelRender = Number.isFinite(pixelRenderMaxZoom) && currentZoom <= pixelRenderMaxZoom;
-      let renderedCount = 0;
-      let pixelMarkerCount = 0;
-      let pixelImage = null;
-      let pixelData = null;
-
-      if (pixelRender) {
-        pixelImage = ctx.createImageData(canvas.width, canvas.height);
-        pixelData = pixelImage.data;
-      }
 
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
         if (entry.deleted[i] || entry.hidden[i]) continue;
-        const fid = entry.ids[i];
-        const isSel = entry.selectedIds.has(fid);
-
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
+        const fid = entry.ids[i];
+        const isSel = entry.selectedIds.has(fid);
+        const radius = (isSel ? entry.style.selected_radius : entry.style.radius) * pixelRatio;
 
         let fill = defCss;
         const u = entry.color_u32[i];
-        let rgba = entry.style.default_rgba;
-        if (u !== 0) {
-          rgba = rgba_from_u32(u);
-          fill = rgba_to_css(rgba);
-        }
-        if (isSel) {
-          fill = selCss;
-          rgba = entry.style.selected_rgba;
-        }
+        if (u !== 0) fill = rgba_to_css(rgba_from_u32(u));
+        if (isSel) fill = selCss;
 
-        if (pixelRender && !isSel) {
-          const px = Math.floor(x);
-          const py = Math.floor(y);
-          if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) continue;
-          const offset = (py * canvas.width + px) * 4;
-          pixelData[offset] = rgba[0];
-          pixelData[offset + 1] = rgba[1];
-          pixelData[offset + 2] = rgba[2];
-          pixelData[offset + 3] = Math.max(pixelData[offset + 3], rgba[3]);
-          pixelMarkerCount += 1;
-          renderedCount += 1;
-          continue;
-        }
-
-        const radius = (isSel ? entry.style.selected_radius : entry.style.radius) * pixelRatio;
         const key = fill + "|" + radius;
         const batches = isSel ? selectedBatches : unselectedBatches;
         let batch = batches.get(key);
@@ -477,16 +439,11 @@ function fp_make_canvas_layer(entry) {
           batches.set(key, batch);
         }
         batch.points.push({ x, y });
-        renderedCount += 1;
       }
       const batchTime = performance.now() - batchStart;
 
+      // Draw unselected batches first
       const drawStart = performance.now();
-      if (pixelRender && pixelImage) {
-        ctx.putImageData(pixelImage, 0, 0);
-      }
-
-      // Draw unselected batches first when exact rendering is active
       for (const batch of unselectedBatches.values()) {
         ctx.fillStyle = batch.fill;
         ctx.beginPath();
@@ -496,7 +453,7 @@ function fp_make_canvas_layer(entry) {
         }
         ctx.fill();
       }
-      
+
       // Draw selected batches on top
       for (const batch of selectedBatches.values()) {
         ctx.fillStyle = batch.fill;
@@ -517,11 +474,6 @@ function fp_make_canvas_layer(entry) {
           layer_id: entry.layer_id,
           operation: "fast_points_render",
           point_count: cand.length,
-          rendered_count: renderedCount,
-          pixel_render: pixelRender,
-          pixel_render_max_zoom: pixelRenderMaxZoom,
-          zoom: currentZoom,
-          pixel_marker_count: pixelMarkerCount,
           batch_count: unselectedBatches.size + selectedBatches.size,
           times: {
             query_ms: queryTime.toFixed(2),
@@ -560,7 +512,7 @@ function cmd_fast_points_add_layer(msg) {
     cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
     idIndex: new Map(),
-    style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255], pixel_render_max_zoom: 8.0 },
+    style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255] },
     source: null,
     layer: null,
   };
@@ -2077,11 +2029,8 @@ function cmd_countries_set_visible(msg) {
       });
       
       state.viewInteracting = false;
-      // Redraw fast canvas layers once after interaction ends. FastPoints skips
-      // expensive extent queries during pan/zoom so interaction does not rescan
-      // multi-million point layers on every intermediate frame.
+      // redraw fast layers so ellipses appear after interaction ends
       for (const [lid, e] of state.layers.entries()) {
-        if (e.type === 'fast_points') fp_redraw(e);
         if (e.type === 'fast_geopoints' && e.ellipsesVisible) fgp_redraw(e);
       }
     });
