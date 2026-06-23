@@ -518,6 +518,85 @@ function fp_make_canvas_layer(entry) {
         return canvas;
       }
 
+      if (candidateCount > maxExactRenderPoints) {
+        const drawStart = performance.now();
+        const occupied = new Uint8Array(canvas.width * canvas.height);
+        const unselectedDedupeBatches = new Map();
+        const selectedDedupeBatches = new Map();
+        const maxPointsPerPath = 50000;
+        let renderedPointCount = 0;
+
+        function getDedupeBatch(batches, fill, radius) {
+          const key = fill + "|" + radius;
+          let batch = batches.get(key);
+          if (!batch) {
+            batch = { fill, radius, path: new Path2D(), count: 0 };
+            batches.set(key, batch);
+          }
+          return batch;
+        }
+
+        function flushDedupeBatch(batch) {
+          if (batch.count === 0) return;
+          ctx.fillStyle = batch.fill;
+          ctx.fill(batch.path);
+          batch.path = new Path2D();
+          batch.count = 0;
+        }
+
+        for (const arr of cellArrays) {
+          for (let j = 0; j < arr.length; j++) {
+            const i = arr[j];
+            if (entry.deleted[i] || entry.hidden[i]) continue;
+            const x = (entry.x[i] - extent[0]) * scaleX;
+            const y = (extent[3] - entry.y[i]) * scaleY;
+            const px = Math.floor(x), py = Math.floor(y);
+            if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) continue;
+
+            const fid = entry.ids[i];
+            const isSel = entry.selectedIds.has(fid);
+            if (!isSel) {
+              const pixelIndex = py * canvas.width + px;
+              if (occupied[pixelIndex]) continue;
+              occupied[pixelIndex] = 1;
+            }
+
+            const radius = (isSel ? entry.style.selected_radius : entry.style.radius) * pixelRatio;
+            let fill = defCss;
+            const u = entry.color_u32[i];
+            if (u !== 0) fill = rgba_to_css(rgba_from_u32(u));
+            if (isSel) fill = selCss;
+            const batch = getDedupeBatch(isSel ? selectedDedupeBatches : unselectedDedupeBatches, fill, radius);
+            batch.path.moveTo(x + radius, y);
+            batch.path.arc(x, y, radius, 0, Math.PI * 2);
+            batch.count += 1;
+            renderedPointCount += 1;
+            if (!isSel && batch.count >= maxPointsPerPath) flushDedupeBatch(batch);
+            if (renderedPointCount >= occupied.length && entry.selectedIds.size === 0) break;
+          }
+          if (renderedPointCount >= occupied.length && entry.selectedIds.size === 0) break;
+        }
+        for (const batch of unselectedDedupeBatches.values()) flushDedupeBatch(batch);
+        for (const batch of selectedDedupeBatches.values()) flushDedupeBatch(batch);
+        const drawTime = performance.now() - drawStart;
+        const totalTime = performance.now() - perfStart;
+        emitToPython("perf", {
+          layer_id: entry.layer_id,
+          operation: "fast_points_render",
+          point_count: candidateCount,
+          pixel_dedupe_circle_render: true,
+          rendered_point_count: renderedPointCount,
+          zoom: currentZoom,
+          times: {
+            query_ms: queryTime.toFixed(2),
+            batch_ms: "0.00",
+            draw_ms: drawTime.toFixed(2),
+            total_ms: totalTime.toFixed(2)
+          }
+        });
+        return canvas;
+      }
+
       const cand = [];
       for (const arr of cellArrays) {
         for (let j = 0; j < arr.length; j++) cand.push(arr[j]);
