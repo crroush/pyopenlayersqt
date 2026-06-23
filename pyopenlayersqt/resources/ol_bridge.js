@@ -394,6 +394,10 @@ function fp_make_canvas_layer(entry) {
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.floor(size[0] * pixelRatio));
       canvas.height = Math.max(1, Math.floor(size[1] * pixelRatio));
+      if (state.viewInteracting) {
+        return canvas;
+      }
+
       const ctx = canvas.getContext("2d", { willReadFrequently: !!window.OL_WILL_READ_FREQUENTLY });
       if (!ctx) return canvas;
 
@@ -2073,8 +2077,11 @@ function cmd_countries_set_visible(msg) {
       });
       
       state.viewInteracting = false;
-      // redraw fast layers so ellipses appear after interaction ends
+      // Redraw fast canvas layers once after interaction ends. FastPoints skips
+      // expensive extent queries during pan/zoom so interaction does not rescan
+      // multi-million point layers on every intermediate frame.
       for (const [lid, e] of state.layers.entries()) {
+        if (e.type === 'fast_points') fp_redraw(e);
         if (e.type === 'fast_geopoints' && e.ellipsesVisible) fgp_redraw(e);
       }
     });
