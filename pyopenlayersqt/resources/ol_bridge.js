@@ -304,7 +304,7 @@ function fp_index_insert(entry, i) {
   arr.push(i);
 }
 
-function fp_query_extent(entry, extent) {
+function fp_query_cell_arrays(entry, extent) {
   const cs = entry.cellSize;
   const min_ix = Math.floor(extent[0] / cs);
   const max_ix = Math.floor(extent[2] / cs);
@@ -313,30 +313,33 @@ function fp_query_extent(entry, extent) {
   const cellsX = max_ix - min_ix + 1;
   const cellsY = max_iy - min_iy + 1;
   const totalCells = cellsX * cellsY;
-  const out = [];
+  const cells = [];
 
-  // Query the sparse grid rather than falling back to scanning every point.
-  // The old broad-extent fallback looped over entry.x.length, which meant a
-  // 7M-point layer could rescan all points whenever panning crossed enough
-  // cells. Choose the cheaper of probing covered cell keys or scanning the
-  // occupied grid cells.
   if (totalCells > entry.grid.size) {
     for (const [key, arr] of entry.grid.entries()) {
       const comma = key.indexOf(",");
       const ix = Number(key.slice(0, comma));
       const iy = Number(key.slice(comma + 1));
       if (ix < min_ix || ix > max_ix || iy < min_iy || iy > max_iy) continue;
-      for (let j = 0; j < arr.length; j++) out.push(arr[j]);
+      cells.push(arr);
     }
-    return out;
+    return cells;
   }
 
   for (let ix = min_ix; ix <= max_ix; ix++) {
     for (let iy = min_iy; iy <= max_iy; iy++) {
       const arr = entry.grid.get(fp_cell_key(ix, iy));
-      if (!arr) continue;
-      for (let j = 0; j < arr.length; j++) out.push(arr[j]);
+      if (arr) cells.push(arr);
     }
+  }
+  return cells;
+}
+
+function fp_query_extent(entry, extent) {
+  const cells = fp_query_cell_arrays(entry, extent);
+  const out = [];
+  for (const arr of cells) {
+    for (let j = 0; j < arr.length; j++) out.push(arr[j]);
   }
   return out;
 }
@@ -404,11 +407,60 @@ function fp_make_canvas_layer(entry) {
       const scaleY = canvas.height / (extent[3] - extent[1]);
 
       const queryStart = performance.now();
-      const cand = fp_query_extent(entry, extent);
+      const cellArrays = fp_query_cell_arrays(entry, extent);
+      let candidateCount = 0;
+      for (const arr of cellArrays) candidateCount += arr.length;
       const queryTime = performance.now() - queryStart;
 
       const defCss = rgba_to_css(entry.style.default_rgba);
       const selCss = rgba_to_css(entry.style.selected_rgba);
+      const maxExactRenderPoints = 200000;
+
+      if (candidateCount > maxExactRenderPoints) {
+        const drawStart = performance.now();
+        ctx.fillStyle = defCss;
+        ctx.beginPath();
+        let clusterCount = 0;
+        for (const arr of cellArrays) {
+          if (arr.length === 0) continue;
+          // In overload mode, represent each occupied spatial-index cell once.
+          // Use the first point as the cell anchor and the cell population for
+          // size; avoid iterating every point in multi-million-point views.
+          const anchor = arr[0];
+          if (entry.deleted[anchor] || entry.hidden[anchor]) continue;
+          const x3857 = entry.x[anchor], y3857 = entry.y[anchor];
+          if (x3857 < extent[0] || x3857 > extent[2] || y3857 < extent[1] || y3857 > extent[3]) continue;
+          const count = arr.length;
+          const x = (x3857 - extent[0]) * scaleX;
+          const y = (extent[3] - y3857) * scaleY;
+          const radius = Math.min(14, Math.max(entry.style.radius * pixelRatio, 2 + Math.log1p(count)));
+          ctx.moveTo(x + radius, y);
+          ctx.arc(x, y, radius, 0, Math.PI * 2);
+          clusterCount += 1;
+        }
+        ctx.fill();
+        const drawTime = performance.now() - drawStart;
+        const totalTime = performance.now() - perfStart;
+        emitToPython("perf", {
+          layer_id: entry.layer_id,
+          operation: "fast_points_render",
+          point_count: candidateCount,
+          cluster_render: true,
+          cluster_count: clusterCount,
+          times: {
+            query_ms: queryTime.toFixed(2),
+            batch_ms: "0.00",
+            draw_ms: drawTime.toFixed(2),
+            total_ms: totalTime.toFixed(2)
+          }
+        });
+        return canvas;
+      }
+
+      const cand = [];
+      for (const arr of cellArrays) {
+        for (let j = 0; j < arr.length; j++) cand.push(arr[j]);
+      }
 
       // Performance optimization: batch points by color/radius into canvas paths
       // without materializing one JS object per point. Flush large unselected
