@@ -418,35 +418,68 @@ function fp_make_canvas_layer(entry) {
 
       if (candidateCount > maxExactRenderPoints) {
         const drawStart = performance.now();
-        ctx.fillStyle = defCss;
-        ctx.beginPath();
-        let clusterCount = 0;
-        for (const arr of cellArrays) {
-          if (arr.length === 0) continue;
-          // In overload mode, represent each occupied spatial-index cell once.
-          // Use the first point as the cell anchor and the cell population for
-          // size; avoid iterating every point in multi-million-point views.
-          const anchor = arr[0];
-          if (entry.deleted[anchor] || entry.hidden[anchor]) continue;
-          const x3857 = entry.x[anchor], y3857 = entry.y[anchor];
-          if (x3857 < extent[0] || x3857 > extent[2] || y3857 < extent[1] || y3857 > extent[3]) continue;
-          const count = arr.length;
-          const x = (x3857 - extent[0]) * scaleX;
-          const y = (extent[3] - y3857) * scaleY;
-          const radius = Math.min(14, Math.max(entry.style.radius * pixelRatio, 2 + Math.log1p(count)));
-          ctx.moveTo(x + radius, y);
-          ctx.arc(x, y, radius, 0, Math.PI * 2);
-          clusterCount += 1;
+        const occupied = new Uint8Array(canvas.width * canvas.height);
+        const batches = new Map();
+        const maxPointsPerPath = 50000;
+        let renderedPointCount = 0;
+
+        function getPixelBatch(fill, radius) {
+          const key = fill + "|" + radius;
+          let batch = batches.get(key);
+          if (!batch) {
+            batch = { fill, radius, path: new Path2D(), count: 0 };
+            batches.set(key, batch);
+          }
+          return batch;
         }
-        ctx.fill();
+
+        function flushPixelBatch(batch) {
+          if (batch.count === 0) return;
+          ctx.fillStyle = batch.fill;
+          ctx.fill(batch.path);
+          batch.path = new Path2D();
+          batch.count = 0;
+        }
+
+        for (const arr of cellArrays) {
+          for (let j = 0; j < arr.length; j++) {
+            const i = arr[j];
+            if (entry.deleted[i] || entry.hidden[i]) continue;
+            const x = (entry.x[i] - extent[0]) * scaleX;
+            const y = (extent[3] - entry.y[i]) * scaleY;
+            const px = Math.floor(x), py = Math.floor(y);
+            if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) continue;
+            const pixelIndex = py * canvas.width + px;
+            if (occupied[pixelIndex]) continue;
+            occupied[pixelIndex] = 1;
+
+            const fid = entry.ids[i];
+            const isSel = entry.selectedIds.has(fid);
+            const radius = (isSel ? entry.style.selected_radius : entry.style.radius) * pixelRatio;
+            let fill = defCss;
+            const u = entry.color_u32[i];
+            if (u !== 0) fill = rgba_to_css(rgba_from_u32(u));
+            if (isSel) fill = selCss;
+
+            const batch = getPixelBatch(fill, radius);
+            batch.path.moveTo(x + radius, y);
+            batch.path.arc(x, y, radius, 0, Math.PI * 2);
+            batch.count += 1;
+            renderedPointCount += 1;
+            if (batch.count >= maxPointsPerPath) flushPixelBatch(batch);
+            if (renderedPointCount >= occupied.length) break;
+          }
+          if (renderedPointCount >= occupied.length) break;
+        }
+        for (const batch of batches.values()) flushPixelBatch(batch);
         const drawTime = performance.now() - drawStart;
         const totalTime = performance.now() - perfStart;
         emitToPython("perf", {
           layer_id: entry.layer_id,
           operation: "fast_points_render",
           point_count: candidateCount,
-          cluster_render: true,
-          cluster_count: clusterCount,
+          pixel_dedupe_render: true,
+          rendered_point_count: renderedPointCount,
           times: {
             query_ms: queryTime.toFixed(2),
             batch_ms: "0.00",
