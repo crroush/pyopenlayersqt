@@ -418,21 +418,16 @@ function fp_make_canvas_layer(entry) {
       const batchStart = performance.now();
       const unselectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
       const selectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
-      const aggregateThreshold = Math.max(1, entry.style.pixel_aggregate_threshold || 200000);
-      const aggregatePixels = cand.length > aggregateThreshold;
+      const pixelRenderThreshold = Math.max(1, entry.style.pixel_render_threshold || 200000);
+      const pixelRender = cand.length > pixelRenderThreshold;
       let renderedCount = 0;
-      let aggregatedPixelCount = 0;
-      let pixelCounts = null;
-      let pixelRed = null;
-      let pixelGreen = null;
-      let pixelBlue = null;
+      let pixelMarkerCount = 0;
+      let pixelImage = null;
+      let pixelData = null;
 
-      if (aggregatePixels) {
-        const pixelCount = canvas.width * canvas.height;
-        pixelCounts = new Uint32Array(pixelCount);
-        pixelRed = new Float32Array(pixelCount);
-        pixelGreen = new Float32Array(pixelCount);
-        pixelBlue = new Float32Array(pixelCount);
+      if (pixelRender) {
+        pixelImage = ctx.createImageData(canvas.width, canvas.height);
+        pixelData = pixelImage.data;
       }
 
       for (let k = 0; k < cand.length; k++) {
@@ -456,16 +451,16 @@ function fp_make_canvas_layer(entry) {
           rgba = entry.style.selected_rgba;
         }
 
-        if (aggregatePixels && !isSel) {
+        if (pixelRender && !isSel) {
           const px = Math.floor(x);
           const py = Math.floor(y);
           if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) continue;
-          const pixelIndex = py * canvas.width + px;
-          if (pixelCounts[pixelIndex] === 0) aggregatedPixelCount += 1;
-          pixelCounts[pixelIndex] += 1;
-          pixelRed[pixelIndex] += rgba[0];
-          pixelGreen[pixelIndex] += rgba[1];
-          pixelBlue[pixelIndex] += rgba[2];
+          const offset = (py * canvas.width + px) * 4;
+          pixelData[offset] = rgba[0];
+          pixelData[offset + 1] = rgba[1];
+          pixelData[offset + 2] = rgba[2];
+          pixelData[offset + 3] = Math.max(pixelData[offset + 3], rgba[3]);
+          pixelMarkerCount += 1;
           renderedCount += 1;
           continue;
         }
@@ -484,23 +479,11 @@ function fp_make_canvas_layer(entry) {
       const batchTime = performance.now() - batchStart;
 
       const drawStart = performance.now();
-      if (aggregatePixels && pixelCounts) {
-        const imageData = ctx.createImageData(canvas.width, canvas.height);
-        const data = imageData.data;
-        for (let idx = 0; idx < pixelCounts.length; idx++) {
-          const count = pixelCounts[idx];
-          if (count === 0) continue;
-          const offset = idx * 4;
-          data[offset] = Math.round(pixelRed[idx] / count);
-          data[offset + 1] = Math.round(pixelGreen[idx] / count);
-          data[offset + 2] = Math.round(pixelBlue[idx] / count);
-          data[offset + 3] = Math.min(255, 32 + Math.round(Math.log1p(count) * 48));
-        }
-        ctx.putImageData(imageData, 0, 0);
+      if (pixelRender && pixelImage) {
+        ctx.putImageData(pixelImage, 0, 0);
       }
 
       // Draw unselected batches first when exact rendering is active
-
       for (const batch of unselectedBatches.values()) {
         ctx.fillStyle = batch.fill;
         ctx.beginPath();
@@ -532,8 +515,8 @@ function fp_make_canvas_layer(entry) {
           operation: "fast_points_render",
           point_count: cand.length,
           rendered_count: renderedCount,
-          aggregate_pixels: aggregatePixels,
-          aggregated_pixel_count: aggregatedPixelCount,
+          pixel_render: pixelRender,
+          pixel_marker_count: pixelMarkerCount,
           batch_count: unselectedBatches.size + selectedBatches.size,
           times: {
             query_ms: queryTime.toFixed(2),
@@ -572,7 +555,7 @@ function cmd_fast_points_add_layer(msg) {
     cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
     idIndex: new Map(),
-    style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255], pixel_aggregate_threshold: 200000 },
+    style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255], pixel_render_threshold: 200000 },
     source: null,
     layer: null,
   };
