@@ -543,7 +543,7 @@ function cmd_fast_points_add_points(msg) {
     entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
     fp_index_insert(entry, startIndex + i);
   }
-  fp_redraw(entry);
+  if (msg.redraw !== false) fp_redraw(entry);
 }
 
 function cmd_fast_points_clear(msg) {
