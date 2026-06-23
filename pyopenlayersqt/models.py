@@ -444,16 +444,15 @@ class FastPointsStyle:
     
     If both are specified, the *_color options take precedence.
 
-    pixel_render_threshold controls when the canvas renderer switches from
-    exact circle drawing to one-pixel marker drawing. Pixel rendering still
-    evaluates every visible point, but avoids expensive arc drawing for dense
-    zoomed-out views.
+    pixel_render_max_zoom controls when the canvas renderer uses one-pixel
+    marker drawing instead of exact circle drawing. Keeping the switch based
+    on zoom avoids mode changes during panning at the same scale.
     """
     radius: float = 3.0
     default_rgba: tuple[int, int, int, int] = (255, 51, 51, 204)
     selected_radius: float = 6.0
     selected_rgba: tuple[int, int, int, int] = (0, 255, 255, 255)
-    pixel_render_threshold: int = 200_000
+    pixel_render_max_zoom: float = 8.0
 
     # Optional QColor or color name alternatives
     default_color: Optional[Union[str, Any]] = None
@@ -477,7 +476,7 @@ class FastPointsStyle:
             "default_rgba": list(default_rgba_final),
             "selected_radius": float(self.selected_radius),
             "selected_rgba": list(selected_rgba_final),
-            "pixel_render_threshold": max(1, int(self.pixel_render_threshold)),
+            "pixel_render_max_zoom": float(self.pixel_render_max_zoom),
         }
 
 

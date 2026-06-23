@@ -418,8 +418,9 @@ function fp_make_canvas_layer(entry) {
       const batchStart = performance.now();
       const unselectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
       const selectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
-      const pixelRenderThreshold = Math.max(1, entry.style.pixel_render_threshold || 200000);
-      const pixelRender = cand.length > pixelRenderThreshold;
+      const pixelRenderMaxZoom = (entry.style.pixel_render_max_zoom == null ? 8.0 : Number(entry.style.pixel_render_max_zoom));
+      const currentZoom = state.map.getView().getZoom();
+      const pixelRender = Number.isFinite(pixelRenderMaxZoom) && currentZoom <= pixelRenderMaxZoom;
       let renderedCount = 0;
       let pixelMarkerCount = 0;
       let pixelImage = null;
@@ -516,6 +517,8 @@ function fp_make_canvas_layer(entry) {
           point_count: cand.length,
           rendered_count: renderedCount,
           pixel_render: pixelRender,
+          pixel_render_max_zoom: pixelRenderMaxZoom,
+          zoom: currentZoom,
           pixel_marker_count: pixelMarkerCount,
           batch_count: unselectedBatches.size + selectedBatches.size,
           times: {
@@ -555,7 +558,7 @@ function cmd_fast_points_add_layer(msg) {
     cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
     idIndex: new Map(),
-    style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255], pixel_render_threshold: 200000 },
+    style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255], pixel_render_max_zoom: 8.0 },
     source: null,
     layer: null,
   };
