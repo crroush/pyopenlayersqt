@@ -310,29 +310,27 @@ function fp_query_extent(entry, extent) {
   const max_ix = Math.floor(extent[2] / cs);
   const min_iy = Math.floor(extent[1] / cs);
   const max_iy = Math.floor(extent[3] / cs);
-  
-  // Performance optimization: limit cell iteration for zoomed-out views
-  // If extent covers too many cells, just return all points
   const cellsX = max_ix - min_ix + 1;
   const cellsY = max_iy - min_iy + 1;
   const totalCells = cellsX * cellsY;
-  
-  // If we'd check more than 1000 cells, it's faster to just iterate all points
-  if (totalCells > 1000) {
-    const out = [];
-    for (let i = 0; i < entry.x.length; i++) {
-      if (entry.deleted[i]) continue;
-      const x = entry.x[i];
-      const y = entry.y[i];
-      if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) {
-        out.push(i);
-      }
+  const out = [];
+
+  // Query the sparse grid rather than falling back to scanning every point.
+  // The old broad-extent fallback looped over entry.x.length, which meant a
+  // 7M-point layer could rescan all points whenever panning crossed enough
+  // cells. Choose the cheaper of probing covered cell keys or scanning the
+  // occupied grid cells.
+  if (totalCells > entry.grid.size) {
+    for (const [key, arr] of entry.grid.entries()) {
+      const comma = key.indexOf(",");
+      const ix = Number(key.slice(0, comma));
+      const iy = Number(key.slice(comma + 1));
+      if (ix < min_ix || ix > max_ix || iy < min_iy || iy > max_iy) continue;
+      for (let j = 0; j < arr.length; j++) out.push(arr[j]);
     }
     return out;
   }
-  
-  // Normal grid query for zoomed-in views
-  const out = [];
+
   for (let ix = min_ix; ix <= max_ix; ix++) {
     for (let iy = min_iy; iy <= max_iy; iy++) {
       const arr = entry.grid.get(fp_cell_key(ix, iy));
