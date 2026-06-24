@@ -444,11 +444,14 @@ class FastPointsStyle:
     
     If both are specified, the *_color options take precedence.
 
+    pixel_aggregate_threshold controls when very dense views switch from exact
+    point rendering to the optimized pixel aggregation/deduplication paths.
     """
     radius: float = 3.0
     default_rgba: tuple[int, int, int, int] = (255, 51, 51, 204)
     selected_radius: float = 6.0
     selected_rgba: tuple[int, int, int, int] = (0, 255, 255, 255)
+    pixel_aggregate_threshold: int = 200_000
 
     # Optional QColor or color name alternatives
     default_color: Optional[Union[str, Any]] = None
@@ -472,6 +475,7 @@ class FastPointsStyle:
             "default_rgba": list(default_rgba_final),
             "selected_radius": float(self.selected_radius),
             "selected_rgba": list(selected_rgba_final),
+            "pixel_aggregate_threshold": max(1, int(self.pixel_aggregate_threshold)),
         }
 
 

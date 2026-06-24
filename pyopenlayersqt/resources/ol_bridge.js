@@ -414,7 +414,7 @@ function fp_make_canvas_layer(entry) {
 
       const defCss = rgba_to_css(entry.style.default_rgba);
       const selCss = rgba_to_css(entry.style.selected_rgba);
-      const maxExactRenderPoints = 200000;
+      const maxExactRenderPoints = Math.max(1, Number(entry.style.pixel_aggregate_threshold || 200000));
       const maxAggregateZoom = 8;
       const currentZoom = state.map.getView().getZoom();
 
@@ -718,7 +718,7 @@ function cmd_fast_points_add_layer(msg) {
     cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
     idIndex: new Map(),
-    style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255] },
+    style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255], pixel_aggregate_threshold: 200000 },
     source: null,
     layer: null,
   };
