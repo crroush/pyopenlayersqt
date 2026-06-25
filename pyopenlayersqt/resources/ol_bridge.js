@@ -382,6 +382,24 @@ function fp_redraw(entry) {
   if (entry.source) entry.source.changed();
 }
 
+function fp_schedule_redraw(entry) {
+  if (!entry || entry._redrawScheduled) return;
+  entry._redrawScheduled = true;
+  setTimeout(() => {
+    entry._redrawScheduled = false;
+    fp_redraw(entry);
+  }, 0);
+}
+
+function fp_finish_selection_change(entry) {
+  // Emit selection before invalidating huge canvas layers.  A full redraw at a
+  // continental zoom can touch millions of active points, so doing it first
+  // makes map/table selection appear hung even though the spatial query has
+  // already completed.
+  fp_emit_selection(entry);
+  fp_schedule_redraw(entry);
+}
+
 function fp_make_canvas_layer(entry) {
   const source = new ol.source.ImageCanvas({
     projection: state.map.getView().getProjection(),
@@ -759,8 +777,7 @@ function cmd_fast_points_clear(msg) {
   entry.grid = new Map();
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
-  fp_redraw(entry);
-  fp_emit_selection(entry);
+  fp_finish_selection_change(entry);
 }
 
 function cmd_fast_points_remove_ids(msg) {
@@ -775,8 +792,7 @@ function cmd_fast_points_remove_ids(msg) {
     entry.deleted[i] = true;
     entry.selectedIds.delete(entry.ids[i]);
   }
-  fp_redraw(entry);
-  fp_emit_selection(entry);
+  fp_finish_selection_change(entry);
 }
 
 
@@ -832,8 +848,7 @@ function cmd_fast_points_select_set(msg) {
     const entry = getLayerEntry(msg.layer_id);
     if (entry.type !== "fast_points") return;
     entry.selectedIds = new Set(msg.feature_ids || []);
-    fp_redraw(entry);
-    fp_emit_selection(entry);
+    fp_finish_selection_change(entry);
 }
 
 function cmd_fast_points_hide_ids(msg) {
@@ -902,7 +917,7 @@ function _fgp_sec(lat) {
   return c === 0 ? 1e9 : (1.0 / c);
 }
 
-function fgp_redraw(entry) { if (entry.source) entry.source.changed(); }
+function fgp_redraw(entry) { fp_redraw(entry); }
 function fgp_emit_selection(entry) {
   emitToPython('selection', { layer_id: entry.layer_id, feature_ids: Array.from(entry.selectedIds) });
 }
@@ -1145,8 +1160,7 @@ function cmd_fast_geopoints_clear(msg) {
   entry.grid = new Map();
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
-  fgp_redraw(entry);
-  fgp_emit_selection(entry);
+  fp_finish_selection_change(entry);
 }
 
 function cmd_fast_geopoints_remove_ids(msg) {
@@ -1161,8 +1175,7 @@ function cmd_fast_geopoints_remove_ids(msg) {
     entry.deleted[i] = true;
     entry.selectedIds.delete(entry.ids[i]);
   }
-  fgp_redraw(entry);
-  fgp_emit_selection(entry);
+  fp_finish_selection_change(entry);
 }
 
 function cmd_fast_geopoints_set_opacity(msg) {
@@ -1203,8 +1216,7 @@ function cmd_fast_geopoints_select_set(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
   entry.selectedIds = new Set(msg.feature_ids || []);
-  fgp_redraw(entry);
-  fgp_emit_selection(entry);
+  fp_finish_selection_change(entry);
 }
 
 function cmd_fast_geopoints_hide_ids(msg) {
@@ -1285,8 +1297,7 @@ function fp_install_interactions() {
       const fid = entry.ids[idx];
       if (entry.selectedIds.has(fid)) entry.selectedIds.delete(fid);
       else entry.selectedIds.add(fid);
-      fp_redraw(entry);
-      fp_emit_selection(entry);
+      fp_finish_selection_change(entry);
       break;
     }
   });
@@ -1307,15 +1318,14 @@ function fp_install_interactions() {
       const next = new Set();
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
-        if (entry.deleted[i]) continue;
+        if (entry.deleted[i] || entry.hidden[i]) continue;
         const x = entry.x[i], y = entry.y[i];
         if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) next.add(entry.ids[i]);
       }
       // Only emit selection if something was selected in this layer or if clearing previous selection
       if (next.size > 0 || entry.selectedIds.size > 0) {
         entry.selectedIds = next;
-        fp_redraw(entry);
-        fp_emit_selection(entry);
+        fp_finish_selection_change(entry);
       }
     }
   });
