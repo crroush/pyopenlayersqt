@@ -401,7 +401,7 @@ function fp_emit_selection(entry, done) {
   const featureIds = Array.from(entry.selectedIds);
   const serializeMs = performance.now() - t0;
   const selectedCount = featureIds.length;
-  const chunkSize = Math.max(1000, Number(entry.selectionChunkSize || 5000));
+  const chunkSize = Math.max(100, Number(entry.selectionChunkSize || 500));
   if (selectedCount > 1000 || serializeMs > 10) {
     fp_selection_debug("fast_selection_serialize", {
       layer_id: entry.layer_id,
@@ -426,6 +426,13 @@ function fp_emit_selection(entry, done) {
   const token = ++state.selectionChunkToken;
   const chunkCount = Math.ceil(selectedCount / chunkSize);
   let chunkIndex = 0;
+  fp_selection_debug("fast_selection_chunked_emit_start", {
+    layer_id: entry.layer_id,
+    layer_type: entry.type,
+    selected_count: selectedCount,
+    chunk_size: chunkSize,
+    chunk_count: chunkCount,
+  });
   emitToPython("selection_chunk", {
     status: "start",
     token: token,
@@ -457,6 +464,16 @@ function fp_emit_selection(entry, done) {
 
     const start = chunkIndex * chunkSize;
     const end = Math.min(selectedCount, start + chunkSize);
+    if (chunkIndex === 0 || chunkIndex === chunkCount - 1 || chunkIndex % 25 === 0) {
+      fp_selection_debug("fast_selection_chunk_emit_progress", {
+        layer_id: entry.layer_id,
+        layer_type: entry.type,
+        selected_count: selectedCount,
+        chunk_index: chunkIndex,
+        chunk_count: chunkCount,
+        chunk_size: chunkSize,
+      });
+    }
     emitToPython("selection_chunk", {
       status: "chunk",
       token: token,

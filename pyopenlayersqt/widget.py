@@ -684,6 +684,14 @@ class OLMapWidget(QWebEngineView):
             except Exception:
                 pass
 
+    def _log_selection_chunk_perf(self, payload: Dict[str, Any]) -> None:
+        if not self._perf_logging_enabled:
+            return
+        try:
+            print("PERF:", payload, flush=True)
+        except Exception:
+            pass
+
     def _handle_selection_event(self, payload_json: str) -> None:
         obj = self._parse_event_payload(payload_json)
         sel = FeatureSelection(
@@ -706,7 +714,18 @@ class OLMapWidget(QWebEngineView):
                 "count": int(obj.get("count", 0)),
                 "feature_ids": [],
                 "raw": obj,
+                "started_at": time.perf_counter(),
+                "chunks": 0,
             }
+            self._log_selection_chunk_perf(
+                {
+                    "operation": "python_selection_chunk_start",
+                    "layer_id": layer_id,
+                    "count": int(obj.get("count", 0)),
+                    "chunk_count": int(obj.get("chunk_count", 0)),
+                    "chunk_size": int(obj.get("chunk_size", 0)),
+                }
+            )
             return
 
         chunk = self._selection_chunks.setdefault(
@@ -721,6 +740,19 @@ class OLMapWidget(QWebEngineView):
 
         if status == "chunk":
             chunk["feature_ids"].extend(str(x) for x in obj.get("feature_ids", []))
+            chunk["chunks"] = int(chunk.get("chunks", 0)) + 1
+            chunk_index = int(obj.get("chunk_index", -1))
+            chunk_count = int(obj.get("chunk_count", 0))
+            if chunk_index in (0, chunk_count - 1) or chunk_index % 25 == 0:
+                self._log_selection_chunk_perf(
+                    {
+                        "operation": "python_selection_chunk_progress",
+                        "layer_id": layer_id,
+                        "chunk_index": chunk_index,
+                        "chunk_count": chunk_count,
+                        "assembled_count": len(chunk["feature_ids"]),
+                    }
+                )
             return
 
         if status == "end":
@@ -735,7 +767,18 @@ class OLMapWidget(QWebEngineView):
                 count=int(obj.get("count", len(feature_ids))),
                 raw=raw,
             )
-            self._emit_selection_changed(sel, "chunked")
+            elapsed_ms = (time.perf_counter() - float(chunk.get("started_at", time.perf_counter()))) * 1000.0
+            self._log_selection_chunk_perf(
+                {
+                    "operation": "python_selection_chunk_complete",
+                    "layer_id": sel.layer_id,
+                    "count": sel.count,
+                    "chunks": int(chunk.get("chunks", 0)),
+                    "elapsed_ms": f"{elapsed_ms:.2f}",
+                    "selection_signal_deferred_ms": 50,
+                }
+            )
+            QTimer.singleShot(50, lambda sel=sel: self._emit_selection_changed(sel, "chunked"))
 
     def _handle_view_extent_changed_event(self, payload_json: str) -> None:
         self.viewExtentChanged.emit(self._parse_event_payload(payload_json))
