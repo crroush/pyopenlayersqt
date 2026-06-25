@@ -556,7 +556,8 @@ function cmd_fast_points_add_points(msg) {
   }
   const convertIndexMs = performance.now() - convertStart;
   const redrawStart = performance.now();
-  fp_redraw(entry);
+  const shouldRedraw = (msg.redraw !== false);
+  if (shouldRedraw) fp_redraw(entry);
   const redrawMs = performance.now() - redrawStart;
   emitToPython("perf", {
     side: "javascript",
@@ -567,6 +568,7 @@ function cmd_fast_points_add_points(msg) {
     total_points: entry.x.length,
     times: {
       convert_index_ms: convertIndexMs.toFixed(2),
+      redraw_requested: shouldRedraw,
       redraw_request_ms: redrawMs.toFixed(2),
       total_ms: (performance.now() - perfStart).toFixed(2)
     }

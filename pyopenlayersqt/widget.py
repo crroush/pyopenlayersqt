@@ -260,6 +260,9 @@ class OLMapWidget(QWebEngineView):
         self._js_ready = False
         self._ready_handled = False
         self._pending: list[Dict[str, Any]] = []
+        self._pending_flush_active = False
+        self._pending_flush_start = 0.0
+        self._pending_flush_count = 0
         self._measurement_callbacks: list[Any] = []
 
         # load
@@ -575,24 +578,38 @@ class OLMapWidget(QWebEngineView):
         return cls.WEB_MERCATOR_INITIAL_RESOLUTION_M_PER_PX / (2 ** int(zoom))
 
     def _flush_pending(self) -> None:
-        if not self._pending:
+        if not self._pending or self._pending_flush_active:
             return
-        perf_start = time.perf_counter()
-        pending = self._pending
-        self._pending = []
-        for m in pending:
-            self._send_now(m)
-        if self._perf_logging_enabled:
-            print(
-                "PERF:",
-                {
-                    "side": "python",
-                    "operation": "flush_pending",
-                    "message_count": len(pending),
-                    "elapsed_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
-                },
-                flush=True,
-            )
+        self._pending_flush_active = True
+        self._pending_flush_start = time.perf_counter()
+        self._pending_flush_count = len(self._pending)
+        QTimer.singleShot(0, self._flush_next_pending)
+
+    def _flush_next_pending(self) -> None:
+        if not self._pending:
+            message_count = self._pending_flush_count
+            perf_start = self._pending_flush_start
+            self._pending_flush_active = False
+            self._pending_flush_count = 0
+            self._pending_flush_start = 0.0
+            if self._perf_logging_enabled:
+                print(
+                    "PERF:",
+                    {
+                        "side": "python",
+                        "operation": "flush_pending",
+                        "message_count": message_count,
+                        "elapsed_ms": round(
+                            (time.perf_counter() - perf_start) * 1000.0, 2
+                        ),
+                    },
+                    flush=True,
+                )
+            return
+
+        msg = self._pending.pop(0)
+        self._send_now(msg)
+        QTimer.singleShot(0, self._flush_next_pending)
 
     def _on_load_finished(self, ok: bool) -> None:
         if not ok:

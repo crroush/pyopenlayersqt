@@ -862,6 +862,7 @@ class FastPointsLayer(BaseLayer):
                 "type": "fast_points.add_points",
                 "layer_id": self.id,
                 "coords": coords_chunk,
+                "redraw": end == n,
             }
             if ids is not None:
                 msg["ids"] = ids[start:end]
