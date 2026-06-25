@@ -10,6 +10,10 @@ printed to stdout.
 Run from the repository root, for example:
 
     PYOPENLAYERSQT_PERF=1 python tests/perf/fast_points_line_perf.py --points 200000
+
+By default this sends all generated points in one FastPoints payload so the
+probe matches the observed 200K-point workflow rather than measuring chunked
+loading behavior.
 """
 
 from __future__ import annotations
@@ -106,11 +110,12 @@ class FastPointsLinePerfApp(QtWidgets.QWidget):
         )
 
         add_start = time.perf_counter()
-        layer.add_points(coords, ids=ids, chunk_size=self.args.chunk_size)
+        chunk_size = self.args.chunk_size or self.args.points
+        layer.add_points(coords, ids=ids, chunk_size=chunk_size)
         perf(
             "add_points_returned",
             points=self.args.points,
-            chunk_size=self.args.chunk_size,
+            chunk_size=chunk_size,
             elapsed_ms=round((time.perf_counter() - add_start) * 1000.0, 2),
         )
         perf(
@@ -131,7 +136,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lat-max", type=float, default=10.0)
     parser.add_argument("--lon", type=float, default=0.0)
     parser.add_argument("--zoom", type=int, default=5)
-    parser.add_argument("--chunk-size", type=int, default=50_000)
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=None,
+        help="FastPoints add_points chunk size; defaults to --points for one payload.",
+    )
     parser.add_argument("--cell-size-m", type=float, default=750.0)
     parser.add_argument("--radius", type=float, default=2.0)
     parser.add_argument("--color", default="#00aa00")
