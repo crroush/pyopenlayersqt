@@ -258,6 +258,7 @@ class OLMapWidget(QWebEngineView):
 
         # queue until JS is ready (prevents "pyolqt_send is not a function")
         self._js_ready = False
+        self._ready_handled = False
         self._pending: list[Dict[str, Any]] = []
         self._measurement_callbacks: list[Any] = []
 
@@ -601,19 +602,22 @@ class OLMapWidget(QWebEngineView):
             if self._js_ready:
                 return
             self.page().runJavaScript(
-                "typeof window.pyolqt_send === 'function';", self._on_pyolqt_send_check
+                (
+                    "typeof window.pyolqt_is_ready === 'function' "
+                    "&& window.pyolqt_is_ready();"
+                ),
+                self._on_pyolqt_ready_check,
             )
 
         # ol_bridge boot is async; poll a few times
         for ms in (50, 150, 350, 700, 1200):
             QTimer.singleShot(ms, poll)
 
-    def _on_pyolqt_send_check(self, exists: Any) -> None:
+    def _on_pyolqt_ready_check(self, ready: Any) -> None:
         if self._js_ready:
             return
-        if exists is True:
-            self._js_ready = True
-            self._flush_pending()
+        if ready is True:
+            self._handle_ready_event()
 
     def _ensure_overlay_url(self, image: Union[str, bytes, bytearray]) -> str:
         """
@@ -664,6 +668,9 @@ class OLMapWidget(QWebEngineView):
             return {} if default is None else default
 
     def _handle_ready_event(self) -> None:
+        if self._ready_handled:
+            return
+        self._ready_handled = True
         self._js_ready = True
         if (
             self._initial_center != self.DEFAULT_CENTER

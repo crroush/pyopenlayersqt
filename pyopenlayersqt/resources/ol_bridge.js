@@ -2521,6 +2521,10 @@ function cmd_countries_set_visible(msg) {
     }
   };
 
+  window.pyolqt_is_ready = function () {
+    return !!(state.map && state.qtBridge && state.readyEmitted);
+  };
+
   function connectQWebChannel() {
     if (!window.qt || !qt.webChannelTransport) return false;
     if (typeof QWebChannel !== "function") return false;
