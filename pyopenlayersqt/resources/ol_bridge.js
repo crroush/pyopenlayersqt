@@ -632,8 +632,10 @@ function fp_make_canvas_layer(entry) {
             const px = Math.floor(x), py = Math.floor(y);
             if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) continue;
 
-            const fid = entry.ids[i];
-            const isSel = entry.selectedIds.has(fid);
+            // Selection is rendered by entry.selectedLayer; keep base rendering
+            // independent of selectedIds so pan/zoom does not do millions of
+            // selected-ID Set lookups.
+            const isSel = false;
             let rgba = entry.style.default_rgba;
             const u = entry.color_u32[i];
             if (u !== 0) rgba = rgba_from_u32(u);
@@ -734,8 +736,10 @@ function fp_make_canvas_layer(entry) {
             const px = Math.floor(x), py = Math.floor(y);
             if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) continue;
 
-            const fid = entry.ids[i];
-            const isSel = entry.selectedIds.has(fid);
+            // Selection is rendered by entry.selectedLayer; keep base rendering
+            // independent of selectedIds so pan/zoom does not do millions of
+            // selected-ID Set lookups.
+            const isSel = false;
             if (!isSel) {
               const pixelIndex = py * canvas.width + px;
               if (occupied[pixelIndex]) continue;
@@ -753,9 +757,9 @@ function fp_make_canvas_layer(entry) {
             batch.count += 1;
             renderedPointCount += 1;
             if (!isSel && batch.count >= maxPointsPerPath) flushDedupeBatch(batch);
-            if (renderedPointCount >= occupied.length && entry.selectedIds.size === 0) break;
+            if (renderedPointCount >= occupied.length) break;
           }
-          if (renderedPointCount >= occupied.length && entry.selectedIds.size === 0) break;
+          if (renderedPointCount >= occupied.length) break;
         }
         for (const batch of unselectedDedupeBatches.values()) flushDedupeBatch(batch);
         for (const batch of selectedDedupeBatches.values()) flushDedupeBatch(batch);
@@ -823,8 +827,10 @@ function fp_make_canvas_layer(entry) {
         if (entry.deleted[i] || entry.hidden[i]) continue;
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
-        const fid = entry.ids[i];
-        const isSel = entry.selectedIds.has(fid);
+        // Selection is rendered by entry.selectedLayer; keep base rendering
+        // independent of selectedIds so pan/zoom does not do millions of
+        // selected-ID Set lookups.
+        const isSel = false;
         const radius = (isSel ? entry.style.selected_radius : entry.style.radius) * pixelRatio;
 
         let fill = defCss;
