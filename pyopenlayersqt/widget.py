@@ -333,9 +333,24 @@ class OLMapWidget(QWebEngineView):
         return f"{prefix}{self._layer_seq}"
 
     def _send_now(self, msg: Dict[str, Any]) -> None:
+        perf_start = time.perf_counter()
         payload = json.dumps(_to_jsonable(msg), separators=(",", ":"))
+        payload_bytes = len(payload.encode("utf-8"))
         js = f"window.pyolqt_send({json.dumps(payload)});"
         self.page().runJavaScript(js)
+        if self._perf_logging_enabled:
+            print(
+                "PERF:",
+                {
+                    "side": "python",
+                    "operation": "send_now",
+                    "type": msg.get("type"),
+                    "layer_id": msg.get("layer_id"),
+                    "payload_bytes": payload_bytes,
+                    "elapsed_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                },
+                flush=True,
+            )
 
     def _send(self, msg: Dict[str, Any]) -> None:
         if not self._js_ready:
@@ -561,10 +576,22 @@ class OLMapWidget(QWebEngineView):
     def _flush_pending(self) -> None:
         if not self._pending:
             return
+        perf_start = time.perf_counter()
         pending = self._pending
         self._pending = []
         for m in pending:
             self._send_now(m)
+        if self._perf_logging_enabled:
+            print(
+                "PERF:",
+                {
+                    "side": "python",
+                    "operation": "flush_pending",
+                    "message_count": len(pending),
+                    "elapsed_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                },
+                flush=True,
+            )
 
     def _on_load_finished(self, ok: bool) -> None:
         if not ok:

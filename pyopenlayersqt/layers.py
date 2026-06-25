@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import os
+import time
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
@@ -102,6 +104,18 @@ def _latlon_chunk_to_lonlat_list(coords: Sequence[LatLon]) -> list[list[float]]:
     if arr.ndim != 2 or arr.shape[1] != 2:
         raise ValueError("coords must be a sequence of (lat, lon) pairs")
     return arr[:, [1, 0]].tolist()
+
+
+def _perf_enabled() -> bool:
+    return (
+        os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
+        or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
+    )
+
+
+def _perf_print(payload: dict[str, Any]) -> None:
+    if _perf_enabled():
+        print("PERF:", payload, flush=True)
 
 
 
@@ -834,10 +848,15 @@ class FastPointsLayer(BaseLayer):
         if chunk_size <= 0:
             chunk_size = n
 
+        add_start = time.perf_counter()
+        chunk_count = 0
         for start in range(0, n, chunk_size):
+            chunk_start = time.perf_counter()
             end = min(n, start + chunk_size)
             # Swap lat,lon (public API) to lon,lat (internal format)
+            convert_start = time.perf_counter()
             coords_chunk = _latlon_chunk_to_lonlat_list(coords[start:end])
+            convert_ms = (time.perf_counter() - convert_start) * 1000.0
 
             msg: dict = {
                 "type": "fast_points.add_points",
@@ -847,8 +866,44 @@ class FastPointsLayer(BaseLayer):
             if ids is not None:
                 msg["ids"] = ids[start:end]
             if colors_rgba is not None:
+                pack_start = time.perf_counter()
                 msg["colors"] = _pack_rgba_colors(colors_rgba[start:end])
+                pack_ms = (time.perf_counter() - pack_start) * 1000.0
+            else:
+                pack_ms = 0.0
+            send_start = time.perf_counter()
             self._map_widget._send(msg)
+            send_ms = (time.perf_counter() - send_start) * 1000.0
+            chunk_count += 1
+            _perf_print(
+                {
+                    "side": "python",
+                    "operation": "fast_points_add_points_chunk",
+                    "layer_id": self.id,
+                    "chunk_index": chunk_count,
+                    "start": start,
+                    "end": end,
+                    "point_count": end - start,
+                    "times": {
+                        "coords_convert_ms": round(convert_ms, 2),
+                        "color_pack_ms": round(pack_ms, 2),
+                        "send_enqueue_ms": round(send_ms, 2),
+                        "chunk_total_ms": round(
+                            (time.perf_counter() - chunk_start) * 1000.0, 2
+                        ),
+                    },
+                }
+            )
+        _perf_print(
+            {
+                "side": "python",
+                "operation": "fast_points_add_points_total",
+                "layer_id": self.id,
+                "point_count": n,
+                "chunk_count": chunk_count,
+                "elapsed_ms": round((time.perf_counter() - add_start) * 1000.0, 2),
+            }
+        )
 
     def remove_points(self, feature_ids: Sequence[str]) -> None:
         """Remove fast points by id (marks deleted in JS)."""

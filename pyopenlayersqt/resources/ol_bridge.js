@@ -496,6 +496,7 @@ function fp_make_canvas_layer(entry) {
 }
 
 function cmd_fast_points_add_layer(msg) {
+  const perfStart = performance.now();
   const layer_id = msg.layer_id;
   const entry = {
     type: "fast_points",
@@ -523,15 +524,23 @@ function cmd_fast_points_add_layer(msg) {
   state.map.addLayer(entry.layer);
   state.layers.set(layer_id, entry);
   state.layerByObj.set(entry.layer, layer_id);
+  emitToPython("perf", {
+    side: "javascript",
+    layer_id,
+    operation: "fast_points_add_layer",
+    elapsed_ms: (performance.now() - perfStart).toFixed(2)
+  });
 }
 
 function cmd_fast_points_add_points(msg) {
+  const perfStart = performance.now();
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
   const coords = msg.coords || [];
   const ids = msg.ids || null;
   const colors = msg.colors || null;
   const startIndex = entry.x.length;
+  const convertStart = performance.now();
   for (let i = 0; i < coords.length; i++) {
     const lon = coords[i][0], lat = coords[i][1];
     const p = lonlat_to_3857(lon, lat);
@@ -545,7 +554,23 @@ function cmd_fast_points_add_points(msg) {
     entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
     fp_index_insert(entry, startIndex + i);
   }
+  const convertIndexMs = performance.now() - convertStart;
+  const redrawStart = performance.now();
   fp_redraw(entry);
+  const redrawMs = performance.now() - redrawStart;
+  emitToPython("perf", {
+    side: "javascript",
+    layer_id: entry.layer_id,
+    operation: "fast_points_add_points",
+    point_count: coords.length,
+    start_index: startIndex,
+    total_points: entry.x.length,
+    times: {
+      convert_index_ms: convertIndexMs.toFixed(2),
+      redraw_request_ms: redrawMs.toFixed(2),
+      total_ms: (performance.now() - perfStart).toFixed(2)
+    }
+  });
 }
 
 function cmd_fast_points_clear(msg) {
@@ -2389,7 +2414,9 @@ function cmd_countries_set_visible(msg) {
   }
 
   function dispatch(msg) {
+    const perfStart = performance.now();
     const t = msg.type;
+    try {
     switch (t) {
       case "layer.add_vector": return cmd_add_vector(msg);
       case "layer.add_wms": return cmd_add_wms(msg);
@@ -2470,6 +2497,17 @@ function cmd_countries_set_visible(msg) {
 
       default:
         jsError("Unknown command:", t, msg);
+    }
+    } finally {
+      if (t && (t.indexOf("fast_points.") === 0 || t === "fast_points.add_layer")) {
+        emitToPython("perf", {
+          side: "javascript",
+          operation: "dispatch",
+          type: t,
+          layer_id: msg.layer_id || null,
+          elapsed_ms: (performance.now() - perfStart).toFixed(2)
+        });
+      }
     }
   }
 
