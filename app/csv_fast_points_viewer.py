@@ -421,7 +421,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         coords_ms = (time.perf_counter() - coords_start) * 1000.0
 
         map_start = time.perf_counter()
-        self.fast_layer.add_points(coords=coords, ids=chunk_fids)
+        self.fast_layer.add_points(coords=coords, ids=chunk_fids, redraw=False)
         map_ms = (time.perf_counter() - map_start) * 1000.0
 
         table_start = time.perf_counter()
@@ -459,6 +459,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.statusBar().showMessage("Finalizing UI sync...")
         self.df = pd.concat(self.chunk_list, ignore_index=True)
         self.feature_ids = np.array(self.feature_ids)
+        self.fast_layer.redraw()
         self._setup_slider_and_view()
         self._cleanup_load_ui()
         if error_files:

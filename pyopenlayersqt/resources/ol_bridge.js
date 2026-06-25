@@ -436,10 +436,14 @@ function fp_make_canvas_layer(entry) {
       const seenDrawPixels = new Set(); // key: "color|radius|px|py"
       let skippedDuplicatePixels = 0;
       let drawPointCount = 0;
+      const maxRenderScan = entry.maxRenderScan || 500000;
+      const scanStride = cand.length > maxRenderScan ? Math.ceil(cand.length / maxRenderScan) : 1;
+      let scannedPointCount = 0;
       
-      for (let k = 0; k < cand.length; k++) {
+      for (let k = 0; k < cand.length; k += scanStride) {
         const i = cand[k];
         if (entry.deleted[i] || entry.hidden[i]) continue;
+        scannedPointCount++;
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
         const fid = entry.ids[i];
@@ -467,6 +471,30 @@ function fp_make_canvas_layer(entry) {
           batches.set(key, batch);
         }
         batch.points.push({ x, y });
+      }
+      if (scanStride > 1 && entry.selectedIds.size > 0) {
+        for (const fid of entry.selectedIds) {
+          const i = entry.idIndex.get(String(fid));
+          if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
+          const mercX = entry.x[i];
+          const mercY = entry.y[i];
+          if (mercX < extent[0] || mercX > extent[2] || mercY < extent[1] || mercY > extent[3]) continue;
+          const x = (mercX - extent[0]) * scaleX;
+          const y = (extent[3] - mercY) * scaleY;
+          const radius = entry.style.selected_radius * pixelRatio;
+          const fill = selCss;
+          const key = fill + "|" + radius;
+          const pixelKey = key + "|" + Math.round(x) + "|" + Math.round(y);
+          if (seenDrawPixels.has(pixelKey)) continue;
+          seenDrawPixels.add(pixelKey);
+          drawPointCount++;
+          let batch = selectedBatches.get(key);
+          if (!batch) {
+            batch = { fill, radius, points: [] };
+            selectedBatches.set(key, batch);
+          }
+          batch.points.push({ x, y });
+        }
       }
       const batchTime = performance.now() - batchStart;
 
@@ -502,6 +530,8 @@ function fp_make_canvas_layer(entry) {
           layer_id: entry.layer_id,
           operation: "fast_points_render",
           point_count: cand.length,
+          scanned_point_count: scannedPointCount,
+          render_scan_stride: scanStride,
           draw_point_count: drawPointCount,
           skipped_duplicate_pixels: skippedDuplicatePixels,
           batch_count: unselectedBatches.size + selectedBatches.size,
@@ -601,6 +631,12 @@ function cmd_fast_points_add_points(msg) {
       total_ms: (performance.now() - perfStart).toFixed(2)
     }
   });
+}
+
+function cmd_fast_points_redraw(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== "fast_points") return;
+  fp_redraw(entry);
 }
 
 function cmd_fast_points_clear(msg) {
@@ -2562,6 +2598,7 @@ function cmd_countries_set_visible(msg) {
     // --- FastPoints ---
     case "fast_points.add_layer": return cmd_fast_points_add_layer(msg);
     case "fast_points.add_points": return cmd_fast_points_add_points(msg);
+    case "fast_points.redraw": return cmd_fast_points_redraw(msg);
     case "fast_points.clear": return cmd_fast_points_clear(msg);
     case "fast_points.set_opacity": return cmd_fast_points_set_opacity(msg);
     case "fast_points.set_visible": return cmd_fast_points_set_visible(msg);

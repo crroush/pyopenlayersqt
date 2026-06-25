@@ -825,6 +825,7 @@ class FastPointsLayer(BaseLayer):
         ids: list[str] | None = None,
         colors_rgba: list[Union[tuple[int, int, int, int], Any]] | None = None,
         chunk_size: int = 50000,
+        redraw: bool = True,
     ) -> None:
         """Add points to the layer.
 
@@ -862,7 +863,7 @@ class FastPointsLayer(BaseLayer):
                 "type": "fast_points.add_points",
                 "layer_id": self.id,
                 "coords": coords_chunk,
-                "redraw": end == n,
+                "redraw": bool(redraw and end == n),
             }
             if ids is not None:
                 msg["ids"] = ids[start:end]
@@ -905,6 +906,10 @@ class FastPointsLayer(BaseLayer):
                 "elapsed_ms": round((time.perf_counter() - add_start) * 1000.0, 2),
             }
         )
+
+    def redraw(self) -> None:
+        """Request a redraw of the fast-points layer."""
+        self._map_widget._send({"type": "fast_points.redraw", "layer_id": self.id})
 
     def remove_points(self, feature_ids: Sequence[str]) -> None:
         """Remove fast points by id (marks deleted in JS)."""
