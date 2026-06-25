@@ -418,6 +418,9 @@ function fp_make_canvas_layer(entry) {
       const batchStart = performance.now();
       const unselectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
       const selectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
+      const seenDrawPixels = new Set(); // key: "color|radius|px|py"
+      let skippedDuplicatePixels = 0;
+      let drawPointCount = 0;
       
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
@@ -434,6 +437,14 @@ function fp_make_canvas_layer(entry) {
         if (isSel) fill = selCss;
 
         const key = fill + "|" + radius;
+        const pixelKey = key + "|" + Math.round(x) + "|" + Math.round(y);
+        if (seenDrawPixels.has(pixelKey)) {
+          skippedDuplicatePixels++;
+          continue;
+        }
+        seenDrawPixels.add(pixelKey);
+        drawPointCount++;
+
         const batches = isSel ? selectedBatches : unselectedBatches;
         let batch = batches.get(key);
         if (!batch) {
@@ -476,6 +487,8 @@ function fp_make_canvas_layer(entry) {
           layer_id: entry.layer_id,
           operation: "fast_points_render",
           point_count: cand.length,
+          draw_point_count: drawPointCount,
+          skipped_duplicate_pixels: skippedDuplicatePixels,
           batch_count: unselectedBatches.size + selectedBatches.size,
           times: {
             query_ms: queryTime.toFixed(2),
