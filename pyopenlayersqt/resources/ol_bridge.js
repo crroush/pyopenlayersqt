@@ -361,10 +361,56 @@ function fp_pick_nearest(entry, coord3857, radius_m) {
   return best;
 }
 
+
+function fp_selection_debug(operation, payload) {
+  const obj = Object.assign({ operation: operation }, payload || {});
+  emitToPython("perf", obj);
+  if (window && window.PYOPENLAYERSQT_SELECTION_DEBUG) {
+    try { console.log("PYOLQT_SELECTION_DEBUG", obj); } catch (e) {}
+  }
+}
+
+function fp_query_plan(entry, extent) {
+  const cs = entry.cellSize || 1.0;
+  const min_ix = Math.floor(extent[0] / cs);
+  const max_ix = Math.floor(extent[2] / cs);
+  const min_iy = Math.floor(extent[1] / cs);
+  const max_iy = Math.floor(extent[3] / cs);
+  const cellsX = Math.max(0, max_ix - min_ix + 1);
+  const cellsY = Math.max(0, max_iy - min_iy + 1);
+  const totalCells = cellsX * cellsY;
+  return {
+    extent_width_m: extent[2] - extent[0],
+    extent_height_m: extent[3] - extent[1],
+    cell_size_m: cs,
+    min_ix: min_ix,
+    max_ix: max_ix,
+    min_iy: min_iy,
+    max_iy: max_iy,
+    cells_x: cellsX,
+    cells_y: cellsY,
+    total_cells: totalCells,
+    occupied_cells: entry.grid ? entry.grid.size : 0,
+    query_strategy: (entry.grid && totalCells > entry.grid.size) ? "scan_occupied_cells" : "direct_cell_lookup",
+  };
+}
+
 function fp_emit_selection(entry) {
+  const t0 = performance.now();
+  const featureIds = Array.from(entry.selectedIds);
+  const serializeMs = performance.now() - t0;
+  if (featureIds.length > 1000 || serializeMs > 10) {
+    fp_selection_debug("fast_selection_serialize", {
+      layer_id: entry.layer_id,
+      layer_type: entry.type,
+      selected_count: featureIds.length,
+      serialize_ms: serializeMs.toFixed(2),
+    });
+  }
   emitToPython("selection", {
     layer_id: entry.layer_id,
-    feature_ids: Array.from(entry.selectedIds),
+    feature_ids: featureIds,
+    count: featureIds.length,
   });
 }
 
@@ -391,12 +437,25 @@ function fp_schedule_redraw(entry) {
   }, 0);
 }
 
-function fp_finish_selection_change(entry) {
+function fp_finish_selection_change(entry, debugPayload) {
   // Emit selection before invalidating huge canvas layers.  A full redraw at a
   // continental zoom can touch millions of active points, so doing it first
   // makes map/table selection appear hung even though the spatial query has
   // already completed.
+  if (debugPayload) {
+    fp_selection_debug("fast_selection_before_emit", debugPayload);
+  }
+  const emitStart = performance.now();
   fp_emit_selection(entry);
+  const emitMs = performance.now() - emitStart;
+  if (debugPayload || emitMs > 10) {
+    fp_selection_debug("fast_selection_after_emit", Object.assign({
+      layer_id: entry.layer_id,
+      layer_type: entry.type,
+      selected_count: entry.selectedIds ? entry.selectedIds.size : 0,
+      emit_ms: emitMs.toFixed(2),
+    }, debugPayload || {}));
+  }
   fp_schedule_redraw(entry);
 }
 
@@ -1292,12 +1351,33 @@ function fp_install_interactions() {
       if ((entry.type !== "fast_points" && entry.type !== "fast_geopoints") || !entry.selectable) continue;
       const res = state.map.getView().getResolution() || 1.0;
       const radius_m = Math.max(5.0, res * 8.0);
+      const pickExtent = [coord[0]-radius_m, coord[1]-radius_m, coord[0]+radius_m, coord[1]+radius_m];
+      const plan = fp_query_plan(entry, pickExtent);
+      const pickStart = performance.now();
       const idx = fp_pick_nearest(entry, coord, radius_m);
+      const pickMs = performance.now() - pickStart;
+      fp_selection_debug("fast_selection_click_query", Object.assign({
+        layer_id: layer_id,
+        layer_type: entry.type,
+        zoom: state.map.getView().getZoom(),
+        resolution_m_per_px: res,
+        radius_m: radius_m,
+        pick_ms: pickMs.toFixed(2),
+        hit: idx >= 0,
+        total_points: entry.ids ? entry.ids.length : 0,
+        deleted_slots: entry.deleted ? entry.deleted.length : 0,
+      }, plan));
       if (idx < 0) continue;
       const fid = entry.ids[idx];
       if (entry.selectedIds.has(fid)) entry.selectedIds.delete(fid);
       else entry.selectedIds.add(fid);
-      fp_finish_selection_change(entry);
+      fp_finish_selection_change(entry, {
+        interaction: "ctrl_click",
+        layer_id: layer_id,
+        layer_type: entry.type,
+        selected_count: entry.selectedIds.size,
+        pick_ms: pickMs.toFixed(2),
+      });
       break;
     }
   });
@@ -1314,18 +1394,60 @@ function fp_install_interactions() {
     const extent = dragBox.getGeometry().getExtent();
     for (const [layer_id, entry] of state.layers.entries()) {
       if ((entry.type !== "fast_points" && entry.type !== "fast_geopoints") || !entry.selectable) continue;
+      const plan = fp_query_plan(entry, extent);
+      const queryStart = performance.now();
       const cand = fp_query_extent(entry, extent);
+      const queryMs = performance.now() - queryStart;
+      fp_selection_debug("fast_selection_box_query", Object.assign({
+        layer_id: layer_id,
+        layer_type: entry.type,
+        zoom: state.map.getView().getZoom(),
+        resolution_m_per_px: state.map.getView().getResolution() || 1.0,
+        total_points: entry.ids ? entry.ids.length : 0,
+        previous_selected_count: entry.selectedIds ? entry.selectedIds.size : 0,
+        candidate_count: cand.length,
+        query_ms: queryMs.toFixed(2),
+      }, plan));
+
+      const filterStart = performance.now();
       const next = new Set();
+      let deletedSkipped = 0;
+      let hiddenSkipped = 0;
+      let boundsRejected = 0;
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
-        if (entry.deleted[i] || entry.hidden[i]) continue;
+        if (entry.deleted[i]) { deletedSkipped++; continue; }
+        if (entry.hidden[i]) { hiddenSkipped++; continue; }
         const x = entry.x[i], y = entry.y[i];
         if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) next.add(entry.ids[i]);
+        else boundsRejected++;
       }
+      const filterMs = performance.now() - filterStart;
+      const debugPayload = Object.assign({
+        interaction: "drag_box",
+        layer_id: layer_id,
+        layer_type: entry.type,
+        zoom: state.map.getView().getZoom(),
+        resolution_m_per_px: state.map.getView().getResolution() || 1.0,
+        total_points: entry.ids ? entry.ids.length : 0,
+        previous_selected_count: entry.selectedIds ? entry.selectedIds.size : 0,
+        candidate_count: cand.length,
+        selected_count: next.size,
+        deleted_skipped: deletedSkipped,
+        hidden_skipped: hiddenSkipped,
+        bounds_rejected: boundsRejected,
+        query_ms: queryMs.toFixed(2),
+        filter_ms: filterMs.toFixed(2),
+        total_selection_ms: (queryMs + filterMs).toFixed(2),
+      }, plan);
+      fp_selection_debug("fast_selection_box_filter", debugPayload);
+
       // Only emit selection if something was selected in this layer or if clearing previous selection
       if (next.size > 0 || entry.selectedIds.size > 0) {
         entry.selectedIds = next;
-        fp_finish_selection_change(entry);
+        fp_finish_selection_change(entry, debugPayload);
+      } else {
+        fp_selection_debug("fast_selection_box_no_change", debugPayload);
       }
     }
   });

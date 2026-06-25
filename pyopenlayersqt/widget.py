@@ -233,6 +233,7 @@ class OLMapWidget(QWebEngineView):
         self._perf_logging_enabled = (
             os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
             or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
+            or os.environ.get("PYOPENLAYERSQT_SELECTION_DEBUG", "") == "1"
         )
 
         # writable overlays
