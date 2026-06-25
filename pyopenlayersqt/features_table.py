@@ -42,6 +42,8 @@ Google-style docstrings + PEP8.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+import time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from PySide6 import QtCore
@@ -424,6 +426,11 @@ class FeatureTableWidget(QWidget):
         self._building_selection = False
         self._pending_emit = False
         self._context_menu_actions: List[ContextMenuActionSpec] = []
+        self._perf_logging_enabled = (
+            os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
+            or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
+            or os.environ.get("PYOPENLAYERSQT_SELECTION_DEBUG", "") == "1"
+        )
 
         self._debounce_timer = QtCore.QTimer(self)
         self._debounce_timer.setSingleShot(True)
@@ -516,6 +523,14 @@ class FeatureTableWidget(QWidget):
         """Set right-click actions shown by the built-in context menu."""
         self._context_menu_actions = list(actions)
 
+    def _log_perf(self, payload: Dict[str, Any]) -> None:
+        if not self._perf_logging_enabled:
+            return
+        try:
+            print("PERF:", payload, flush=True)
+        except Exception:
+            pass
+
     def clear_selection(self) -> None:
         sm = self.table.selectionModel()
         if sm is None:
@@ -532,10 +547,19 @@ class FeatureTableWidget(QWidget):
         are contiguous.  Resolve keys to row numbers first, merge adjacent rows
         into ranges, and apply the compact selection while updates are disabled.
         """
+        total_start = time.perf_counter()
         sm = self.table.selectionModel()
+        key_count = len(keys) if hasattr(keys, "__len__") else None
         if sm is None:
+            self._log_perf(
+                {
+                    "operation": "table_select_keys_no_selection_model",
+                    "key_count": key_count,
+                }
+            )
             return
 
+        resolve_start = time.perf_counter()
         rows = []
         seen_rows = set()
         for key in keys:
@@ -544,11 +568,16 @@ class FeatureTableWidget(QWidget):
                 continue
             seen_rows.add(r)
             rows.append(r)
+        resolve_ms = (time.perf_counter() - resolve_start) * 1000.0
 
+        sort_start = time.perf_counter()
         rows.sort()
+        sort_ms = (time.perf_counter() - sort_start) * 1000.0
 
+        build_start = time.perf_counter()
         selection = QtCore.QItemSelection()
         last_col = max(0, self.model.columnCount() - 1)
+        range_count = 0
         if rows:
             start = prev = rows[0]
             for row in rows[1:]:
@@ -559,12 +588,30 @@ class FeatureTableWidget(QWidget):
                     self.model.index(start, 0),
                     self.model.index(prev, last_col),
                 )
+                range_count += 1
                 start = prev = row
             selection.select(
                 self.model.index(start, 0),
                 self.model.index(prev, last_col),
             )
+            range_count += 1
+        build_ms = (time.perf_counter() - build_start) * 1000.0
 
+        self._log_perf(
+            {
+                "operation": "table_select_keys_before_apply",
+                "key_count": key_count,
+                "rows_found": len(rows),
+                "range_count": range_count,
+                "model_rows": self.model.rowCount(),
+                "clear_first": bool(clear_first),
+                "resolve_ms": f"{resolve_ms:.2f}",
+                "sort_ms": f"{sort_ms:.2f}",
+                "build_ms": f"{build_ms:.2f}",
+            }
+        )
+
+        apply_start = time.perf_counter()
         self._building_selection = True
         self.table.setUpdatesEnabled(False)
         try:
@@ -575,6 +622,18 @@ class FeatureTableWidget(QWidget):
         finally:
             self.table.setUpdatesEnabled(True)
             self._building_selection = False
+        apply_ms = (time.perf_counter() - apply_start) * 1000.0
+        total_ms = (time.perf_counter() - total_start) * 1000.0
+        self._log_perf(
+            {
+                "operation": "table_select_keys_after_apply",
+                "key_count": key_count,
+                "rows_found": len(rows),
+                "range_count": range_count,
+                "apply_ms": f"{apply_ms:.2f}",
+                "total_ms": f"{total_ms:.2f}",
+            }
+        )
 
     def _on_selection_changed(self, *_args) -> None:
         if self._building_selection:
