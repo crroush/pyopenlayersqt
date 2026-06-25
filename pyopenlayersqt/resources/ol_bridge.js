@@ -591,6 +591,19 @@ function fp_make_canvas_layer(entry) {
       const maxExactRenderPoints = Math.max(1, Number(entry.style.pixel_aggregate_threshold || 200000));
       const maxAggregateZoom = 8;
       const currentZoom = state.map.getView().getZoom();
+      const skipWhileInteracting = entry.style.skip_render_while_interacting !== false;
+      const minSkipCandidates = Math.max(1, Number(entry.style.interaction_skip_threshold || maxExactRenderPoints));
+      if (state.viewInteracting && skipWhileInteracting && candidateCount > minSkipCandidates) {
+        emitToPython("perf", {
+          layer_id: entry.layer_id,
+          operation: "fast_points_render_skipped_interacting",
+          point_count: candidateCount,
+          zoom: currentZoom,
+          threshold: minSkipCandidates,
+          times: { query_ms: queryTime.toFixed(2), total_ms: (performance.now() - perfStart).toFixed(2) }
+        });
+        return canvas;
+      }
 
       if (candidateCount > maxExactRenderPoints && currentZoom <= maxAggregateZoom) {
         const drawStart = performance.now();
@@ -2558,6 +2571,7 @@ function cmd_countries_set_visible(msg) {
     
     state.map.on("moveend", function(){ 
       const interactionTime = performance.now() - state.interactionStartTime;
+      state.viewInteracting = false;
       
       emitToPython("perf", {
         operation: "map_interaction",
@@ -2566,9 +2580,9 @@ function cmd_countries_set_visible(msg) {
         avg_render_ms: state.renderCount > 0 ? (interactionTime / state.renderCount).toFixed(2) : 0
       });
       
-      state.viewInteracting = false;
-      // redraw fast layers so ellipses appear after interaction ends
+      // redraw fast layers after interaction-skipped renders
       for (const [lid, e] of state.layers.entries()) {
+        if (e.type === 'fast_points') fp_redraw(e);
         if (e.type === 'fast_geopoints' && e.ellipsesVisible) fgp_redraw(e);
       }
     });

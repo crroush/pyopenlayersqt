@@ -510,19 +510,19 @@ class FeatureTableWidget(QWidget):
 
     def selected_keys(self) -> List[FeatureKey]:
         """Return currently selected keys."""
-        if self._using_virtual_selection:
-            return self.model.highlighted_keys()
         sm = self.table.selectionModel()
         if sm is None:
-            return []
+            return self.model.highlighted_keys() if self._using_virtual_selection else []
         selected_rows = sm.selectedRows(0)
-        keys: List[FeatureKey] = []
+        keys: List[FeatureKey] = self.model.highlighted_keys() if self._using_virtual_selection else []
+        seen = set(keys)
         for idx in selected_rows:
             r = idx.row()
             if r < 0 or r >= len(self.model.rows):
                 continue
             key = self.model.key_for_row(r)
-            if key is not None:
+            if key is not None and key not in seen:
+                seen.add(key)
                 keys.append(key)
         return keys
 
@@ -697,10 +697,6 @@ class FeatureTableWidget(QWidget):
     def _on_selection_changed(self, *_args) -> None:
         if self._building_selection:
             return
-        if self._using_virtual_selection:
-            self.model.set_highlighted_keys([])
-            self._using_virtual_selection = False
-            self.table.viewport().update()
         self._pending_emit = True
         self._debounce_timer.start(self._debounce_ms)
 
