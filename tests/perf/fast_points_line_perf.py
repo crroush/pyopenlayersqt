@@ -11,9 +11,10 @@ Run from the repository root, for example:
 
     PYOPENLAYERSQT_PERF=1 python tests/perf/fast_points_line_perf.py --points 200000
 
-By default this sends all generated points in one FastPoints payload so the
-probe matches the observed 200K-point workflow rather than measuring chunked
-loading behavior.
+By default this sends all generated points in one FastPoints payload and leaves
+the map at the OLMapWidget default view (no explicit zoom, no fit-to-data) so
+the probe matches the observed 200K-point fully zoomed-out workflow rather than
+measuring chunked loading or zoomed-in rendering behavior.
 """
 
 from __future__ import annotations
@@ -61,8 +62,12 @@ class FastPointsLinePerfApp(QtWidgets.QWidget):
         self.args = args
         self.setWindowTitle("FastPoints 200K Line PERF Probe")
 
+        center = None
+        if args.center_on_line:
+            center = ((args.lat_min + args.lat_max) / 2.0, args.lon)
+
         self.map_widget = OLMapWidget(
-            center=((args.lat_min + args.lat_max) / 2.0, args.lon),
+            center=center,
             zoom=args.zoom,
             show_osm_layer=not args.no_osm,
             show_country_boundaries=False,
@@ -123,10 +128,11 @@ class FastPointsLinePerfApp(QtWidgets.QWidget):
             elapsed_ms=round((time.perf_counter() - total_start) * 1000.0, 2),
         )
 
-        self.map_widget.fit_bounds(
-            [(self.args.lat_min, self.args.lon), (self.args.lat_max, self.args.lon)]
-        )
-        perf("fit_bounds_requested")
+        if self.args.fit_bounds:
+            self.map_widget.fit_bounds(
+                [(self.args.lat_min, self.args.lon), (self.args.lat_max, self.args.lon)]
+            )
+            perf("fit_bounds_requested")
 
 
 def parse_args() -> argparse.Namespace:
@@ -135,7 +141,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lat-min", type=float, default=0.0)
     parser.add_argument("--lat-max", type=float, default=10.0)
     parser.add_argument("--lon", type=float, default=0.0)
-    parser.add_argument("--zoom", type=int, default=5)
+    parser.add_argument(
+        "--zoom",
+        type=int,
+        default=None,
+        help="Initial OL zoom; defaults to unset so OLMapWidget uses its default view.",
+    )
     parser.add_argument(
         "--chunk-size",
         type=int,
@@ -148,6 +159,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=1200)
     parser.add_argument("--height", type=int, default=800)
     parser.add_argument("--no-osm", action="store_true")
+    parser.add_argument(
+        "--center-on-line",
+        action="store_true",
+        help="Center the initial map view on the generated line; default leaves center unset.",
+    )
+    parser.add_argument(
+        "--fit-bounds",
+        action="store_true",
+        help="Fit the view to the generated line after loading; default leaves the view zoomed out.",
+    )
     return parser.parse_args()
 
 
