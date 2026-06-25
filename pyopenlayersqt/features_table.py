@@ -525,27 +525,56 @@ class FeatureTableWidget(QWidget):
         self._building_selection = False
 
     def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
-        """Programmatically select rows by keys."""
+        """Programmatically select rows by keys.
+
+        Large map selections can contain hundreds of thousands of keys.  Passing
+        one QItemSelection range per key is extremely slow, especially when rows
+        are contiguous.  Resolve keys to row numbers first, merge adjacent rows
+        into ranges, and apply the compact selection while updates are disabled.
+        """
         sm = self.table.selectionModel()
         if sm is None:
             return
 
-        selection = QtCore.QItemSelection()
-        last_col = max(0, self.model.columnCount() - 1)
+        rows = []
+        seen_rows = set()
         for key in keys:
             r = self.model.row_for_key(key)
-            if r is None:
+            if r is None or r in seen_rows:
                 continue
-            selection.select(self.model.index(r, 0), self.model.index(r, last_col))
+            seen_rows.add(r)
+            rows.append(r)
+
+        rows.sort()
+
+        selection = QtCore.QItemSelection()
+        last_col = max(0, self.model.columnCount() - 1)
+        if rows:
+            start = prev = rows[0]
+            for row in rows[1:]:
+                if row == prev + 1:
+                    prev = row
+                    continue
+                selection.select(
+                    self.model.index(start, 0),
+                    self.model.index(prev, last_col),
+                )
+                start = prev = row
+            selection.select(
+                self.model.index(start, 0),
+                self.model.index(prev, last_col),
+            )
 
         self._building_selection = True
-        if clear_first:
-            sm.clearSelection()
-        sm.select(
-            selection,
-            QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
-        )
-        self._building_selection = False
+        self.table.setUpdatesEnabled(False)
+        try:
+            command = QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows
+            if clear_first:
+                command = QtCore.QItemSelectionModel.ClearAndSelect | QtCore.QItemSelectionModel.Rows
+            sm.select(selection, command)
+        finally:
+            self.table.setUpdatesEnabled(True)
+            self._building_selection = False
 
     def _on_selection_changed(self, *_args) -> None:
         if self._building_selection:
