@@ -46,7 +46,7 @@ import os
 import time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from PySide6 import QtCore
+from PySide6 import QtCore, QtGui
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -117,6 +117,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._sort_column: int = -1
         self._sort_order: Qt.SortOrder = Qt.AscendingOrder
         self._hidden_keys: set[FeatureKey] = set()  # Track hidden rows
+        self._highlighted_keys: set[FeatureKey] = set()  # Fast map-driven highlight
 
     def rowCount(
         self, parent: QtCore.QModelIndex = QtCore.QModelIndex()
@@ -166,6 +167,14 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
                 except Exception:
                     return str(value)
             return str(value)
+
+        if role == Qt.BackgroundRole and self._highlighted_keys:
+            try:
+                key = self._key_fn(row)
+            except Exception:
+                key = None
+            if key in self._highlighted_keys:
+                return QtGui.QBrush(QtGui.QColor(0, 180, 255, 70))
 
         if role == Qt.ToolTipRole and col.tooltip is not None:
             try:
@@ -291,6 +300,16 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         if row_index < 0 or row_index >= len(self._rows):
             return None
         return self._rows[row_index]
+
+    def set_highlighted_keys(self, keys: Iterable[FeatureKey]) -> None:
+        """Set keys highlighted by data roles without using QItemSelection."""
+        self._highlighted_keys = {
+            (str(layer_id), str(feature_id)) for layer_id, feature_id in keys
+        }
+
+    def highlighted_keys(self) -> List[FeatureKey]:
+        """Return keys highlighted for large programmatic selections."""
+        return list(self._highlighted_keys)
 
     def sort(self, column: int, order: Qt.SortOrder = Qt.AscendingOrder) -> None:  # noqa: N802
         """Sort the table by the given column."""
@@ -425,6 +444,7 @@ class FeatureTableWidget(QWidget):
 
         self._building_selection = False
         self._pending_emit = False
+        self._using_virtual_selection = False
         self._context_menu_actions: List[ContextMenuActionSpec] = []
         self._perf_logging_enabled = (
             os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
@@ -490,6 +510,8 @@ class FeatureTableWidget(QWidget):
 
     def selected_keys(self) -> List[FeatureKey]:
         """Return currently selected keys."""
+        if self._using_virtual_selection:
+            return self.model.highlighted_keys()
         sm = self.table.selectionModel()
         if sm is None:
             return []
@@ -537,6 +559,9 @@ class FeatureTableWidget(QWidget):
             return
         self._building_selection = True
         sm.clearSelection()
+        self.model.set_highlighted_keys([])
+        self._using_virtual_selection = False
+        self.table.viewport().update()
         self._building_selection = False
 
     def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
@@ -611,6 +636,40 @@ class FeatureTableWidget(QWidget):
             }
         )
 
+        virtual_threshold = 10000
+        use_virtual_selection = range_count > virtual_threshold or len(rows) > 50000
+        if use_virtual_selection:
+            virtual_start = time.perf_counter()
+            self._building_selection = True
+            self.table.setUpdatesEnabled(False)
+            try:
+                if clear_first:
+                    sm.clearSelection()
+                selected_keys = [self.model.key_for_row(row) for row in rows]
+                self.model.set_highlighted_keys(k for k in selected_keys if k is not None)
+                self._using_virtual_selection = True
+            finally:
+                self.table.setUpdatesEnabled(True)
+                self._building_selection = False
+            self.table.viewport().update()
+            virtual_ms = (time.perf_counter() - virtual_start) * 1000.0
+            total_ms = (time.perf_counter() - total_start) * 1000.0
+            self._log_perf(
+                {
+                    "operation": "table_select_keys_virtual_apply",
+                    "key_count": key_count,
+                    "rows_found": len(rows),
+                    "range_count": range_count,
+                    "virtual_threshold": virtual_threshold,
+                    "virtual_ms": f"{virtual_ms:.2f}",
+                    "total_ms": f"{total_ms:.2f}",
+                }
+            )
+            return
+
+        self.model.set_highlighted_keys([])
+        self._using_virtual_selection = False
+
         apply_start = time.perf_counter()
         self._building_selection = True
         self.table.setUpdatesEnabled(False)
@@ -638,6 +697,10 @@ class FeatureTableWidget(QWidget):
     def _on_selection_changed(self, *_args) -> None:
         if self._building_selection:
             return
+        if self._using_virtual_selection:
+            self.model.set_highlighted_keys([])
+            self._using_virtual_selection = False
+            self.table.viewport().update()
         self._pending_emit = True
         self._debounce_timer.start(self._debounce_ms)
 
