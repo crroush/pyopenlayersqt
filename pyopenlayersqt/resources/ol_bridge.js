@@ -361,10 +361,25 @@ function fp_pick_nearest(entry, coord3857, radius_m) {
 }
 
 function fp_emit_selection(entry) {
+  const perfStart = performance.now();
+  const featureIds = Array.from(entry.selectedIds);
+  const arrayMs = performance.now() - perfStart;
   emitToPython("selection", {
     layer_id: entry.layer_id,
-    feature_ids: Array.from(entry.selectedIds),
+    feature_ids: featureIds,
   });
+  if (featureIds.length > 100 || window.PYOLQT_SELECTION_PERF) {
+    emitToPython("perf", {
+      side: "javascript",
+      layer_id: entry.layer_id,
+      operation: "fast_points_emit_selection",
+      selection_count: featureIds.length,
+      times: {
+        array_ms: arrayMs.toFixed(2),
+        total_ms: (performance.now() - perfStart).toFixed(2)
+      }
+    });
+  }
 }
 
 function fp_emit_singleclick(entry, ctrl_key, meta_key, shift_key, alt_key) {
@@ -665,11 +680,37 @@ function cmd_fast_points_set_selectable(msg) {
 }
 
 function cmd_fast_points_select_set(msg) {
+    const perfStart = performance.now();
     const entry = getLayerEntry(msg.layer_id);
     if (entry.type !== "fast_points") return;
-    entry.selectedIds = new Set(msg.feature_ids || []);
+    const ids = msg.feature_ids || [];
+    const setStart = performance.now();
+    entry.selectedIds = new Set(ids);
+    const setMs = performance.now() - setStart;
+    const redrawStart = performance.now();
     fp_redraw(entry);
-    fp_emit_selection(entry);
+    const redrawMs = performance.now() - redrawStart;
+    let emitMs = 0.0;
+    if (msg.emit !== false) {
+      const emitStart = performance.now();
+      fp_emit_selection(entry);
+      emitMs = performance.now() - emitStart;
+    }
+    if (ids.length > 100 || window.PYOLQT_SELECTION_PERF) {
+      emitToPython("perf", {
+        side: "javascript",
+        layer_id: entry.layer_id,
+        operation: "fast_points_select_set",
+        selection_count: ids.length,
+        emit_requested: msg.emit !== false,
+        times: {
+          set_ms: setMs.toFixed(2),
+          redraw_request_ms: redrawMs.toFixed(2),
+          emit_ms: emitMs.toFixed(2),
+          total_ms: (performance.now() - perfStart).toFixed(2)
+        }
+      });
+    }
 }
 
 function cmd_fast_points_hide_ids(msg) {
@@ -1114,15 +1155,34 @@ function fp_install_interactions() {
     if (!mod) return;
     for (const [layer_id, entry] of state.layers.entries()) {
       if ((entry.type !== "fast_points" && entry.type !== "fast_geopoints") || !entry.selectable) continue;
+      const perfStart = performance.now();
       const res = state.map.getView().getResolution() || 1.0;
       const radius_m = Math.max(5.0, res * 8.0);
+      const pickStart = performance.now();
       const idx = fp_pick_nearest(entry, coord, radius_m);
+      const pickMs = performance.now() - pickStart;
       if (idx < 0) continue;
       const fid = entry.ids[idx];
       if (entry.selectedIds.has(fid)) entry.selectedIds.delete(fid);
       else entry.selectedIds.add(fid);
+      const redrawStart = performance.now();
       fp_redraw(entry);
+      const redrawMs = performance.now() - redrawStart;
+      const emitStart = performance.now();
       fp_emit_selection(entry);
+      const emitMs = performance.now() - emitStart;
+      emitToPython("perf", {
+        side: "javascript",
+        layer_id: entry.layer_id,
+        operation: "fast_points_singleclick_selection",
+        selection_count: entry.selectedIds.size,
+        times: {
+          pick_ms: pickMs.toFixed(2),
+          redraw_request_ms: redrawMs.toFixed(2),
+          emit_ms: emitMs.toFixed(2),
+          total_ms: (performance.now() - perfStart).toFixed(2)
+        }
+      });
       break;
     }
   });
@@ -1136,10 +1196,14 @@ function fp_install_interactions() {
   state.map.addInteraction(dragBox);
 
   dragBox.on("boxend", function() {
+    const perfStart = performance.now();
     const extent = dragBox.getGeometry().getExtent();
     for (const [layer_id, entry] of state.layers.entries()) {
       if ((entry.type !== "fast_points" && entry.type !== "fast_geopoints") || !entry.selectable) continue;
+      const queryStart = performance.now();
       const cand = fp_query_extent(entry, extent);
+      const queryMs = performance.now() - queryStart;
+      const buildStart = performance.now();
       const next = new Set();
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
@@ -1147,11 +1211,30 @@ function fp_install_interactions() {
         const x = entry.x[i], y = entry.y[i];
         if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) next.add(entry.ids[i]);
       }
+      const buildMs = performance.now() - buildStart;
       // Only emit selection if something was selected in this layer or if clearing previous selection
       if (next.size > 0 || entry.selectedIds.size > 0) {
         entry.selectedIds = next;
+        const redrawStart = performance.now();
         fp_redraw(entry);
+        const redrawMs = performance.now() - redrawStart;
+        const emitStart = performance.now();
         fp_emit_selection(entry);
+        const emitMs = performance.now() - emitStart;
+        emitToPython("perf", {
+          side: "javascript",
+          layer_id: entry.layer_id,
+          operation: "fast_points_dragbox_selection",
+          candidate_count: cand.length,
+          selection_count: next.size,
+          times: {
+            query_ms: queryMs.toFixed(2),
+            build_ms: buildMs.toFixed(2),
+            redraw_request_ms: redrawMs.toFixed(2),
+            emit_ms: emitMs.toFixed(2),
+            total_ms: (performance.now() - perfStart).toFixed(2)
+          }
+        });
       }
     }
   });

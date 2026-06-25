@@ -376,13 +376,16 @@ class OLMapWidget(QWebEngineView):
             {"type": "select.set", "layer_id": layer_id, "feature_ids": feature_ids}
         )
 
-    def set_fast_points_selection(self, layer_id: str, feature_ids: list[str]) -> None:
+    def set_fast_points_selection(
+        self, layer_id: str, feature_ids: list[str], emit: bool = True
+    ) -> None:
         """Set selection for a fast-points layer."""
         self.send(
             {
                 "type": "fast_points.select.set",
                 "layer_id": layer_id,
                 "feature_ids": feature_ids,
+                "emit": bool(emit),
             }
         )
 

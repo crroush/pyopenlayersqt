@@ -42,6 +42,8 @@ Google-style docstrings + PEP8.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+import time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from PySide6 import QtCore
@@ -63,6 +65,18 @@ ValueSetter = Callable[[Any, Any], Any]
 ValueFormatter = Callable[[Any], str]
 KeyFn = Callable[[Any], FeatureKey]
 ContextMenuCallback = Callable[["TableContextMenuEvent"], None]
+
+
+def _perf_enabled() -> bool:
+    return (
+        os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
+        or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
+    )
+
+
+def _perf_print(payload: dict[str, Any]) -> None:
+    if _perf_enabled():
+        print("PERF:", payload, flush=True)
 
 
 @dataclass(frozen=True)
@@ -218,29 +232,47 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
 
     def append_rows(self, rows: Iterable[Any]) -> None:
         """Append many rows efficiently."""
+        perf_start = time.perf_counter()
         incoming_rows = list(rows)
         if not incoming_rows:
             return
 
         # Filter out duplicate keys first so beginInsertRows uses the exact range.
+        filter_start = time.perf_counter()
         new_rows: List[Any] = []
         for row in incoming_rows:
             key = self._key_fn(row)
             if key in self._row_by_key:
                 continue
             new_rows.append(row)
+        filter_ms = (time.perf_counter() - filter_start) * 1000.0
 
         if not new_rows:
             return
 
         start = len(self._rows)
         end = start + len(new_rows) - 1
+        insert_start = time.perf_counter()
         self.beginInsertRows(QtCore.QModelIndex(), start, end)
         for r in new_rows:
             k = self._key_fn(r)
             self._row_by_key[k] = len(self._rows)
             self._rows.append(r)
         self.endInsertRows()
+        _perf_print(
+            {
+                "side": "python",
+                "operation": "feature_table_append_rows",
+                "incoming_count": len(incoming_rows),
+                "inserted_count": len(new_rows),
+                "total_rows": len(self._rows),
+                "times": {
+                    "filter_ms": round(filter_ms, 2),
+                    "insert_ms": round((time.perf_counter() - insert_start) * 1000.0, 2),
+                    "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                },
+            }
+        )
 
     def remove_where(self, predicate: Callable[[Any], bool]) -> None:
         """Remove rows matching predicate (full reset)."""
@@ -483,10 +515,14 @@ class FeatureTableWidget(QWidget):
 
     def selected_keys(self) -> List[FeatureKey]:
         """Return currently selected keys."""
+        perf_start = time.perf_counter()
         sm = self.table.selectionModel()
         if sm is None:
             return []
+        selected_start = time.perf_counter()
         selected_rows = sm.selectedRows(0)
+        selected_rows_ms = (time.perf_counter() - selected_start) * 1000.0
+        build_start = time.perf_counter()
         keys: List[FeatureKey] = []
         for idx in selected_rows:
             r = idx.row()
@@ -495,6 +531,18 @@ class FeatureTableWidget(QWidget):
             key = self.model.key_for_row(r)
             if key is not None:
                 keys.append(key)
+        _perf_print(
+            {
+                "side": "python",
+                "operation": "feature_table_selected_keys",
+                "selection_count": len(keys),
+                "times": {
+                    "selected_rows_ms": round(selected_rows_ms, 2),
+                    "build_keys_ms": round((time.perf_counter() - build_start) * 1000.0, 2),
+                    "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                },
+            }
+        )
         return keys
 
     def selected_rows_data(self) -> List[Any]:
@@ -526,19 +574,25 @@ class FeatureTableWidget(QWidget):
 
     def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
         """Programmatically select rows by keys."""
+        perf_start = time.perf_counter()
         sm = self.table.selectionModel()
         if sm is None:
             return
 
         selection = QtCore.QItemSelection()
         last_col = max(0, self.model.columnCount() - 1)
+        build_start = time.perf_counter()
+        matched_count = 0
         for key in keys:
             r = self.model.row_for_key(key)
             if r is None:
                 continue
             selection.select(self.model.index(r, 0), self.model.index(r, last_col))
+            matched_count += 1
+        build_ms = (time.perf_counter() - build_start) * 1000.0
 
         self._building_selection = True
+        apply_start = time.perf_counter()
         if clear_first:
             sm.clearSelection()
         sm.select(
@@ -546,6 +600,22 @@ class FeatureTableWidget(QWidget):
             QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
         )
         self._building_selection = False
+        _perf_print(
+            {
+                "side": "python",
+                "operation": "feature_table_select_keys",
+                "requested_count": len(keys),
+                "matched_count": matched_count,
+                "clear_first": bool(clear_first),
+                "times": {
+                    "build_selection_ms": round(build_ms, 2),
+                    "apply_selection_ms": round(
+                        (time.perf_counter() - apply_start) * 1000.0, 2
+                    ),
+                    "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                },
+            }
+        )
 
     def _on_selection_changed(self, *_args) -> None:
         if self._building_selection:
