@@ -504,6 +504,20 @@ function fp_redraw(entry) {
   if (entry.source) entry.source.changed();
 }
 
+function fp_redraw_selection(entry) {
+  if (entry.selectedSource) entry.selectedSource.changed();
+  else fp_redraw(entry);
+}
+
+function fp_schedule_selection_redraw(entry) {
+  if (!entry || entry._selectionRedrawScheduled) return;
+  entry._selectionRedrawScheduled = true;
+  setTimeout(() => {
+    entry._selectionRedrawScheduled = false;
+    fp_redraw_selection(entry);
+  }, 0);
+}
+
 function fp_schedule_redraw(entry) {
   if (!entry || entry._redrawScheduled) return;
   entry._redrawScheduled = true;
@@ -513,7 +527,7 @@ function fp_schedule_redraw(entry) {
   }, 0);
 }
 
-function fp_finish_selection_change(entry, debugPayload) {
+function fp_finish_selection_change(entry, debugPayload, selectionOnlyRedraw) {
   // Emit selection before invalidating huge canvas layers.  A full redraw at a
   // continental zoom can touch millions of active points, so doing it first
   // makes map/table selection appear hung even though the spatial query has
@@ -534,7 +548,11 @@ function fp_finish_selection_change(entry, debugPayload) {
         chunk_count: emitInfo ? emitInfo.chunk_count : 1,
       }, debugPayload || {}));
     }
-    fp_schedule_redraw(entry);
+    if (selectionOnlyRedraw) fp_schedule_selection_redraw(entry);
+    else {
+      fp_schedule_redraw(entry);
+      fp_schedule_selection_redraw(entry);
+    }
   });
 }
 
@@ -862,6 +880,90 @@ function fp_make_canvas_layer(entry) {
   entry.layer = layer;
 }
 
+
+function fp_make_selected_canvas_layer(entry) {
+  const source = new ol.source.ImageCanvas({
+    projection: state.map.getView().getProjection(),
+    ratio: 1,
+    canvasFunction: function(extent, resolution, pixelRatio, size, projection) {
+      const perfStart = performance.now();
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.floor(size[0] * pixelRatio));
+      canvas.height = Math.max(1, Math.floor(size[1] * pixelRatio));
+      const ctx = canvas.getContext("2d", { willReadFrequently: !!window.OL_WILL_READ_FREQUENTLY });
+      if (!ctx) return canvas;
+
+      ctx.globalAlpha = entry.opacity;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!entry.selectedIds || entry.selectedIds.size === 0) return canvas;
+
+      const scaleX = canvas.width / (extent[2] - extent[0]);
+      const scaleY = canvas.height / (extent[3] - extent[1]);
+      const selectedOccupied = new Uint8Array(canvas.width * canvas.height);
+      const selectedBatches = new Map();
+      const selCss = rgba_to_css(entry.style.selected_rgba);
+      const radius = entry.style.selected_radius * pixelRatio;
+      let selectedCheckedCount = 0;
+      let selectedVisibleCount = 0;
+      let selectedRenderedPixelCount = 0;
+
+      function getBatch(fill, radius) {
+        const key = fill + "|" + radius;
+        let batch = selectedBatches.get(key);
+        if (!batch) {
+          batch = { fill, radius, path: new Path2D(), count: 0 };
+          selectedBatches.set(key, batch);
+        }
+        return batch;
+      }
+
+      for (const fid of entry.selectedIds) {
+        const i = entry.idIndex.get(String(fid));
+        selectedCheckedCount += 1;
+        if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
+        const xw = entry.x[i], yw = entry.y[i];
+        if (xw < extent[0] || xw > extent[2] || yw < extent[1] || yw > extent[3]) continue;
+        const x = (xw - extent[0]) * scaleX;
+        const y = (extent[3] - yw) * scaleY;
+        const px = Math.floor(x), py = Math.floor(y);
+        if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) continue;
+        selectedVisibleCount += 1;
+        const pixelIndex = py * canvas.width + px;
+        if (selectedOccupied[pixelIndex]) continue;
+        selectedOccupied[pixelIndex] = 1;
+        selectedRenderedPixelCount += 1;
+        const batch = getBatch(selCss, radius);
+        batch.path.moveTo(px + 0.5 + radius, py + 0.5);
+        batch.path.arc(px + 0.5, py + 0.5, radius, 0, Math.PI * 2);
+        batch.count += 1;
+      }
+
+      for (const batch of selectedBatches.values()) {
+        if (batch.count === 0) continue;
+        ctx.fillStyle = batch.fill;
+        ctx.fill(batch.path);
+      }
+
+      const totalTime = performance.now() - perfStart;
+      emitToPython("perf", {
+        layer_id: entry.layer_id,
+        operation: "fast_points_selected_render",
+        selected_count: entry.selectedIds.size,
+        selected_checked_count: selectedCheckedCount,
+        selected_visible_count: selectedVisibleCount,
+        selected_rendered_pixel_count: selectedRenderedPixelCount,
+        zoom: state.map.getView().getZoom(),
+        times: { total_ms: totalTime.toFixed(2) }
+      });
+      return canvas;
+    },
+  });
+
+  const layer = new ol.layer.Image({ source, visible: entry.visible });
+  entry.selectedSource = source;
+  entry.selectedLayer = layer;
+}
+
 function cmd_fast_points_add_layer(msg) {
   const layer_id = msg.layer_id;
   const entry = {
@@ -884,12 +986,17 @@ function cmd_fast_points_add_layer(msg) {
     style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255], pixel_aggregate_threshold: 200000 },
     source: null,
     layer: null,
+    selectedSource: null,
+    selectedLayer: null,
   };
 
   fp_make_canvas_layer(entry);
+  fp_make_selected_canvas_layer(entry);
   state.map.addLayer(entry.layer);
+  state.map.addLayer(entry.selectedLayer);
   state.layers.set(layer_id, entry);
   state.layerByObj.set(entry.layer, layer_id);
+  state.layerByObj.set(entry.selectedLayer, layer_id);
 }
 
 function cmd_fast_points_add_points(msg) {
@@ -981,6 +1088,7 @@ function cmd_fast_points_set_visible(msg) {
   if (entry.type !== "fast_points") return;
   entry.visible = !!msg.visible;
   entry.layer.setVisible(entry.visible);
+  if (entry.selectedLayer) entry.selectedLayer.setVisible(entry.visible);
 }
 
 function cmd_fast_points_set_selectable(msg) {
@@ -993,7 +1101,7 @@ function cmd_fast_points_select_set(msg) {
     const entry = getLayerEntry(msg.layer_id);
     if (entry.type !== "fast_points") return;
     entry.selectedIds = new Set(msg.feature_ids || []);
-    fp_finish_selection_change(entry);
+    fp_finish_selection_change(entry, null, true);
 }
 
 function cmd_fast_points_hide_ids(msg) {
@@ -1463,7 +1571,7 @@ function fp_install_interactions() {
         layer_type: entry.type,
         selected_count: entry.selectedIds.size,
         pick_ms: pickMs.toFixed(2),
-      });
+      }, true);
       break;
     }
   });
@@ -1531,7 +1639,7 @@ function fp_install_interactions() {
       // Only emit selection if something was selected in this layer or if clearing previous selection
       if (next.size > 0 || entry.selectedIds.size > 0) {
         entry.selectedIds = next;
-        fp_finish_selection_change(entry, debugPayload);
+        fp_finish_selection_change(entry, debugPayload, true);
       } else {
         fp_selection_debug("fast_selection_box_no_change", debugPayload);
       }
