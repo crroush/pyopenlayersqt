@@ -582,8 +582,10 @@ function fp_make_canvas_layer(entry) {
         const green = new Float32Array(pixelCount);
         const blue = new Float32Array(pixelCount);
         const selectedPixelBatches = new Map();
+        const selectedOccupied = new Uint8Array(pixelCount);
         let accumulatedPointCount = 0;
         let selectedPointCount = 0;
+        let selectedRenderedPixelCount = 0;
 
         function getPixelBatch(batches, fill, radius) {
           const key = fill + "|" + radius;
@@ -628,12 +630,16 @@ function fp_make_canvas_layer(entry) {
               continue;
             }
 
+            selectedPointCount += 1;
+            const selectedPixelIndex = py * canvas.width + px;
+            if (selectedOccupied[selectedPixelIndex]) continue;
+            selectedOccupied[selectedPixelIndex] = 1;
+            selectedRenderedPixelCount += 1;
             const radius = entry.style.selected_radius * pixelRatio;
             const batch = getPixelBatch(selectedPixelBatches, selCss, radius);
-            batch.path.moveTo(x + radius, y);
-            batch.path.arc(x, y, radius, 0, Math.PI * 2);
+            batch.path.moveTo(px + 0.5 + radius, py + 0.5);
+            batch.path.arc(px + 0.5, py + 0.5, radius, 0, Math.PI * 2);
             batch.count += 1;
-            selectedPointCount += 1;
           }
         }
 
@@ -661,6 +667,7 @@ function fp_make_canvas_layer(entry) {
           pixel_aggregate_render: true,
           accumulated_point_count: accumulatedPointCount,
           selected_point_count: selectedPointCount,
+          selected_rendered_pixel_count: selectedRenderedPixelCount,
           occupied_pixel_count: occupiedPixelCount,
           zoom: currentZoom,
           max_aggregate_zoom: maxAggregateZoom,

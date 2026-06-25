@@ -775,10 +775,10 @@ class OLMapWidget(QWebEngineView):
                     "count": sel.count,
                     "chunks": int(chunk.get("chunks", 0)),
                     "elapsed_ms": f"{elapsed_ms:.2f}",
-                    "selection_signal_deferred_ms": 50,
+                    "selection_signal_deferred_ms": 3000,
                 }
             )
-            QTimer.singleShot(50, lambda sel=sel: self._emit_selection_changed(sel, "chunked"))
+            QTimer.singleShot(3000, lambda sel=sel: self._emit_selection_changed(sel, "chunked"))
 
     def _handle_view_extent_changed_event(self, payload_json: str) -> None:
         self.viewExtentChanged.emit(self._parse_event_payload(payload_json))
