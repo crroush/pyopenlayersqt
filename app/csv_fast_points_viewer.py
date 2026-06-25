@@ -370,7 +370,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         def on_table_selection(keys):
             perf_start = time.perf_counter()
             fids = [fid for layer_id, fid in keys if layer_id == self.fast_layer.id]
-            self.map_widget.set_fast_points_selection(self.fast_layer.id, fids, emit=False)
+            self.map_widget.set_fast_points_selection(self.fast_layer.id, fids)
             self.current_selection_fids = fids
             perf(
                 "table_to_map_selection",
