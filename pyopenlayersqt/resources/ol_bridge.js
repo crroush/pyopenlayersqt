@@ -29,6 +29,7 @@ const state = {
     selectInteraction: null,
     dragBox: null,
     base_layer: null,
+    selectionChunkToken: 0,
     viewInteracting: false,
     // Measurement mode state
     measureMode: false,
@@ -395,23 +396,81 @@ function fp_query_plan(entry, extent) {
   };
 }
 
-function fp_emit_selection(entry) {
+function fp_emit_selection(entry, done) {
   const t0 = performance.now();
   const featureIds = Array.from(entry.selectedIds);
   const serializeMs = performance.now() - t0;
-  if (featureIds.length > 1000 || serializeMs > 10) {
+  const selectedCount = featureIds.length;
+  const chunkSize = Math.max(1000, Number(entry.selectionChunkSize || 5000));
+  if (selectedCount > 1000 || serializeMs > 10) {
     fp_selection_debug("fast_selection_serialize", {
       layer_id: entry.layer_id,
       layer_type: entry.type,
-      selected_count: featureIds.length,
+      selected_count: selectedCount,
       serialize_ms: serializeMs.toFixed(2),
+      chunked: selectedCount > chunkSize,
+      chunk_size: chunkSize,
     });
   }
-  emitToPython("selection", {
+
+  if (selectedCount <= chunkSize) {
+    emitToPython("selection", {
+      layer_id: entry.layer_id,
+      feature_ids: featureIds,
+      count: selectedCount,
+    });
+    if (done) done({ chunked: false, chunk_count: 1, selected_count: selectedCount });
+    return;
+  }
+
+  const token = ++state.selectionChunkToken;
+  const chunkCount = Math.ceil(selectedCount / chunkSize);
+  let chunkIndex = 0;
+  emitToPython("selection_chunk", {
+    status: "start",
+    token: token,
     layer_id: entry.layer_id,
-    feature_ids: featureIds,
-    count: featureIds.length,
+    count: selectedCount,
+    chunk_size: chunkSize,
+    chunk_count: chunkCount,
   });
+
+  function sendNextChunk() {
+    if (chunkIndex >= chunkCount) {
+      emitToPython("selection_chunk", {
+        status: "end",
+        token: token,
+        layer_id: entry.layer_id,
+        count: selectedCount,
+        chunk_count: chunkCount,
+      });
+      fp_selection_debug("fast_selection_chunked_emit_complete", {
+        layer_id: entry.layer_id,
+        layer_type: entry.type,
+        selected_count: selectedCount,
+        chunk_size: chunkSize,
+        chunk_count: chunkCount,
+      });
+      if (done) done({ chunked: true, chunk_count: chunkCount, selected_count: selectedCount });
+      return;
+    }
+
+    const start = chunkIndex * chunkSize;
+    const end = Math.min(selectedCount, start + chunkSize);
+    emitToPython("selection_chunk", {
+      status: "chunk",
+      token: token,
+      layer_id: entry.layer_id,
+      chunk_index: chunkIndex,
+      chunk_count: chunkCount,
+      count: selectedCount,
+      feature_ids: featureIds.slice(start, end),
+    });
+    chunkIndex += 1;
+    setTimeout(sendNextChunk, 0);
+  }
+
+  setTimeout(sendNextChunk, 0);
 }
 
 function fp_emit_singleclick(entry, ctrl_key, meta_key, shift_key, alt_key) {
@@ -446,17 +505,20 @@ function fp_finish_selection_change(entry, debugPayload) {
     fp_selection_debug("fast_selection_before_emit", debugPayload);
   }
   const emitStart = performance.now();
-  fp_emit_selection(entry);
-  const emitMs = performance.now() - emitStart;
-  if (debugPayload || emitMs > 10) {
-    fp_selection_debug("fast_selection_after_emit", Object.assign({
-      layer_id: entry.layer_id,
-      layer_type: entry.type,
-      selected_count: entry.selectedIds ? entry.selectedIds.size : 0,
-      emit_ms: emitMs.toFixed(2),
-    }, debugPayload || {}));
-  }
-  fp_schedule_redraw(entry);
+  fp_emit_selection(entry, function(emitInfo) {
+    const emitMs = performance.now() - emitStart;
+    if (debugPayload || emitMs > 10 || (emitInfo && emitInfo.chunked)) {
+      fp_selection_debug("fast_selection_after_emit", Object.assign({
+        layer_id: entry.layer_id,
+        layer_type: entry.type,
+        selected_count: entry.selectedIds ? entry.selectedIds.size : 0,
+        emit_ms: emitMs.toFixed(2),
+        chunked: !!(emitInfo && emitInfo.chunked),
+        chunk_count: emitInfo ? emitInfo.chunk_count : 1,
+      }, debugPayload || {}));
+    }
+    fp_schedule_redraw(entry);
+  });
 }
 
 function fp_make_canvas_layer(entry) {

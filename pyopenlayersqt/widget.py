@@ -235,6 +235,7 @@ class OLMapWidget(QWebEngineView):
             or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
             or os.environ.get("PYOPENLAYERSQT_SELECTION_DEBUG", "") == "1"
         )
+        self._selection_chunks = {}
 
         # writable overlays
         self._overlays_dir = _default_overlays_dir()
@@ -663,6 +664,26 @@ class OLMapWidget(QWebEngineView):
         self._flush_pending()
         self.ready.emit()
 
+    def _emit_selection_changed(self, sel: FeatureSelection, source: str) -> None:
+        start = time.perf_counter()
+        self.selectionChanged.emit(sel)
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        if self._perf_logging_enabled:
+            try:
+                print(
+                    "PERF:",
+                    {
+                        "operation": "python_selection_signal",
+                        "source": source,
+                        "layer_id": sel.layer_id,
+                        "count": sel.count,
+                        "elapsed_ms": f"{elapsed_ms:.2f}",
+                    },
+                    flush=True,
+                )
+            except Exception:
+                pass
+
     def _handle_selection_event(self, payload_json: str) -> None:
         obj = self._parse_event_payload(payload_json)
         sel = FeatureSelection(
@@ -671,7 +692,50 @@ class OLMapWidget(QWebEngineView):
             count=int(obj.get("count", len(obj.get("feature_ids", []) or []))),
             raw=obj,
         )
-        self.selectionChanged.emit(sel)
+        self._emit_selection_changed(sel, "single")
+
+    def _handle_selection_chunk_event(self, payload_json: str) -> None:
+        obj = self._parse_event_payload(payload_json)
+        token = int(obj.get("token", 0))
+        status = str(obj.get("status", "chunk"))
+        layer_id = str(obj.get("layer_id", ""))
+
+        if status == "start":
+            self._selection_chunks[token] = {
+                "layer_id": layer_id,
+                "count": int(obj.get("count", 0)),
+                "feature_ids": [],
+                "raw": obj,
+            }
+            return
+
+        chunk = self._selection_chunks.setdefault(
+            token,
+            {
+                "layer_id": layer_id,
+                "count": int(obj.get("count", 0)),
+                "feature_ids": [],
+                "raw": obj,
+            },
+        )
+
+        if status == "chunk":
+            chunk["feature_ids"].extend(str(x) for x in obj.get("feature_ids", []))
+            return
+
+        if status == "end":
+            self._selection_chunks.pop(token, None)
+            feature_ids = chunk["feature_ids"]
+            raw = dict(chunk.get("raw", {}))
+            raw.update(obj)
+            raw["feature_ids"] = feature_ids
+            sel = FeatureSelection(
+                layer_id=str(chunk.get("layer_id", layer_id)),
+                feature_ids=feature_ids,
+                count=int(obj.get("count", len(feature_ids))),
+                raw=raw,
+            )
+            self._emit_selection_changed(sel, "chunked")
 
     def _handle_view_extent_changed_event(self, payload_json: str) -> None:
         self.viewExtentChanged.emit(self._parse_event_payload(payload_json))
@@ -715,6 +779,7 @@ class OLMapWidget(QWebEngineView):
 
         payload_handlers = {
             "selection": self._handle_selection_event,
+            "selection_chunk": self._handle_selection_chunk_event,
             "view_extent_changed": self._handle_view_extent_changed_event,
             "view_extent": self._handle_view_extent_event,
             "measurement": self._handle_measurement_event,
