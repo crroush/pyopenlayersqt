@@ -1497,7 +1497,8 @@ function fp_install_interactions() {
       if (entry.selectedIds.has(fid)) entry.selectedIds.delete(fid);
       else entry.selectedIds.add(fid);
       const redrawStart = performance.now();
-      fp_redraw(entry);
+      if (entry.type === "fast_geopoints") fgp_redraw(entry);
+      else fp_redraw(entry);
       const redrawMs = performance.now() - redrawStart;
       const emitStart = performance.now();
       fp_emit_selection(entry);
@@ -1547,7 +1548,8 @@ function fp_install_interactions() {
       if (next.size > 0 || entry.selectedIds.size > 0) {
         entry.selectedIds = next;
         const redrawStart = performance.now();
-        fp_redraw(entry);
+        if (entry.type === "fast_geopoints") fgp_redraw(entry);
+        else fp_redraw(entry);
         const redrawMs = performance.now() - redrawStart;
         const emitStart = performance.now();
         fp_emit_selection(entry);
