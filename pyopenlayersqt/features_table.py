@@ -627,25 +627,24 @@ class FeatureTableWidget(QWidget):
         self._building_selection = False
         self.table.viewport().update()
 
-    def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
-        """Programmatically select rows by keys."""
-        perf_start = time.perf_counter()
+    def _select_row_indices(
+        self,
+        rows: List[int],
+        *,
+        requested_count: int,
+        clear_first: bool,
+        operation: str,
+        perf_start: float,
+        build_start: float,
+    ) -> None:
         sm = self.table.selectionModel()
         if sm is None:
             return
 
-        selection = QtCore.QItemSelection()
-        last_col = max(0, self.model.columnCount() - 1)
-        build_start = time.perf_counter()
-        rows: List[int] = []
-        for key in keys:
-            r = self.model.row_for_key(key)
-            if r is None:
-                continue
-            rows.append(r)
         rows.sort()
         matched_count = len(rows)
-
+        selection = QtCore.QItemSelection()
+        last_col = max(0, self.model.columnCount() - 1)
         range_count = 0
         if rows:
             range_start = rows[0]
@@ -675,9 +674,9 @@ class FeatureTableWidget(QWidget):
         try:
             if virtualized:
                 self._virtual_selected_keys = {
-                    self.model.key_for_row(row)
+                    key
                     for row in rows
-                    if self.model.key_for_row(row) is not None
+                    if (key := self.model.key_for_row(row)) is not None
                 }
                 self.model.set_external_selection(self._virtual_selected_keys)
                 if clear_first:
@@ -698,8 +697,8 @@ class FeatureTableWidget(QWidget):
         _perf_print(
             {
                 "side": "python",
-                "operation": "feature_table_select_keys",
-                "requested_count": len(keys),
+                "operation": operation,
+                "requested_count": requested_count,
                 "matched_count": matched_count,
                 "range_count": range_count,
                 "virtualized": virtualized,
@@ -712,6 +711,45 @@ class FeatureTableWidget(QWidget):
                     "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
                 },
             }
+        )
+
+    def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
+        """Programmatically select rows by keys."""
+        perf_start = time.perf_counter()
+        build_start = time.perf_counter()
+        rows = [
+            row
+            for key in keys
+            if (row := self.model.row_for_key(key)) is not None
+        ]
+        self._select_row_indices(
+            rows,
+            requested_count=len(keys),
+            clear_first=clear_first,
+            operation="feature_table_select_keys",
+            perf_start=perf_start,
+            build_start=build_start,
+        )
+
+    def select_feature_ids(
+        self, layer_id: str, feature_ids: Sequence[str], clear_first: bool = True
+    ) -> None:
+        """Select feature IDs for one layer using sorted continuous row ranges."""
+        perf_start = time.perf_counter()
+        lid = str(layer_id)
+        build_start = time.perf_counter()
+        rows = [
+            row
+            for fid in feature_ids
+            if (row := self.model.row_for(lid, str(fid))) is not None
+        ]
+        self._select_row_indices(
+            rows,
+            requested_count=len(feature_ids),
+            clear_first=clear_first,
+            operation="feature_table_select_feature_ids",
+            perf_start=perf_start,
+            build_start=build_start,
         )
 
     def _on_selection_changed(self, *_args) -> None:
