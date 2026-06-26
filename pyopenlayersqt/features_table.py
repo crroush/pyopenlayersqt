@@ -159,42 +159,47 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
     def data(
         self, index: QtCore.QModelIndex, role: int = Qt.DisplayRole
     ):  # noqa: ANN001
+        result = None
         if not index.isValid():
-            return None
-        r = index.row()
-        c = index.column()
-        if r < 0 or r >= len(self._rows) or c < 0 or c >= len(self._columns):
-            return None
+            return result
+        row_index = index.row()
+        column_index = index.column()
+        if (
+            row_index < 0
+            or row_index >= len(self._rows)
+            or column_index < 0
+            or column_index >= len(self._columns)
+        ):
+            return result
 
-        row = self._rows[r]
-        col = self._columns[c]
+        row = self._rows[row_index]
+        col = self._columns[column_index]
 
         if role in (Qt.DisplayRole, Qt.EditRole):
             try:
                 value = col.getter(row)
+                if col.fmt is not None:
+                    try:
+                        result = col.fmt(value)
+                    except Exception:
+                        result = str(value)
+                else:
+                    result = str(value)
             except Exception:
-                return ""
-            if col.fmt is not None:
-                try:
-                    return col.fmt(value)
-                except Exception:
-                    return str(value)
-            return str(value)
-
-        if role == Qt.ToolTipRole and col.tooltip is not None:
+                result = ""
+        elif role == Qt.ToolTipRole and col.tooltip is not None:
             try:
-                return col.tooltip(row)
+                result = col.tooltip(row)
             except Exception:
-                return None
-
-        if role == Qt.BackgroundRole and self._external_selected_keys:
+                result = None
+        elif role == Qt.BackgroundRole and self._external_selected_keys:
             try:
                 if self._key_fn(row) in self._external_selected_keys:
-                    return QColor(0, 120, 215, 80)
+                    result = QColor(0, 120, 215, 80)
             except Exception:
-                return None
+                result = None
 
-        return None
+        return result
 
     def flags(self, index: QtCore.QModelIndex) -> Qt.ItemFlags:  # noqa: N802
         if not index.isValid():
