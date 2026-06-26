@@ -9,6 +9,7 @@ PYOPENLAYERSQT_PERF=1 or PYOPENLAYERSQT_BENCH=1.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import os
 import sys
 import time
@@ -238,6 +239,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.table_widget: FeatureTableWidget | None = None
         self._map_selection_conn = None
         self._slider_range_conn = None
+        self._pending_time_filter: tuple[float, float] | None = None
+        self._time_filter_timer = QtCore.QTimer(self)
+        self._time_filter_timer.setSingleShot(True)
+        self._time_filter_timer.setInterval(50)
+        self._time_filter_timer.timeout.connect(self._apply_pending_time_filter)
 
         self._setup_ui()
         if self.cli_args.csv:
@@ -433,6 +439,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.progress_bar.setVisible(True)
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
 
+        self._time_filter_timer.stop()
+        self._pending_time_filter = None
         self.fast_layer.clear()
         self.chunk_list = []
         self.feature_ids = []
@@ -590,10 +598,19 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             t_min = float(self.df[self.mapped_epoch_col].min())
             t_max = float(self.df[self.mapped_epoch_col].max())
             self.slider.setEnabled(True)
+            self.slider.set_value_formatter(self._format_epoch_label)
             self.slider.set_range(t_min, t_max)
             if self._slider_range_conn:
                 self.slider.rangeChanged.disconnect(self._slider_range_conn)
-            self._slider_range_conn = self.slider.rangeChanged.connect(self.filter_by_time)
+            self._slider_range_conn = self.slider.rangeChanged.connect(
+                self._on_time_slider_changed
+            )
+        else:
+            if self._slider_range_conn:
+                self.slider.rangeChanged.disconnect(self._slider_range_conn)
+                self._slider_range_conn = None
+            self.slider.set_value_formatter(None)
+            self.slider.setEnabled(False)
 
         lats = self.df[self.current_lat_col].values
         lons = self.df[self.current_lon_col].values
@@ -622,6 +639,24 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             )
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
+
+    def _format_epoch_label(self, value: float) -> str:
+        try:
+            dt = datetime.fromtimestamp(float(value), tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return str(value)
+        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    def _on_time_slider_changed(self, min_val: float, max_val: float) -> None:
+        self._pending_time_filter = (float(min_val), float(max_val))
+        self._time_filter_timer.start()
+
+    def _apply_pending_time_filter(self) -> None:
+        if self._pending_time_filter is None:
+            return
+        min_val, max_val = self._pending_time_filter
+        self._pending_time_filter = None
+        self.filter_by_time(min_val, max_val)
 
     def filter_by_time(self, min_val: float, max_val: float) -> None:
         if self.df is None:

@@ -378,6 +378,7 @@ class RangeSliderWidget(QWidget):
         self._max_numeric: float = 100.0
         self._step: float = step
         self._show_value_tooltips = show_value_tooltips
+        self._value_formatter: Optional[Callable[[float], str]] = None
         self._iso_origin_ts: float = 0.0
         self._iso_step_seconds: float = 1.0
 
@@ -558,8 +559,21 @@ class RangeSliderWidget(QWidget):
         """Convert numeric value to slider position."""
         return int((value - self._min_numeric) / self._step)
 
+    def set_value_formatter(
+        self, formatter: Optional[Callable[[float], str]]
+    ) -> None:
+        """Set a formatter for numeric labels and handle tooltips."""
+        self._value_formatter = formatter
+        self._update_labels()
+        if self._show_value_tooltips:
+            self._slider.setTooltipFormatter(
+                lambda slider_val: self._format_value(self._slider_to_value(slider_val))
+            )
+
     def _format_value(self, numeric_value: float) -> str:
         """Format a numeric value for display."""
+        if self._value_formatter is not None:
+            return self._value_formatter(numeric_value)
         if self._is_iso8601:
             idx = int(numeric_value)
             if self._iso_values:
