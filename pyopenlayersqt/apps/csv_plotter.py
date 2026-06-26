@@ -22,22 +22,41 @@ from pyopenlayersqt import FastPointsStyle, OLMapWidget, RangeSliderWidget
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
 
 
+def _turbo_rgb(values: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Approximate Google's Turbo color map for values in [0, 1]."""
+    x = np.clip(values.astype(np.float64, copy=False), 0.0, 1.0)
+    red = 34.61 + x * (
+        1172.33 + x * (-10793.56 + x * (33300.12 + x * (-38394.49 + x * 14825.05)))
+    )
+    green = 23.31 + x * (
+        557.33 + x * (1225.33 + x * (-3574.96 + x * (1073.77 + x * 707.56)))
+    )
+    blue = 27.20 + x * (
+        3211.10 + x * (-15327.97 + x * (27814.00 + x * (-22569.18 + x * 6838.66)))
+    )
+    return (
+        np.clip(np.rint(red), 0, 255).astype(np.uint32),
+        np.clip(np.rint(green), 0, 255).astype(np.uint32),
+        np.clip(np.rint(blue), 0, 255).astype(np.uint32),
+    )
+
+
 def _category_codes_to_packed_rgba(codes: np.ndarray) -> np.ndarray:
-    """Map integer category codes to deterministic packed RGBA colors."""
+    """Map integer category codes to bright Turbo-like packed RGBA colors."""
     code_arr = np.asarray(codes, dtype=np.int64)
-    safe_codes = np.where(code_arr < 0, 0, code_arr).astype(np.uint32, copy=False)
-    hashed = safe_codes * np.uint32(2654435761)
-    red = 80 + (hashed & np.uint32(0x7F))
-    green = 80 + ((hashed >> np.uint32(8)) & np.uint32(0x7F))
-    blue = 80 + ((hashed >> np.uint32(16)) & np.uint32(0x7F))
-    alpha = np.full(code_arr.shape, 204, dtype=np.uint32)
+    safe_codes = np.where(code_arr < 0, 0, code_arr).astype(np.float64, copy=False)
+    # Golden-ratio spacing keeps adjacent category codes visually distinct while
+    # preserving a compact integer-code representation for large data sets.
+    color_positions = np.mod(safe_codes * 0.6180339887498949, 1.0)
+    red, green, blue = _turbo_rgb(color_positions)
+    alpha = np.full(code_arr.shape, 255, dtype=np.uint32)
     packed = (
         (red << np.uint32(24))
         | (green << np.uint32(16))
         | (blue << np.uint32(8))
         | alpha
     )
-    packed[code_arr < 0] = np.uint32(0x999999CC)
+    packed[code_arr < 0] = np.uint32(0x999999FF)
     return packed.astype(np.uint32, copy=False)
 
 
