@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Manual CSV FastPoints viewer for profiling streaming load and selection.
 
-This app is intentionally kept outside the package baseline. It mirrors the
-large-CSV workflow used while investigating FastPoints selection performance and
-prints PERF lines when PYOPENLAYERSQT_PERF=1 or PYOPENLAYERSQT_BENCH=1.
+This console app mirrors the large-CSV workflow used while investigating
+FastPoints selection performance and prints PERF lines when
+PYOPENLAYERSQT_PERF=1 or PYOPENLAYERSQT_BENCH=1.
 """
 
 from __future__ import annotations
@@ -14,16 +14,11 @@ import hashlib
 import os
 import sys
 import time
-from pathlib import Path
 from typing import Sequence
 
 import numpy as np
 import pandas as pd
 from PySide6 import QtCore, QtGui, QtWidgets
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 from pyopenlayersqt import FastPointsStyle, OLMapWidget, RangeSliderWidget
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
@@ -204,6 +199,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.mapped_epoch_col = "_slider_epoch_time"
         self.feature_ids: list[str] | np.ndarray = []
         self.current_selection_fids: list[str] = []
+        self.table_widget: FeatureTableWidget | None = None
         self._map_selection_conn = None
         self._slider_range_conn = None
 
@@ -288,7 +284,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if not self.current_selection_fids:
             return
         self.fast_layer.remove_points(self.current_selection_fids)
-        if hasattr(self, "table_widget"):
+        if self.table_widget is not None:
             keys_to_remove = [
                 (self.fast_layer.id, fid) for fid in self.current_selection_fids
             ]
@@ -379,9 +375,10 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.loader_thread.start()
 
     def _initialize_empty_table(self, columns: Sequence[str]) -> None:
-        if hasattr(self, "table_widget") and self.table_widget:
+        if self.table_widget is not None:
             self.table_layout.removeWidget(self.table_widget)
             self.table_widget.deleteLater()
+            self.table_widget = None
 
         columns_spec = [
             ColumnSpec(col, lambda row, c=col: str(row.get(c, "")))
@@ -494,8 +491,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(
                 self,
                 "Schema Mismatch",
-                "The following files had structural differences or read errors and were skipped:\n\n"
-                + "\n".join(error_files),
+                (
+                    "The following files had structural differences or read errors "
+                    "and were skipped:\n\n"
+                    + "\n".join(error_files)
+                ),
             )
         self.statusBar().showMessage(f"Successfully loaded {len(self.df):,} points.", 10000)
 

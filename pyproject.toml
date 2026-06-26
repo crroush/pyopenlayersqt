@@ -28,7 +28,11 @@ dependencies = [
   "numpy>=1.23",
   "pillow>=10.0",
   "matplotlib>=3.7",
+  "pandas>=2.0",
 ]
+
+[project.scripts]
+csv_plotter = "pyopenlayersqt.apps.csv_plotter:main"
 
 [project.urls]
 Homepage = "https://github.com/crroush/pyopenlayersqt"
