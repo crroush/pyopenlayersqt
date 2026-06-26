@@ -958,7 +958,11 @@ function _fgp_sec(lat) {
   return c === 0 ? 1e9 : (1.0 / c);
 }
 
-function fgp_redraw(entry) { if (entry.source) entry.source.changed(); }
+function fgp_redraw(entry) {
+  entry.renderVersion = (entry.renderVersion || 0) + 1;
+  entry.renderCache = null;
+  if (entry.source) entry.source.changed();
+}
 function fgp_emit_selection(entry) {
   emitToPython('selection', { layer_id: entry.layer_id, feature_ids: Array.from(entry.selectedIds) });
 }
@@ -969,6 +973,25 @@ function fgp_make_canvas_layer(entry) {
     ratio: 1,
     canvasFunction: function(extent, resolution, pixelRatio, size, projection) {
       const perfStart = performance.now();
+      const cacheKey = [
+        entry.renderVersion || 0,
+        state.viewInteracting ? 1 : 0,
+        resolution.toPrecision(12),
+        pixelRatio,
+        size[0],
+        size[1],
+        extent.map((v) => v.toFixed(2)).join(',')
+      ].join('|');
+      if (entry.renderCache && entry.renderCache.key === cacheKey) {
+        if (window.PYOLQT_RENDER_PERF) {
+          emitToPython("perf", {
+            layer_id: entry.layer_id,
+            operation: "fast_geopoints_render_cache_hit",
+            elapsed_ms: (performance.now() - perfStart).toFixed(2)
+          });
+        }
+        return entry.renderCache.canvas;
+      }
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.floor(size[0] * pixelRatio));
       canvas.height = Math.max(1, Math.floor(size[1] * pixelRatio));
@@ -1202,6 +1225,7 @@ function fgp_make_canvas_layer(entry) {
         });
       }
 
+      entry.renderCache = { key: cacheKey, canvas: canvas };
       return canvas;
     },
   });
@@ -1240,6 +1264,8 @@ function cmd_fast_geopoints_add_layer(msg) {
     style,
     source: null,
     layer: null,
+    renderVersion: 0,
+    renderCache: null,
   };
 
   fp_qt_init(entry);
@@ -2459,10 +2485,19 @@ function cmd_countries_set_visible(msg) {
       });
       
       state.viewInteracting = false;
-      // redraw fast layers so ellipses appear after interaction ends
-      for (const [lid, e] of state.layers.entries()) {
-        if (e.type === 'fast_geopoints' && e.ellipsesVisible) fgp_redraw(e);
+      // Redraw FastGeoPoints ellipses after interaction settles. During movement,
+      // the render path skips ellipses for responsiveness; debouncing avoids
+      // immediately starting an expensive ellipse redraw if another pan/zoom begins.
+      if (state.fastGeoPointsIdleRedrawTimer) {
+        clearTimeout(state.fastGeoPointsIdleRedrawTimer);
       }
+      state.fastGeoPointsIdleRedrawTimer = setTimeout(function() {
+        state.fastGeoPointsIdleRedrawTimer = null;
+        if (state.viewInteracting) return;
+        for (const [lid, e] of state.layers.entries()) {
+          if (e.type === 'fast_geopoints' && e.ellipsesVisible) fgp_redraw(e);
+        }
+      }, 120);
     });
     fp_install_interactions();
     _install_context_menu_bridge();
