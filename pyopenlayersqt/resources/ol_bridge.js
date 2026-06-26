@@ -980,53 +980,97 @@ function fgp_make_canvas_layer(entry) {
 
       const scaleX = canvas.width / (extent[2] - extent[0]);
       const scaleY = canvas.height / (extent[3] - extent[1]);
+      const TAU = Math.PI * 2;
+      const st = entry.style || {};
+      const selectedSet = entry.selectedIds || new Set();
 
       const queryStart = performance.now();
-      const cand = fp_query_extent(entry, extent);
+      const root = entry.qtRoot;
       const queryTime = performance.now() - queryStart;
 
-      const TAU = Math.PI * 2;
+      let visitedNodeCount = 0;
+      let collapsedNodeCount = 0;
+      let scannedLeafPointCount = 0;
+      let skippedDuplicatePixels = 0;
+      let representativeCount = 0;
+      let ellipseDrawCount = 0;
+      let pointDrawCount = 0;
 
-      // ---- Ellipses (batched) ----
-      const st = entry.style || {};
+      function inExtent(i) {
+        return entry.x[i] >= extent[0] && entry.x[i] <= extent[2] &&
+               entry.y[i] >= extent[1] && entry.y[i] <= extent[3];
+      }
+
+      function nodePixelSize(node) {
+        return {
+          w: ((node.maxX - node.minX) / resolution) * pixelRatio,
+          h: ((node.maxY - node.minY) / resolution) * pixelRatio,
+        };
+      }
+
+      function traverseRepresentatives(onIndex) {
+        if (!root) return;
+        const stack = [root];
+        while (stack.length) {
+          const node = stack.pop();
+          if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) continue;
+          visitedNodeCount++;
+          const px = nodePixelSize(node);
+          if (px.w <= 1.0 && px.h <= 1.0) {
+            const rep = fp_qt_pick_representative(entry, node, true);
+            if (rep >= 0 && inExtent(rep)) {
+              representativeCount++;
+              collapsedNodeCount++;
+              onIndex(rep);
+            }
+            continue;
+          }
+          if (node.children) {
+            for (let c = 0; c < 4; c++) stack.push(node.children[c]);
+            continue;
+          }
+          for (let k = 0; k < node.items.length; k++) {
+            const i = node.items[k];
+            scannedLeafPointCount++;
+            if (entry.deleted[i] || entry.hidden[i] || selectedSet.has(entry.ids[i]) || !inExtent(i)) continue;
+            onIndex(i);
+          }
+        }
+      }
+
+      // ---- Ellipses (batched, quadtree-collapsed for unselected points) ----
       const unselectedEllipsesVisible = entry.ellipsesVisible && st.ellipses_visible !== false;
       const selectedEllipsesVisible = entry.selectedEllipsesVisible && st.selected_ellipses_visible !== false;
       const skipWhileInteracting = (st.skip_ellipses_while_interacting !== false);
       const canDrawEllipses = (unselectedEllipsesVisible || selectedEllipsesVisible) && !(skipWhileInteracting && state.viewInteracting);
 
       const ellipseStart = performance.now();
-      let ellipseDrawCount = 0;
       if (canDrawEllipses) {
         const minPx = Math.max(0.0, Number(st.min_ellipse_px || 0.0));
         const maxPerPath = Math.max(250, (st.max_ellipses_per_path | 0) || 2000);
-        const strokeCss = rgba_to_css(st.ellipse_stroke_rgba || [255,204,0,180]);
-        const strokeW = (Number(st.ellipse_stroke_width || 1.5) * pixelRatio);
-        const fillEll = !!st.fill_ellipses;
-        const fillCss = rgba_to_css(st.ellipse_fill_rgba || [255,204,0,40]);
+
+        function addEllipsePath(i, selected) {
+          const rx = (entry.a[i] / resolution) * pixelRatio;
+          const ry = (entry.b[i] / resolution) * pixelRatio;
+          if (rx < minPx && ry < minPx) return false;
+          const x = (entry.x[i] - extent[0]) * scaleX;
+          const y = (extent[3] - entry.y[i]) * scaleY;
+          const rot = entry.rot[i];
+          ctx.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
+          ctx.ellipse(x, y, rx, ry, rot, 0, TAU);
+          ellipseDrawCount++;
+          return true;
+        }
 
         if (unselectedEllipsesVisible) {
-          // Unselected first
-          ctx.lineWidth = strokeW;
-          ctx.strokeStyle = strokeCss;
-          if (fillEll) ctx.fillStyle = fillCss;
+          ctx.lineWidth = (Number(st.ellipse_stroke_width || 1.5) * pixelRatio);
+          ctx.strokeStyle = rgba_to_css(st.ellipse_stroke_rgba || [255,204,0,180]);
+          const fillEll = !!st.fill_ellipses;
+          if (fillEll) ctx.fillStyle = rgba_to_css(st.ellipse_fill_rgba || [255,204,0,40]);
           let nInPath = 0;
           ctx.beginPath();
-          for (let k = 0; k < cand.length; k++) {
-            const i = cand[k];
-            if (entry.deleted[i] || entry.hidden[i]) continue;
-            const fid = entry.ids[i];
-            if (entry.selectedIds.has(fid)) continue;
-            const rx = (entry.a[i] / resolution) * pixelRatio;
-            const ry = (entry.b[i] / resolution) * pixelRatio;
-            if (rx < minPx && ry < minPx) continue;
-            const x = (entry.x[i] - extent[0]) * scaleX;
-            const y = (extent[3] - entry.y[i]) * scaleY;
-            // IMPORTANT: moveTo prevents stray connecting lines between ellipses
-            const rot = entry.rot[i];
-            ctx.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
-            ctx.ellipse(x, y, rx, ry, rot, 0, TAU);
-            ellipseDrawCount++;
-
+          traverseRepresentatives((i) => {
+            if (!addEllipsePath(i, false)) return;
             nInPath++;
             if (nInPath >= maxPerPath) {
               if (fillEll) ctx.fill();
@@ -1034,7 +1078,7 @@ function fgp_make_canvas_layer(entry) {
               ctx.beginPath();
               nInPath = 0;
             }
-          }
+          });
           if (nInPath > 0) {
             if (fillEll) ctx.fill();
             ctx.stroke();
@@ -1042,27 +1086,14 @@ function fgp_make_canvas_layer(entry) {
         }
 
         if (selectedEllipsesVisible) {
-          // Selected ellipses on top
-          const selStrokeCss = rgba_to_css(st.selected_ellipse_stroke_rgba || [0,255,255,255]);
-          const selStrokeW = (Number(st.selected_ellipse_stroke_width || (st.ellipse_stroke_width || 1.5) * 1.8) * pixelRatio);
-          ctx.lineWidth = selStrokeW;
-          ctx.strokeStyle = selStrokeCss;
+          ctx.lineWidth = (Number(st.selected_ellipse_stroke_width || (st.ellipse_stroke_width || 1.5) * 1.8) * pixelRatio);
+          ctx.strokeStyle = rgba_to_css(st.selected_ellipse_stroke_rgba || [0,255,255,255]);
           let nInPath = 0;
           ctx.beginPath();
-          for (let k = 0; k < cand.length; k++) {
-            const i = cand[k];
-            if (entry.deleted[i] || entry.hidden[i]) continue;
-            const fid = entry.ids[i];
-            if (!entry.selectedIds.has(fid)) continue;
-            const rx = (entry.a[i] / resolution) * pixelRatio;
-            const ry = (entry.b[i] / resolution) * pixelRatio;
-            if (rx < minPx && ry < minPx) continue;
-            const x = (entry.x[i] - extent[0]) * scaleX;
-            const y = (extent[3] - entry.y[i]) * scaleY;
-            const rot = entry.rot[i];
-            ctx.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
-            ctx.ellipse(x, y, rx, ry, rot, 0, TAU);
-            ellipseDrawCount++;
+          for (const fid of selectedSet) {
+            const i = entry.idIndex.get(String(fid));
+            if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
+            if (!addEllipsePath(i, true)) continue;
             nInPath++;
             if (nInPath >= maxPerPath) {
               ctx.stroke();
@@ -1075,62 +1106,76 @@ function fgp_make_canvas_layer(entry) {
       }
       const ellipseTime = performance.now() - ellipseStart;
 
-      // ---- Points ----
+      // ---- Points (batched, quadtree-collapsed for unselected points) ----
       const pointStart = performance.now();
-      let pointDrawCount = 0;
-      // Draw unselected points first, then selected points on top
-      const defCss = rgba_to_css(st.default_point_rgba || [255,51,51,204]);
-      const selCss = rgba_to_css(st.selected_point_rgba || [0,255,255,255]);
+      const batches = new Map();
+      const seenDrawPixels = new Set();
 
-      // Unselected points first
-      for (let k = 0; k < cand.length; k++) {
-        const i = cand[k];
-        if (entry.deleted[i] || entry.hidden[i]) continue;
+      function addPointToBatch(i, selectedOverride) {
         const fid = entry.ids[i];
-        if (entry.selectedIds.has(fid)) continue; // Skip selected, draw later
-        
+        const selected = selectedOverride === true || selectedSet.has(fid);
+        if (!selectedOverride && selected) return;
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
-        const radius = (st.point_radius || 3.0) * pixelRatio;
-
-        let fill = defCss;
-        const u = entry.color_u32[i];
-        if (u !== 0) fill = rgba_to_css(rgba_from_u32(u));
-
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, TAU);
-        ctx.fillStyle = fill;
-        ctx.fill();
+        const px = Math.round(x);
+        const py = Math.round(y);
+        const radius = (selected ? (st.selected_point_radius || 6.0) : (st.point_radius || 3.0)) * pixelRatio;
+        let colorKey;
+        if (selected) {
+          colorKey = rgba_to_css(st.selected_point_rgba || [0,255,255,255]);
+        } else {
+          const u = entry.color_u32[i];
+          colorKey = u !== 0 ? rgba_to_css(rgba_from_u32(u)) : rgba_to_css(st.default_point_rgba || [255,51,51,204]);
+          const dedupeKey = px + ',' + py + ',' + Math.round(radius * 10) + ',' + colorKey;
+          if (seenDrawPixels.has(dedupeKey)) {
+            skippedDuplicatePixels++;
+            return;
+          }
+          seenDrawPixels.add(dedupeKey);
+        }
+        const batchKey = colorKey + '|' + radius;
+        let batch = batches.get(batchKey);
+        if (!batch) {
+          batch = { color: colorKey, radius: radius, points: [] };
+          batches.set(batchKey, batch);
+        }
+        batch.points.push([x, y]);
         pointDrawCount++;
       }
-      
-      // Selected points on top
-      for (let k = 0; k < cand.length; k++) {
-        const i = cand[k];
-        if (entry.deleted[i] || entry.hidden[i]) continue;
-        const fid = entry.ids[i];
-        if (!entry.selectedIds.has(fid)) continue; // Only selected
-        
-        const x = (entry.x[i] - extent[0]) * scaleX;
-        const y = (extent[3] - entry.y[i]) * scaleY;
-        const radius = (st.selected_point_radius || 6.0) * pixelRatio;
 
+      traverseRepresentatives((i) => addPointToBatch(i, false));
+      for (const fid of selectedSet) {
+        const i = entry.idIndex.get(String(fid));
+        if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
+        addPointToBatch(i, true);
+      }
+
+      for (const batch of batches.values()) {
+        ctx.fillStyle = batch.color;
         ctx.beginPath();
-        ctx.arc(x, y, radius, 0, TAU);
-        ctx.fillStyle = selCss;
+        for (let k = 0; k < batch.points.length; k++) {
+          const pt = batch.points[k];
+          ctx.moveTo(pt[0] + batch.radius, pt[1]);
+          ctx.arc(pt[0], pt[1], batch.radius, 0, TAU);
+        }
         ctx.fill();
-        pointDrawCount++;
       }
       const pointTime = performance.now() - pointStart;
       const totalTime = performance.now() - perfStart;
 
-      if (cand.length > 100) {
+      if ((entry.x.length > 100) || window.PYOLQT_RENDER_PERF) {
         emitToPython("perf", {
           layer_id: entry.layer_id,
           operation: "fast_geopoints_render",
-          point_count: cand.length,
+          point_count: entry.x.length,
+          visited_node_count: visitedNodeCount,
+          collapsed_node_count: collapsedNodeCount,
+          scanned_leaf_point_count: scannedLeafPointCount,
+          representative_count: representativeCount,
           ellipse_draw_count: ellipseDrawCount,
           point_draw_count: pointDrawCount,
+          skipped_duplicate_pixels: skippedDuplicatePixels,
+          batch_count: batches.size,
           ellipses_visible: !!entry.ellipsesVisible,
           selected_ellipses_visible: !!entry.selectedEllipsesVisible,
           times: {
@@ -1173,6 +1218,7 @@ function cmd_fast_geopoints_add_layer(msg) {
     b: [],
     rot: [],
     grid: new Map(),
+    qtRoot: null,
     cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
     idIndex: new Map(),
@@ -1181,6 +1227,7 @@ function cmd_fast_geopoints_add_layer(msg) {
     layer: null,
   };
 
+  fp_qt_init(entry);
   fgp_make_canvas_layer(entry);
   state.map.addLayer(entry.layer);
   state.layers.set(layer_id, entry);
@@ -1223,10 +1270,12 @@ function cmd_fast_geopoints_add_points(msg) {
     entry.rot.push((90.0 - Number(tilt_deg[i] || 0.0)) * Math.PI / 180.0);
 
     fp_index_insert(entry, startIndex + i);
+    fp_qt_insert(entry, startIndex + i);
   }
   const convertIndexMs = performance.now() - convertStart;
+  const shouldRedraw = (msg.redraw !== false);
   const redrawStart = performance.now();
-  fgp_redraw(entry);
+  if (shouldRedraw) fgp_redraw(entry);
   const redrawMs = performance.now() - redrawStart;
   emitToPython("perf", {
     side: "javascript",
@@ -1237,10 +1286,17 @@ function cmd_fast_geopoints_add_points(msg) {
     total_points: entry.x.length,
     times: {
       convert_index_ms: convertIndexMs.toFixed(2),
+      redraw_requested: shouldRedraw,
       redraw_request_ms: redrawMs.toFixed(2),
       total_ms: (performance.now() - perfStart).toFixed(2)
     }
   });
+}
+
+function cmd_fast_geopoints_redraw(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== 'fast_geopoints') return;
+  fgp_redraw(entry);
 }
 
 function cmd_fast_geopoints_clear(msg) {
@@ -1249,6 +1305,7 @@ function cmd_fast_geopoints_clear(msg) {
   entry.x = []; entry.y = []; entry.ids = []; entry.color_u32 = []; entry.deleted = []; entry.hidden = [];
   entry.a = []; entry.b = []; entry.rot = [];
   entry.grid = new Map();
+  fp_qt_init(entry);
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
   fgp_redraw(entry);
@@ -1264,6 +1321,7 @@ function cmd_fast_geopoints_remove_ids(msg) {
   for (const id of ids) {
     const i = entry.idIndex.get(id);
     if (i == null || entry.deleted[i]) continue;
+    if (!entry.hidden[i]) fp_qt_update_visibility(entry, i, -1);
     entry.deleted[i] = true;
     entry.selectedIds.delete(entry.ids[i]);
   }
@@ -1321,8 +1379,9 @@ function cmd_fast_geopoints_hide_ids(msg) {
   if (ids.size === 0) return;
   for (const id of ids) {
     const i = entry.idIndex.get(id);
-    if (i == null || entry.deleted[i]) continue;
+    if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
+    fp_qt_update_visibility(entry, i, -1);
   }
   fgp_redraw(entry);
 }
@@ -1335,8 +1394,9 @@ function cmd_fast_geopoints_show_ids(msg) {
   if (ids.size === 0) return;
   for (const id of ids) {
     const i = entry.idIndex.get(id);
-    if (i == null || entry.deleted[i]) continue;
+    if (i == null || entry.deleted[i] || !entry.hidden[i]) continue;
     entry.hidden[i] = false;
+    fp_qt_update_visibility(entry, i, 1);
   }
   fgp_redraw(entry);
 }
@@ -1345,6 +1405,7 @@ function cmd_fast_geopoints_show_all(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
   for (let i = 0; i < entry.hidden.length; i++) {
+    if (entry.hidden[i] && !entry.deleted[i]) fp_qt_update_visibility(entry, i, 1);
     entry.hidden[i] = false;
   }
   fgp_redraw(entry);
@@ -2810,6 +2871,7 @@ function cmd_countries_set_visible(msg) {
     // --- FastGeoPoints ---
     case "fast_geopoints.add_layer": return cmd_fast_geopoints_add_layer(msg);
     case "fast_geopoints.add_points": return cmd_fast_geopoints_add_points(msg);
+    case "fast_geopoints.redraw": return cmd_fast_geopoints_redraw(msg);
     case "fast_geopoints.clear": return cmd_fast_geopoints_clear(msg);
     case "fast_geopoints.remove_ids": return cmd_fast_geopoints_remove_ids(msg);
     case "fast_geopoints.set_opacity": return cmd_fast_geopoints_set_opacity(msg);

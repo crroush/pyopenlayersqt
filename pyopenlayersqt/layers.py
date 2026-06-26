@@ -836,6 +836,7 @@ class FastPointsLayer(BaseLayer):
                 - RGBA tuple: (r, g, b, a) with values 0-255
                 - QColor object from PySide6.QtGui
             chunk_size: Number of points per chunk to avoid large JSON payloads.
+            redraw: Whether to request a redraw after the final chunk is sent.
         """
         n = len(coords)
         if n == 0:
@@ -1015,6 +1016,7 @@ class FastGeoPointsLayer(BaseLayer):
         ids: list[str] | None = None,
         colors_rgba: list[Union[tuple[int, int, int, int], Any]] | None = None,
         chunk_size: int = 50000,
+        redraw: bool = True,
     ) -> None:
         """Add points with uncertainty ellipses to the layer.
 
@@ -1028,6 +1030,7 @@ class FastGeoPointsLayer(BaseLayer):
                 - RGBA tuple: (r, g, b, a) with values 0-255
                 - QColor object from PySide6.QtGui
             chunk_size: Number of points per chunk to avoid large JSON payloads.
+            redraw: Whether to request a redraw after the final chunk is sent.
         """
         if not len(coords) == len(sma_m) == len(smi_m) == len(tilt_deg):
             raise ValueError("coords/sma_m/smi_m/tilt_deg must have the same length")
@@ -1056,12 +1059,18 @@ class FastGeoPointsLayer(BaseLayer):
                 "sma_m": np.asarray(sma_m[start:end], dtype=float).tolist(),
                 "smi_m": np.asarray(smi_m[start:end], dtype=float).tolist(),
                 "tilt_deg": np.asarray(tilt_deg[start:end], dtype=float).tolist(),
+                "redraw": bool(redraw and end == n),
             }
             if ids is not None:
                 msg["ids"] = ids[start:end]
             if colors_rgba is not None:
                 msg["colors"] = _pack_rgba_colors(colors_rgba[start:end])
             self._map_widget._send(msg)
+
+
+    def redraw(self) -> None:
+        """Request a redraw after one or more deferred FastGeoPoints updates."""
+        self._map_widget._send({"type": "fast_geopoints.redraw", "layer_id": self.id})
 
     def remove_ids(self, feature_ids: Sequence[str]) -> None:
         """Remove fast geopoints by id (marks deleted in JS)."""
