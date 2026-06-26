@@ -43,6 +43,34 @@ def perf(message: str, **fields: object) -> None:
     print(f"PERF: app {message}" + (f" {suffix}" if suffix else ""), flush=True)
 
 
+class DataFrameTableRow:
+    """Lightweight table row backed by a chunk DataFrame.
+
+    This avoids converting every CSV row into a Python dict during load. The
+    table model only needs a mapping-like ``get`` method for visible cells and
+    key extraction, so values can be fetched lazily from the retained chunk.
+    """
+
+    __slots__ = ("_df", "_row_index", "_layer_id", "_feature_id")
+
+    def __init__(
+        self, df: pd.DataFrame, row_index: int, layer_id: str, feature_id: str
+    ) -> None:
+        self._df = df
+        self._row_index = row_index
+        self._layer_id = layer_id
+        self._feature_id = feature_id
+
+    def get(self, key: str, default: object = None) -> object:
+        if key == "_layer_id":
+            return self._layer_id
+        if key == "_feature_id":
+            return self._feature_id
+        if key in self._df.columns:
+            return self._df[key].iat[self._row_index]
+        return default
+
+
 class CsvLoaderThread(QtCore.QThread):
     """Background thread that streams CSV chunks to the GUI thread."""
 
@@ -62,35 +90,38 @@ class CsvLoaderThread(QtCore.QThread):
         try:
             error_files: list[str] = []
             self.status_update.emit("Calculating total data size...")
-            total_lines = 0
-            for path in self.paths:
-                try:
-                    with open(path, "rb") as fh:
-                        total_lines += sum(1 for _ in fh)
-                except Exception:
-                    pass
-            total_lines = max(total_lines, 1)
-            lines_read = 0
+            file_sizes = {path: max(os.path.getsize(path), 0) for path in self.paths}
+            total_bytes = max(sum(file_sizes.values()), 1)
+            bytes_finished = 0
 
             for path in self.paths:
                 file_name = os.path.basename(path)
+                file_size = file_sizes.get(path, 0)
                 self.status_update.emit(f"Streaming chunks from {file_name}...")
                 try:
                     temp_schema = pd.read_csv(path, nrows=0)
                     if list(temp_schema.columns) != self.base_columns:
                         error_files.append(file_name)
-                        with open(path, "rb") as fh:
-                            lines_read += sum(1 for _ in fh)
+                        bytes_finished += file_size
+                        self.progress_update.emit(
+                            min(int((bytes_finished / total_bytes) * 100), 100)
+                        )
                         continue
 
-                    for chunk in pd.read_csv(path, chunksize=self.chunk_size):
-                        self.chunk_ready.emit(chunk)
-                        lines_read += len(chunk)
-                        self.progress_update.emit(
-                            min(int((lines_read / total_lines) * 100), 100)
-                        )
+                    with open(path, "rb") as fh:
+                        for chunk in pd.read_csv(fh, chunksize=self.chunk_size):
+                            self.chunk_ready.emit(chunk)
+                            try:
+                                current_bytes = bytes_finished + fh.tell()
+                            except Exception:
+                                current_bytes = bytes_finished
+                            self.progress_update.emit(
+                                min(int((current_bytes / total_bytes) * 100), 100)
+                            )
+                    bytes_finished += file_size
                 except Exception:
                     error_files.append(file_name)
+                    bytes_finished += file_size
 
             self.progress_update.emit(100)
             self.finished_success.emit(error_files)
@@ -425,14 +456,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         map_ms = (time.perf_counter() - map_start) * 1000.0
 
         table_start = time.perf_counter()
-        properties = chunk_df.to_dict(orient="records")
-        table_rows = []
-        for fid, record in zip(chunk_fids, properties):
-            row_data = record.copy()
-            row_data["_layer_id"] = self.fast_layer.id
-            row_data["_feature_id"] = fid
-            table_rows.append(row_data)
-        to_dict_ms = (time.perf_counter() - table_start) * 1000.0
+        table_rows = (
+            DataFrameTableRow(chunk_df, row_index, self.fast_layer.id, fid)
+            for row_index, fid in enumerate(chunk_fids)
+        )
+        table_rows_ms = (time.perf_counter() - table_start) * 1000.0
 
         append_start = time.perf_counter()
         self.table_widget.append_rows(table_rows)
@@ -446,7 +474,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             rows=num_rows,
             coords_ms=round(coords_ms, 2),
             map_add_ms=round(map_ms, 2),
-            table_to_dict_ms=round(to_dict_ms, 2),
+            table_rows_ms=round(table_rows_ms, 2),
             table_append_ms=round(append_ms, 2),
             total_ms=round((time.perf_counter() - perf_start) * 1000.0, 2),
         )
