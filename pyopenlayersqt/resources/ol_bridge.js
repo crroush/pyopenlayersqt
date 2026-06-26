@@ -968,6 +968,7 @@ function fgp_make_canvas_layer(entry) {
     projection: state.map.getView().getProjection(),
     ratio: 1,
     canvasFunction: function(extent, resolution, pixelRatio, size, projection) {
+      const perfStart = performance.now();
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.floor(size[0] * pixelRatio));
       canvas.height = Math.max(1, Math.floor(size[1] * pixelRatio));
@@ -980,7 +981,9 @@ function fgp_make_canvas_layer(entry) {
       const scaleX = canvas.width / (extent[2] - extent[0]);
       const scaleY = canvas.height / (extent[3] - extent[1]);
 
+      const queryStart = performance.now();
       const cand = fp_query_extent(entry, extent);
+      const queryTime = performance.now() - queryStart;
 
       const TAU = Math.PI * 2;
 
@@ -991,6 +994,8 @@ function fgp_make_canvas_layer(entry) {
       const skipWhileInteracting = (st.skip_ellipses_while_interacting !== false);
       const canDrawEllipses = (unselectedEllipsesVisible || selectedEllipsesVisible) && !(skipWhileInteracting && state.viewInteracting);
 
+      const ellipseStart = performance.now();
+      let ellipseDrawCount = 0;
       if (canDrawEllipses) {
         const minPx = Math.max(0.0, Number(st.min_ellipse_px || 0.0));
         const maxPerPath = Math.max(250, (st.max_ellipses_per_path | 0) || 2000);
@@ -1020,6 +1025,7 @@ function fgp_make_canvas_layer(entry) {
             const rot = entry.rot[i];
             ctx.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
             ctx.ellipse(x, y, rx, ry, rot, 0, TAU);
+            ellipseDrawCount++;
 
             nInPath++;
             if (nInPath >= maxPerPath) {
@@ -1056,6 +1062,7 @@ function fgp_make_canvas_layer(entry) {
             const rot = entry.rot[i];
             ctx.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
             ctx.ellipse(x, y, rx, ry, rot, 0, TAU);
+            ellipseDrawCount++;
             nInPath++;
             if (nInPath >= maxPerPath) {
               ctx.stroke();
@@ -1066,8 +1073,11 @@ function fgp_make_canvas_layer(entry) {
           if (nInPath > 0) ctx.stroke();
         }
       }
+      const ellipseTime = performance.now() - ellipseStart;
 
       // ---- Points ----
+      const pointStart = performance.now();
+      let pointDrawCount = 0;
       // Draw unselected points first, then selected points on top
       const defCss = rgba_to_css(st.default_point_rgba || [255,51,51,204]);
       const selCss = rgba_to_css(st.selected_point_rgba || [0,255,255,255]);
@@ -1091,6 +1101,7 @@ function fgp_make_canvas_layer(entry) {
         ctx.arc(x, y, radius, 0, TAU);
         ctx.fillStyle = fill;
         ctx.fill();
+        pointDrawCount++;
       }
       
       // Selected points on top
@@ -1108,6 +1119,27 @@ function fgp_make_canvas_layer(entry) {
         ctx.arc(x, y, radius, 0, TAU);
         ctx.fillStyle = selCss;
         ctx.fill();
+        pointDrawCount++;
+      }
+      const pointTime = performance.now() - pointStart;
+      const totalTime = performance.now() - perfStart;
+
+      if (cand.length > 100) {
+        emitToPython("perf", {
+          layer_id: entry.layer_id,
+          operation: "fast_geopoints_render",
+          point_count: cand.length,
+          ellipse_draw_count: ellipseDrawCount,
+          point_draw_count: pointDrawCount,
+          ellipses_visible: !!entry.ellipsesVisible,
+          selected_ellipses_visible: !!entry.selectedEllipsesVisible,
+          times: {
+            query_ms: queryTime.toFixed(2),
+            ellipse_ms: ellipseTime.toFixed(2),
+            point_ms: pointTime.toFixed(2),
+            total_ms: totalTime.toFixed(2)
+          }
+        });
       }
 
       return canvas;
@@ -1156,6 +1188,7 @@ function cmd_fast_geopoints_add_layer(msg) {
 }
 
 function cmd_fast_geopoints_add_points(msg) {
+  const perfStart = performance.now();
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
   const coords = msg.coords || [];
@@ -1166,6 +1199,7 @@ function cmd_fast_geopoints_add_points(msg) {
   const colors = msg.colors || null;
 
   const startIndex = entry.x.length;
+  const convertStart = performance.now();
   for (let i = 0; i < coords.length; i++) {
     const lon = coords[i][0], lat = coords[i][1];
     const p = lonlat_to_3857(lon, lat);
@@ -1190,7 +1224,23 @@ function cmd_fast_geopoints_add_points(msg) {
 
     fp_index_insert(entry, startIndex + i);
   }
+  const convertIndexMs = performance.now() - convertStart;
+  const redrawStart = performance.now();
   fgp_redraw(entry);
+  const redrawMs = performance.now() - redrawStart;
+  emitToPython("perf", {
+    side: "javascript",
+    layer_id: entry.layer_id,
+    operation: "fast_geopoints_add_points",
+    point_count: coords.length,
+    start_index: startIndex,
+    total_points: entry.x.length,
+    times: {
+      convert_index_ms: convertIndexMs.toFixed(2),
+      redraw_request_ms: redrawMs.toFixed(2),
+      total_ms: (performance.now() - perfStart).toFixed(2)
+    }
+  });
 }
 
 function cmd_fast_geopoints_clear(msg) {

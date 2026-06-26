@@ -263,6 +263,7 @@ class OLMapWidget(QWebEngineView):
         self._pending_flush_active = False
         self._pending_flush_start = 0.0
         self._pending_flush_count = 0
+        self._emit_ready_after_flush = False
         self._measurement_callbacks: list[Any] = []
 
         # load
@@ -608,6 +609,9 @@ class OLMapWidget(QWebEngineView):
                     },
                     flush=True,
                 )
+            if self._emit_ready_after_flush:
+                self._emit_ready_after_flush = False
+                self.ready.emit()
             return
 
         msg = self._pending.pop(0)
@@ -713,8 +717,11 @@ class OLMapWidget(QWebEngineView):
         )
         self._send_now({"type": "base.set_visible", "visible": self._show_osm_layer})
         self.set_country_boundaries_visible(self._show_country_boundaries)
-        self._flush_pending()
-        self.ready.emit()
+        if self._pending:
+            self._emit_ready_after_flush = True
+            self._flush_pending()
+        else:
+            self.ready.emit()
 
     def _handle_selection_event(self, payload_json: str) -> None:
         obj = self._parse_event_payload(payload_json)
