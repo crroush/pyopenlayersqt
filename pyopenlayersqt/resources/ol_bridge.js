@@ -543,6 +543,8 @@ function fp_emit_singleclick(entry, ctrl_key, meta_key, shift_key, alt_key) {
 
 function fp_redraw(entry) {
   if (entry.source) entry.source.changed();
+  if (entry.layer) entry.layer.changed();
+  if (state.map) state.map.render();
 }
 
 function fp_make_canvas_layer(entry) {
