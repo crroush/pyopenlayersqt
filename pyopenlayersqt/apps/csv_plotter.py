@@ -245,7 +245,7 @@ class CsvImportDialog(QtWidgets.QDialog):
 class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
     def __init__(self, cli_args: argparse.Namespace):
         super().__init__()
-        self.setWindowTitle("Fast Points CSV Viewer")
+        self.setWindowTitle("CSV Viewer")
         self.resize(1200, 800)
         self.cli_args = cli_args
 
@@ -318,9 +318,23 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.color_cb.currentTextChanged.connect(self.apply_color_by)
         toolbar.addWidget(self.color_cb)
 
+        self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
+        layout.addWidget(self.splitter, stretch=1)
+
+        map_panel = QtWidgets.QWidget()
+        map_layout = QtWidgets.QVBoxLayout(map_panel)
+        map_layout.setContentsMargins(0, 0, 0, 0)
+
         self.map_widget = OLMapWidget(center=(0, 0), zoom=2)
-        self.map_widget.perfReceived.connect(lambda payload: perf("bridge_event", payload=payload))
-        layout.addWidget(self.map_widget, stretch=5)
+        self.map_widget.perfReceived.connect(
+            lambda payload: perf("bridge_event", payload=payload)
+        )
+        map_layout.addWidget(self.map_widget, stretch=1)
+
+        self.slider = RangeSliderWidget()
+        self.slider.setEnabled(False)
+        map_layout.addWidget(self.slider)
+        self.splitter.addWidget(map_panel)
 
         self.fast_layer = self.map_widget.add_fast_points_layer(
             name="Data Points",
@@ -329,14 +343,13 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             cell_size_m=self.cli_args.cell_size_m,
         )
 
-        self.slider = RangeSliderWidget()
-        self.slider.setEnabled(False)
-        layout.addWidget(self.slider)
-
         self.table_container = QtWidgets.QWidget()
         self.table_layout = QtWidgets.QVBoxLayout(self.table_container)
         self.table_layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.table_container, stretch=2)
+        self.splitter.addWidget(self.table_container)
+        self.splitter.setStretchFactor(0, 5)
+        self.splitter.setStretchFactor(1, 2)
+        self.splitter.setSizes([560, 240])
 
         file_menu = self.menuBar().addMenu("File")
         load_action = QtGui.QAction("Load CSV(s)...", self)
@@ -497,7 +510,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 str(row.get("_layer_id", "")),
                 str(row.get("_feature_id", "")),
             ),
-            sorting_enabled=False,
+            sorting_enabled=True,
         )
         self.table_layout.addWidget(self.table_widget)
 
