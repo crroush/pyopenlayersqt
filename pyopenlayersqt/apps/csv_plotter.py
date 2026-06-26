@@ -510,8 +510,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 str(row.get("_layer_id", "")),
                 str(row.get("_feature_id", "")),
             ),
-            sorting_enabled=True,
+            sorting_enabled=False,
         )
+        self._install_table_sorting()
         self.table_layout.addWidget(self.table_widget)
 
         def on_table_selection(keys):
@@ -544,6 +545,35 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             )
 
         self._map_selection_conn = self.map_widget.selectionChanged.connect(on_map_selection)
+
+
+    def _install_table_sorting(self) -> None:
+        if self.table_widget is None:
+            return
+        header = self.table_widget.table.horizontalHeader()
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(True)
+        header.sectionClicked.connect(self._sort_table_column)
+
+    def _sort_table_column(self, column: int) -> None:
+        if self.table_widget is None:
+            return
+        header = self.table_widget.table.horizontalHeader()
+        current_section = header.sortIndicatorSection()
+        current_order = header.sortIndicatorOrder()
+        if current_section == column and current_order == QtCore.Qt.SortOrder.AscendingOrder:
+            order = QtCore.Qt.SortOrder.DescendingOrder
+        else:
+            order = QtCore.Qt.SortOrder.AscendingOrder
+
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+        try:
+            self.statusBar().showMessage("Sorting table...")
+            self.table_widget.model.sort(column, order)
+            header.setSortIndicator(column, order)
+            self.statusBar().showMessage("Table sorted.", 5000)
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
 
     def _on_chunk_ready(self, chunk_df: pd.DataFrame) -> None:
         perf_start = time.perf_counter()
