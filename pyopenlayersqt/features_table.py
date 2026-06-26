@@ -48,6 +48,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 
 from PySide6 import QtCore
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -129,6 +130,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._sort_column: int = -1
         self._sort_order: Qt.SortOrder = Qt.AscendingOrder
         self._hidden_keys: set[FeatureKey] = set()  # Track hidden rows
+        self._external_selected_keys: set[FeatureKey] = set()
 
     def rowCount(
         self, parent: QtCore.QModelIndex = QtCore.QModelIndex()
@@ -185,6 +187,13 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
             except Exception:
                 return None
 
+        if role == Qt.BackgroundRole and self._external_selected_keys:
+            try:
+                if self._key_fn(row) in self._external_selected_keys:
+                    return QColor(0, 120, 215, 80)
+            except Exception:
+                return None
+
         return None
 
     def flags(self, index: QtCore.QModelIndex) -> Qt.ItemFlags:  # noqa: N802
@@ -228,6 +237,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self.beginResetModel()
         self._rows = []
         self._row_by_key = {}
+        self._external_selected_keys = set()
         self.endResetModel()
 
     def append_rows(self, rows: Iterable[Any]) -> None:
@@ -273,6 +283,9 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
                 },
             }
         )
+
+    def set_external_selection(self, keys: set[FeatureKey]) -> None:
+        self._external_selected_keys = keys
 
     def remove_where(self, predicate: Callable[[Any], bool]) -> None:
         """Remove rows matching predicate (full reset)."""
@@ -456,6 +469,8 @@ class FeatureTableWidget(QWidget):
         self._building_selection = False
         self._pending_emit = False
         self._context_menu_actions: List[ContextMenuActionSpec] = []
+        self._virtual_selected_keys: set[FeatureKey] = set()
+        self._virtual_selection_range_threshold = 5000
 
         self._debounce_timer = QtCore.QTimer(self)
         self._debounce_timer.setSingleShot(True)
@@ -516,6 +531,22 @@ class FeatureTableWidget(QWidget):
     def selected_keys(self) -> List[FeatureKey]:
         """Return currently selected keys."""
         perf_start = time.perf_counter()
+        if self._virtual_selected_keys:
+            keys = list(self._virtual_selected_keys)
+            _perf_print(
+                {
+                    "side": "python",
+                    "operation": "feature_table_selected_keys",
+                    "selection_count": len(keys),
+                    "virtualized": True,
+                    "times": {
+                        "selected_rows_ms": 0.0,
+                        "build_keys_ms": 0.0,
+                        "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                    },
+                }
+            )
+            return keys
         sm = self.table.selectionModel()
         if sm is None:
             return []
@@ -568,9 +599,12 @@ class FeatureTableWidget(QWidget):
         sm = self.table.selectionModel()
         if sm is None:
             return
+        self._virtual_selected_keys = set()
+        self.model.set_external_selection(set())
         self._building_selection = True
         sm.clearSelection()
         self._building_selection = False
+        self.table.viewport().update()
 
     def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
         """Programmatically select rows by keys."""
@@ -615,14 +649,28 @@ class FeatureTableWidget(QWidget):
 
         self._building_selection = True
         apply_start = time.perf_counter()
+        virtualized = range_count > self._virtual_selection_range_threshold
         self.table.setUpdatesEnabled(False)
         try:
-            if clear_first:
-                sm.clearSelection()
-            sm.select(
-                selection,
-                QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
-            )
+            if virtualized:
+                self._virtual_selected_keys = {
+                    self.model.key_for_row(row)
+                    for row in rows
+                    if self.model.key_for_row(row) is not None
+                }
+                self.model.set_external_selection(self._virtual_selected_keys)
+                if clear_first:
+                    sm.clearSelection()
+                self.table.viewport().update()
+            else:
+                self._virtual_selected_keys = set()
+                self.model.set_external_selection(set())
+                if clear_first:
+                    sm.clearSelection()
+                sm.select(
+                    selection,
+                    QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
+                )
         finally:
             self.table.setUpdatesEnabled(True)
             self._building_selection = False
@@ -633,6 +681,7 @@ class FeatureTableWidget(QWidget):
                 "requested_count": len(keys),
                 "matched_count": matched_count,
                 "range_count": range_count,
+                "virtualized": virtualized,
                 "clear_first": bool(clear_first),
                 "times": {
                     "build_selection_ms": round(build_ms, 2),
@@ -647,6 +696,10 @@ class FeatureTableWidget(QWidget):
     def _on_selection_changed(self, *_args) -> None:
         if self._building_selection:
             return
+        if self._virtual_selected_keys:
+            self._virtual_selected_keys = set()
+            self.model.set_external_selection(set())
+            self.table.viewport().update()
         self._pending_emit = True
         self._debounce_timer.start(self._debounce_ms)
 
