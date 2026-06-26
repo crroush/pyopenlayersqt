@@ -340,10 +340,10 @@ class OLMapWidget(QWebEngineView):
     def _send_now(self, msg: Dict[str, Any]) -> None:
         perf_start = time.perf_counter()
         payload = json.dumps(_to_jsonable(msg), separators=(",", ":"))
-        payload_bytes = len(payload.encode("utf-8"))
         js = f"window.pyolqt_send({json.dumps(payload)});"
         self.page().runJavaScript(js)
         if self._perf_logging_enabled:
+            payload_bytes = len(payload.encode("utf-8"))
             print(
                 "PERF:",
                 {
