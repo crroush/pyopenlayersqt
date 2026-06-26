@@ -558,6 +558,16 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
     def _sort_table_column(self, column: int) -> None:
         if self.table_widget is None:
             return
+        row_count = self.table_widget.model.rowCount()
+        max_sort_rows = int(self.cli_args.max_sort_rows)
+        if row_count > max_sort_rows:
+            self.statusBar().showMessage(
+                f"Sorting skipped for {row_count:,} rows; "
+                f"limit is {max_sort_rows:,} rows.",
+                8000,
+            )
+            return
+
         header = self.table_widget.table.horizontalHeader()
         current_section = header.sortIndicatorSection()
         current_order = header.sortIndicatorOrder()
@@ -772,6 +782,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--time", type=str, default=None)
     parser.add_argument("--chunk-size", type=int, default=50_000)
     parser.add_argument("--cell-size-m", type=float, default=50_000.0)
+    parser.add_argument(
+        "--max-sort-rows",
+        type=int,
+        default=250_000,
+        help="Maximum table rows allowed for in-app header sorting.",
+    )
     parser.add_argument("--disable-gpu", action="store_true")
     return parser.parse_args()
 
