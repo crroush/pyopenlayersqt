@@ -582,30 +582,57 @@ class FeatureTableWidget(QWidget):
         selection = QtCore.QItemSelection()
         last_col = max(0, self.model.columnCount() - 1)
         build_start = time.perf_counter()
-        matched_count = 0
+        rows: List[int] = []
         for key in keys:
             r = self.model.row_for_key(key)
             if r is None:
                 continue
-            selection.select(self.model.index(r, 0), self.model.index(r, last_col))
-            matched_count += 1
+            rows.append(r)
+        rows.sort()
+        matched_count = len(rows)
+
+        range_count = 0
+        if rows:
+            range_start = rows[0]
+            previous = rows[0]
+            for row in rows[1:]:
+                if row == previous + 1:
+                    previous = row
+                    continue
+                selection.select(
+                    self.model.index(range_start, 0),
+                    self.model.index(previous, last_col),
+                )
+                range_count += 1
+                range_start = row
+                previous = row
+            selection.select(
+                self.model.index(range_start, 0),
+                self.model.index(previous, last_col),
+            )
+            range_count += 1
         build_ms = (time.perf_counter() - build_start) * 1000.0
 
         self._building_selection = True
         apply_start = time.perf_counter()
-        if clear_first:
-            sm.clearSelection()
-        sm.select(
-            selection,
-            QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
-        )
-        self._building_selection = False
+        self.table.setUpdatesEnabled(False)
+        try:
+            if clear_first:
+                sm.clearSelection()
+            sm.select(
+                selection,
+                QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
+            )
+        finally:
+            self.table.setUpdatesEnabled(True)
+            self._building_selection = False
         _perf_print(
             {
                 "side": "python",
                 "operation": "feature_table_select_keys",
                 "requested_count": len(keys),
                 "matched_count": matched_count,
+                "range_count": range_count,
                 "clear_first": bool(clear_first),
                 "times": {
                     "build_selection_ms": round(build_ms, 2),
