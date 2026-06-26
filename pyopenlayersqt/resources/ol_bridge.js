@@ -95,6 +95,10 @@ function pyolqt_ids_from_msg(msg) {
   return msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.feature_ids || msg.ids || []);
 }
 
+function pyolqt_indices_from_msg(msg) {
+  return msg.indices_b64 ? pyolqt_b64_to_uint32(msg.indices_b64) : (msg.indices || []);
+}
+
 
 // ---- Map extent API (one-shot + debounced watch) ----
 function _pyolqt_view_extent_obj() {
@@ -975,6 +979,32 @@ function cmd_fast_points_show_all(msg) {
   for (let i = 0; i < entry.hidden.length; i++) {
     if (entry.hidden[i] && !entry.deleted[i]) fp_qt_update_visibility(entry, i, 1);
     entry.hidden[i] = false;
+  }
+  fp_redraw(entry);
+}
+
+function cmd_fast_points_hide_indices(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== "fast_points") return;
+  const indices = pyolqt_indices_from_msg(msg);
+  for (let k = 0; k < indices.length; k++) {
+    const i = indices[k];
+    if (i == null || i >= entry.hidden.length || entry.deleted[i] || entry.hidden[i]) continue;
+    entry.hidden[i] = true;
+    fp_qt_update_visibility(entry, i, -1);
+  }
+  fp_redraw(entry);
+}
+
+function cmd_fast_points_show_indices(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== "fast_points") return;
+  const indices = pyolqt_indices_from_msg(msg);
+  for (let k = 0; k < indices.length; k++) {
+    const i = indices[k];
+    if (i == null || i >= entry.hidden.length || entry.deleted[i] || !entry.hidden[i]) continue;
+    entry.hidden[i] = false;
+    fp_qt_update_visibility(entry, i, 1);
   }
   fp_redraw(entry);
 }
@@ -2976,6 +3006,8 @@ function cmd_countries_set_visible(msg) {
     case "fast_points.remove_ids": return cmd_fast_points_remove_ids(msg);
     case "fast_points.hide_ids": return cmd_fast_points_hide_ids(msg);
     case "fast_points.show_ids": return cmd_fast_points_show_ids(msg);
+    case "fast_points.hide_indices": return cmd_fast_points_hide_indices(msg);
+    case "fast_points.show_indices": return cmd_fast_points_show_indices(msg);
     case "fast_points.show_all": return cmd_fast_points_show_all(msg);
     case "fast_points.set_colors": return cmd_fast_points_set_colors(msg);
     case "fast_points.clear_colors": return cmd_fast_points_clear_colors(msg);

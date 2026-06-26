@@ -980,6 +980,37 @@ class FastPointsLayer(BaseLayer):
             }
         )
 
+
+    def hide_indices(self, indices: Sequence[int] | np.ndarray) -> None:
+        """Hide points by JS-side row index using a compact uint32 payload."""
+        idx = np.asarray(indices, dtype=np.uint32)
+        if idx.size == 0:
+            return
+        self._map_widget._send(
+            {
+                "type": "fast_points.hide_indices",
+                "layer_id": self.id,
+                "indices_b64": _array_to_base64(idx),
+                "indices_dtype": "uint32",
+                "count": int(idx.size),
+            }
+        )
+
+    def show_indices(self, indices: Sequence[int] | np.ndarray) -> None:
+        """Show points by JS-side row index using a compact uint32 payload."""
+        idx = np.asarray(indices, dtype=np.uint32)
+        if idx.size == 0:
+            return
+        self._map_widget._send(
+            {
+                "type": "fast_points.show_indices",
+                "layer_id": self.id,
+                "indices_b64": _array_to_base64(idx),
+                "indices_dtype": "uint32",
+                "count": int(idx.size),
+            }
+        )
+
     def set_colors(
         self,
         feature_ids: Sequence[str],

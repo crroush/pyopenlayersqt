@@ -235,6 +235,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.current_time_col: str | None = None
         self.mapped_epoch_col = "_slider_epoch_time"
         self.feature_ids: list[str] | np.ndarray = []
+        self._visible_mask: np.ndarray | None = None
         self.current_selection_fids: list[str] = []
         self.table_widget: FeatureTableWidget | None = None
         self._map_selection_conn = None
@@ -444,6 +445,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.fast_layer.clear()
         self.chunk_list = []
         self.feature_ids = []
+        self._visible_mask = None
         self.current_selection_fids = []
         self.global_fid_counter = 0
         self._initialize_empty_table(base_columns)
@@ -517,12 +519,20 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         if self.current_time_col and self.current_time_col != "None":
             if pd.api.types.is_numeric_dtype(chunk_df[self.current_time_col]):
-                chunk_df[self.mapped_epoch_col] = chunk_df[self.current_time_col].astype(float)
+                chunk_df[self.mapped_epoch_col] = chunk_df[
+                    self.current_time_col
+                ].astype(float)
             else:
                 parsed_dates = pd.to_datetime(
-                    chunk_df[self.current_time_col], format="mixed", errors="coerce"
+                    chunk_df[self.current_time_col],
+                    format="mixed",
+                    errors="coerce",
+                    utc=True,
                 )
-                chunk_df[self.mapped_epoch_col] = parsed_dates.astype("int64") / 10**9
+                epoch_seconds = parsed_dates.astype("int64") / 10**9
+                chunk_df[self.mapped_epoch_col] = np.where(
+                    parsed_dates.notna(), epoch_seconds, np.nan
+                )
 
         coords_start = time.perf_counter()
         lats = chunk_df[self.current_lat_col].values
@@ -566,6 +576,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.statusBar().showMessage("Finalizing UI sync...")
         self.df = pd.concat(self.chunk_list, ignore_index=True)
         self.feature_ids = np.array(self.feature_ids)
+        self._visible_mask = np.ones(len(self.df), dtype=bool)
         self.fast_layer.redraw()
         self._setup_slider_and_view()
         self._cleanup_load_ui()
@@ -595,8 +606,12 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if self.df is None:
             return
         if self.current_time_col != "None" and self.mapped_epoch_col in self.df.columns:
-            t_min = float(self.df[self.mapped_epoch_col].min())
-            t_max = float(self.df[self.mapped_epoch_col].max())
+            valid_times = self.df[self.mapped_epoch_col].dropna()
+            if valid_times.empty:
+                self.slider.setEnabled(False)
+                return
+            t_min = float(valid_times.min())
+            t_max = float(valid_times.max())
             self.slider.setEnabled(True)
             self.slider.set_value_formatter(self._format_epoch_label)
             self.slider.set_range(t_min, t_max)
@@ -661,13 +676,28 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
     def filter_by_time(self, min_val: float, max_val: float) -> None:
         if self.df is None:
             return
-        mask = (self.df[self.mapped_epoch_col] >= min_val) & (
-            self.df[self.mapped_epoch_col] <= max_val
+        time_values = self.df[self.mapped_epoch_col].to_numpy(dtype=float, copy=False)
+        new_visible = (time_values >= min_val) & (time_values <= max_val)
+        if self._visible_mask is None or len(self._visible_mask) != len(new_visible):
+            self._visible_mask = np.ones(len(new_visible), dtype=bool)
+
+        hide_indices = np.flatnonzero(self._visible_mask & ~new_visible).astype(
+            np.uint32
         )
-        visible_fids = self.df[mask]["_fid"].values.tolist()
-        hidden_fids = self.df[~mask]["_fid"].values.tolist()
-        self.fast_layer.hide_features(hidden_fids)
-        self.fast_layer.show_features(visible_fids)
+        show_indices = np.flatnonzero(~self._visible_mask & new_visible).astype(
+            np.uint32
+        )
+        self._visible_mask = new_visible
+
+        if hide_indices.size:
+            self.fast_layer.hide_indices(hide_indices)
+        if show_indices.size:
+            self.fast_layer.show_indices(show_indices)
+        perf(
+            "filter_by_time",
+            hide_count=int(hide_indices.size),
+            show_count=int(show_indices.size),
+        )
 
 
 def parse_args() -> argparse.Namespace:
