@@ -1008,10 +1008,13 @@ function fgp_make_canvas_layer(entry) {
         };
       }
 
-      const collapsePx = Math.max(
+      const pointRadiusPx = Math.max(1.0, Number(st.point_radius || 3.0) * pixelRatio);
+      const aggregatePixelSize = Math.max(
         1.0,
-        Number(st.aggregate_pixel_size || st.point_radius || 3.0) * pixelRatio
+        Number(st.aggregate_pixel_size || (pointRadiusPx * 2.0))
       );
+      const collapsePx = aggregatePixelSize;
+      const dedupePx = aggregatePixelSize;
       const drawIndices = [];
       const seenCenterPixels = new Set();
 
@@ -1019,7 +1022,7 @@ function fgp_make_canvas_layer(entry) {
         if (entry.deleted[i] || entry.hidden[i] || selectedSet.has(entry.ids[i]) || !inExtent(i)) return;
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
-        const pixelKey = Math.round(x) + ',' + Math.round(y);
+        const pixelKey = Math.floor(x / dedupePx) + ',' + Math.floor(y / dedupePx);
         if (seenCenterPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
           return;
@@ -1187,6 +1190,7 @@ function fgp_make_canvas_layer(entry) {
           representative_count: representativeCount,
           aggregate_draw_candidate_count: drawIndices.length,
           collapse_pixel_threshold: collapsePx.toFixed(2),
+          dedupe_pixel_size: dedupePx.toFixed(2),
           ellipse_draw_count: ellipseDrawCount,
           point_draw_count: pointDrawCount,
           skipped_duplicate_pixels: skippedDuplicatePixels,
