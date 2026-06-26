@@ -553,6 +553,7 @@ function fp_make_canvas_layer(entry) {
         if (entry.deleted[i] || entry.hidden[i]) return;
         const mercX = entry.x[i];
         const mercY = entry.y[i];
+        if (!Number.isFinite(mercX) || !Number.isFinite(mercY)) return;
         if (mercX < extent[0] || mercX > extent[2] || mercY < extent[1] || mercY > extent[3]) return;
         const x = (mercX - extent[0]) * scaleX;
         const y = (extent[3] - mercY) * scaleY;
@@ -735,20 +736,26 @@ function cmd_fast_points_add_points(msg) {
   const ids = msg.ids || null;
   const colors = msg.colors || null;
   const startIndex = entry.x.length;
+  let skippedInvalidCount = 0;
   const convertStart = performance.now();
   for (let i = 0; i < coords.length; i++) {
     const lon = coords[i][0], lat = coords[i][1];
     const p = lonlat_to_3857(lon, lat);
+    if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) {
+      skippedInvalidCount++;
+      continue;
+    }
+    const idx = entry.x.length;
     entry.x.push(p[0]);
     entry.y.push(p[1]);
-    const fid = (ids ? ids[i] : String(startIndex + i));
+    const fid = (ids ? ids[i] : String(idx));
     entry.ids.push(fid);
-    entry.idIndex.set(String(fid), startIndex + i);
+    entry.idIndex.set(String(fid), idx);
     entry.deleted.push(false);
     entry.hidden.push(false);
     entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
-    fp_index_insert(entry, startIndex + i);
-    fp_qt_insert(entry, startIndex + i);
+    fp_index_insert(entry, idx);
+    fp_qt_insert(entry, idx);
   }
   const convertIndexMs = performance.now() - convertStart;
   const redrawStart = performance.now();
@@ -760,6 +767,8 @@ function cmd_fast_points_add_points(msg) {
     layer_id: entry.layer_id,
     operation: "fast_points_add_points",
     point_count: coords.length,
+    accepted_point_count: coords.length - skippedInvalidCount,
+    skipped_invalid_count: skippedInvalidCount,
     start_index: startIndex,
     total_points: entry.x.length,
     times: {
