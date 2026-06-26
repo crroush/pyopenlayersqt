@@ -304,6 +304,114 @@ function fp_index_insert(entry, i) {
   arr.push(i);
 }
 
+const FP_QT_WORLD = 20037508.342789244;
+const FP_QT_MAX_DEPTH = 18;
+const FP_QT_LEAF_CAPACITY = 32;
+
+function fp_qt_new_node(minX, minY, maxX, maxY, depth) {
+  return {
+    minX, minY, maxX, maxY, depth,
+    visibleCount: 0,
+    firstIndex: -1,
+    items: [],
+    children: null,
+  };
+}
+
+function fp_qt_init(entry) {
+  entry.qtRoot = fp_qt_new_node(
+    -FP_QT_WORLD, -FP_QT_WORLD, FP_QT_WORLD, FP_QT_WORLD, 0
+  );
+}
+
+function fp_qt_child_slot(node, x, y) {
+  const midX = (node.minX + node.maxX) * 0.5;
+  const midY = (node.minY + node.maxY) * 0.5;
+  return (x >= midX ? 1 : 0) + (y >= midY ? 2 : 0);
+}
+
+function fp_qt_make_children(node) {
+  if (node.children) return;
+  const midX = (node.minX + node.maxX) * 0.5;
+  const midY = (node.minY + node.maxY) * 0.5;
+  const d = node.depth + 1;
+  node.children = [
+    fp_qt_new_node(node.minX, node.minY, midX, midY, d),
+    fp_qt_new_node(midX, node.minY, node.maxX, midY, d),
+    fp_qt_new_node(node.minX, midY, midX, node.maxY, d),
+    fp_qt_new_node(midX, midY, node.maxX, node.maxY, d),
+  ];
+}
+
+function fp_qt_insert_into_child(entry, node, i) {
+  fp_qt_make_children(node);
+  const slot = fp_qt_child_slot(node, entry.x[i], entry.y[i]);
+  fp_qt_insert_node(entry, node.children[slot], i);
+}
+
+function fp_qt_insert_node(entry, node, i) {
+  node.visibleCount++;
+  if (node.firstIndex < 0) node.firstIndex = i;
+  if (node.children) {
+    fp_qt_insert_into_child(entry, node, i);
+    return;
+  }
+  if (node.items.length < FP_QT_LEAF_CAPACITY || node.depth >= FP_QT_MAX_DEPTH) {
+    node.items.push(i);
+    return;
+  }
+  const oldItems = node.items;
+  node.items = [];
+  for (let k = 0; k < oldItems.length; k++) {
+    fp_qt_insert_into_child(entry, node, oldItems[k]);
+  }
+  fp_qt_insert_into_child(entry, node, i);
+}
+
+function fp_qt_insert(entry, i) {
+  if (!entry.qtRoot) fp_qt_init(entry);
+  fp_qt_insert_node(entry, entry.qtRoot, i);
+}
+
+function fp_qt_update_visibility(entry, i, delta) {
+  let node = entry.qtRoot;
+  while (node) {
+    node.visibleCount += delta;
+    if (!node.children) return;
+    node = node.children[fp_qt_child_slot(node, entry.x[i], entry.y[i])];
+  }
+}
+
+function fp_qt_intersects(node, extent) {
+  return !(node.maxX < extent[0] || node.minX > extent[2] ||
+           node.maxY < extent[1] || node.minY > extent[3]);
+}
+
+function fp_qt_pick_representative(entry, node, skipSelected) {
+  if (!node || node.visibleCount <= 0) return -1;
+  const first = node.firstIndex;
+  if (
+    first >= 0 && !entry.deleted[first] && !entry.hidden[first] &&
+    (!skipSelected || !entry.selectedIds.has(entry.ids[first]))
+  ) {
+    return first;
+  }
+  if (node.children) {
+    for (let c = 0; c < 4; c++) {
+      const idx = fp_qt_pick_representative(entry, node.children[c], skipSelected);
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  }
+  for (let k = 0; k < node.items.length; k++) {
+    const i = node.items[k];
+    if (entry.deleted[i] || entry.hidden[i]) continue;
+    if (skipSelected && entry.selectedIds.has(entry.ids[i])) continue;
+    return i;
+  }
+  return -1;
+}
+
 function fp_query_extent(entry, extent) {
   const cs = entry.cellSize;
   const min_ix = Math.floor(extent[0] / cs);
@@ -421,7 +529,8 @@ function fp_make_canvas_layer(entry) {
       const scaleY = canvas.height / (extent[3] - extent[1]);
 
       const queryStart = performance.now();
-      const cand = fp_query_extent(entry, extent);
+      const root = entry.qtRoot || null;
+      const visiblePointCount = root ? root.visibleCount : entry.x.length;
       const queryTime = performance.now() - queryStart;
 
       const defCss = rgba_to_css(entry.style.default_rgba);
@@ -436,14 +545,20 @@ function fp_make_canvas_layer(entry) {
       const seenDrawPixels = new Set(); // key: "color|radius|px|py"
       let skippedDuplicatePixels = 0;
       let drawPointCount = 0;
-      
-      for (let k = 0; k < cand.length; k++) {
-        const i = cand[k];
-        if (entry.deleted[i] || entry.hidden[i]) continue;
-        const x = (entry.x[i] - extent[0]) * scaleX;
-        const y = (extent[3] - entry.y[i]) * scaleY;
+      let visitedNodeCount = 0;
+      let collapsedNodeCount = 0;
+      let scannedLeafPointCount = 0;
+
+      function addPointToBatch(i, selectedOverride) {
+        if (entry.deleted[i] || entry.hidden[i]) return;
+        const mercX = entry.x[i];
+        const mercY = entry.y[i];
+        if (mercX < extent[0] || mercX > extent[2] || mercY < extent[1] || mercY > extent[3]) return;
+        const x = (mercX - extent[0]) * scaleX;
+        const y = (extent[3] - mercY) * scaleY;
         const fid = entry.ids[i];
-        const isSel = entry.selectedIds.has(fid);
+        const isSel = selectedOverride || entry.selectedIds.has(fid);
+        if (!selectedOverride && isSel) return;
         const radius = (isSel ? entry.style.selected_radius : entry.style.radius) * pixelRatio;
 
         let fill = defCss;
@@ -455,7 +570,7 @@ function fp_make_canvas_layer(entry) {
         const pixelKey = key + "|" + Math.round(x) + "|" + Math.round(y);
         if (seenDrawPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
-          continue;
+          return;
         }
         seenDrawPixels.add(pixelKey);
         drawPointCount++;
@@ -467,6 +582,53 @@ function fp_make_canvas_layer(entry) {
           batches.set(key, batch);
         }
         batch.points.push({ x, y });
+      }
+
+      function renderLeafItems(node) {
+        for (let k = 0; k < node.items.length; k++) {
+          scannedLeafPointCount++;
+          addPointToBatch(node.items[k], false);
+        }
+      }
+
+      function traverseNode(node) {
+        if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) return;
+        visitedNodeCount++;
+        const pxW = (node.maxX - node.minX) * scaleX;
+        const pxH = (node.maxY - node.minY) * scaleY;
+        if (pxW <= 1.0 && pxH <= 1.0) {
+          const i = fp_qt_pick_representative(entry, node, true);
+          if (i >= 0) {
+            collapsedNodeCount++;
+            addPointToBatch(i, false);
+          }
+          return;
+        }
+        if (node.children) {
+          for (let c = 0; c < 4; c++) traverseNode(node.children[c]);
+          return;
+        }
+        renderLeafItems(node);
+      }
+
+      if (root) {
+        traverseNode(root);
+      } else {
+        const cand = fp_query_extent(entry, extent);
+        for (let k = 0; k < cand.length; k++) {
+          scannedLeafPointCount++;
+          addPointToBatch(cand[k], false);
+        }
+      }
+
+      if (entry.selectedIds.size > 0) {
+        for (const fid of entry.selectedIds) {
+          const i = entry.idIndex.get(String(fid));
+          if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
+          const x = entry.x[i], y = entry.y[i];
+          if (x < extent[0] || x > extent[2] || y < extent[1] || y > extent[3]) continue;
+          addPointToBatch(i, true);
+        }
       }
       const batchTime = performance.now() - batchStart;
 
@@ -497,11 +659,14 @@ function fp_make_canvas_layer(entry) {
       const totalTime = performance.now() - perfStart;
       
       // Emit performance data to Python side
-      if (cand.length > 100) {  // Only log when there are significant points
+      if (visiblePointCount > 100) {  // Only log when there are significant points
         emitToPython("perf", {
           layer_id: entry.layer_id,
           operation: "fast_points_render",
-          point_count: cand.length,
+          point_count: visiblePointCount,
+          visited_node_count: visitedNodeCount,
+          collapsed_node_count: collapsedNodeCount,
+          scanned_leaf_point_count: scannedLeafPointCount,
           draw_point_count: drawPointCount,
           skipped_duplicate_pixels: skippedDuplicatePixels,
           batch_count: unselectedBatches.size + selectedBatches.size,
@@ -540,6 +705,7 @@ function cmd_fast_points_add_layer(msg) {
     deleted: [],
     hidden: [],
     grid: new Map(),
+    qtRoot: null,
     cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
     idIndex: new Map(),
@@ -547,6 +713,7 @@ function cmd_fast_points_add_layer(msg) {
     source: null,
     layer: null,
   };
+  fp_qt_init(entry);
 
   fp_make_canvas_layer(entry);
   state.map.addLayer(entry.layer);
@@ -581,6 +748,7 @@ function cmd_fast_points_add_points(msg) {
     entry.hidden.push(false);
     entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
     fp_index_insert(entry, startIndex + i);
+    fp_qt_insert(entry, startIndex + i);
   }
   const convertIndexMs = performance.now() - convertStart;
   const redrawStart = performance.now();
@@ -614,6 +782,7 @@ function cmd_fast_points_clear(msg) {
   if (entry.type !== "fast_points") return;
   entry.x = []; entry.y = []; entry.ids = []; entry.color_u32 = []; entry.deleted = []; entry.hidden = [];
   entry.grid = new Map();
+  fp_qt_init(entry);
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
   fp_redraw(entry);
@@ -629,6 +798,7 @@ function cmd_fast_points_remove_ids(msg) {
   for (const id of ids) {
     const i = entry.idIndex.get(id);
     if (i == null || entry.deleted[i]) continue;
+    if (!entry.hidden[i]) fp_qt_update_visibility(entry, i, -1);
     entry.deleted[i] = true;
     entry.selectedIds.delete(entry.ids[i]);
   }
@@ -727,8 +897,9 @@ function cmd_fast_points_hide_ids(msg) {
   if (ids.size === 0) return;
   for (const id of ids) {
     const i = entry.idIndex.get(id);
-    if (i == null || entry.deleted[i]) continue;
+    if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
+    fp_qt_update_visibility(entry, i, -1);
   }
   fp_redraw(entry);
 }
@@ -741,8 +912,9 @@ function cmd_fast_points_show_ids(msg) {
   if (ids.size === 0) return;
   for (const id of ids) {
     const i = entry.idIndex.get(id);
-    if (i == null || entry.deleted[i]) continue;
+    if (i == null || entry.deleted[i] || !entry.hidden[i]) continue;
     entry.hidden[i] = false;
+    fp_qt_update_visibility(entry, i, 1);
   }
   fp_redraw(entry);
 }
@@ -751,6 +923,7 @@ function cmd_fast_points_show_all(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
   for (let i = 0; i < entry.hidden.length; i++) {
+    if (entry.hidden[i] && !entry.deleted[i]) fp_qt_update_visibility(entry, i, 1);
     entry.hidden[i] = false;
   }
   fp_redraw(entry);
