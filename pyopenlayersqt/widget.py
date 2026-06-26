@@ -358,8 +358,12 @@ class OLMapWidget(QWebEngineView):
             )
 
     def _send(self, msg: Dict[str, Any]) -> None:
-        if not self._js_ready:
+        if not self._js_ready or self._pending_flush_active or self._pending:
             self._pending.append(msg)
+            if self._pending_flush_active:
+                self._pending_flush_count += 1
+            elif self._js_ready:
+                self._flush_pending()
             return
         self._send_now(msg)
 
