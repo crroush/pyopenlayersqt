@@ -59,6 +59,43 @@ const state = {
 
   window._pyolqt_state = state;
 
+function pyolqt_b64_to_bytes(b64) {
+  const binary = atob(b64 || "");
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function pyolqt_b64_to_float64(b64) {
+  const bytes = pyolqt_b64_to_bytes(b64);
+  return new Float64Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 8);
+}
+
+function pyolqt_b64_to_uint32(b64) {
+  const bytes = pyolqt_b64_to_bytes(b64);
+  return new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+}
+
+function pyolqt_b64_to_strings(b64) {
+  if (!b64) return null;
+  const text = new TextDecoder("utf-8").decode(pyolqt_b64_to_bytes(b64));
+  return text.length ? text.split("\0") : [];
+}
+
+function pyolqt_points_from_msg(msg) {
+  if (msg.coords_b64) {
+    const flat = pyolqt_b64_to_float64(msg.coords_b64);
+    return { flat, count: msg.point_count || Math.floor(flat.length / 2) };
+  }
+  const coords = msg.coords || [];
+  return { coords, count: coords.length };
+}
+
+function pyolqt_ids_from_msg(msg) {
+  return msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.feature_ids || msg.ids || []);
+}
+
+
 // ---- Map extent API (one-shot + debounced watch) ----
 function _pyolqt_view_extent_obj() {
   const st = window._pyolqt_state;
@@ -732,14 +769,18 @@ function cmd_fast_points_add_points(msg) {
   const perfStart = performance.now();
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
-  const coords = msg.coords || [];
-  const ids = msg.ids || null;
-  const colors = msg.colors || null;
+  const pointData = pyolqt_points_from_msg(msg);
+  const coords = pointData.coords || null;
+  const coordsFlat = pointData.flat || null;
+  const pointCount = pointData.count;
+  const ids = msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.ids || null);
+  const colors = msg.colors_b64 ? pyolqt_b64_to_uint32(msg.colors_b64) : (msg.colors || null);
   const startIndex = entry.x.length;
   let skippedInvalidCount = 0;
   const convertStart = performance.now();
-  for (let i = 0; i < coords.length; i++) {
-    const lon = coords[i][0], lat = coords[i][1];
+  for (let i = 0; i < pointCount; i++) {
+    const lon = coordsFlat ? coordsFlat[i * 2] : coords[i][0];
+    const lat = coordsFlat ? coordsFlat[i * 2 + 1] : coords[i][1];
     const p = lonlat_to_3857(lon, lat);
     if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) {
       skippedInvalidCount++;
@@ -766,8 +807,8 @@ function cmd_fast_points_add_points(msg) {
     side: "javascript",
     layer_id: entry.layer_id,
     operation: "fast_points_add_points",
-    point_count: coords.length,
-    accepted_point_count: coords.length - skippedInvalidCount,
+    point_count: pointCount,
+    accepted_point_count: pointCount - skippedInvalidCount,
     skipped_invalid_count: skippedInvalidCount,
     start_index: startIndex,
     total_points: entry.x.length,
@@ -801,7 +842,7 @@ function cmd_fast_points_clear(msg) {
 function cmd_fast_points_remove_ids(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
-  const raw = (msg.feature_ids || msg.ids || []);
+  const raw = pyolqt_ids_from_msg(msg);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
   for (const id of ids) {
@@ -901,7 +942,7 @@ function cmd_fast_points_select_set(msg) {
 function cmd_fast_points_hide_ids(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
-  const raw = (msg.feature_ids || msg.ids || []);
+  const raw = pyolqt_ids_from_msg(msg);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
   for (const id of ids) {
@@ -916,7 +957,7 @@ function cmd_fast_points_hide_ids(msg) {
 function cmd_fast_points_show_ids(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
-  const raw = (msg.feature_ids || msg.ids || []);
+  const raw = pyolqt_ids_from_msg(msg);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
   for (const id of ids) {
@@ -941,8 +982,8 @@ function cmd_fast_points_show_all(msg) {
 function cmd_fast_points_set_colors(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
-  const fids = msg.feature_ids || [];
-  const colors = msg.colors || [];
+  const fids = msg.feature_ids_b64 ? pyolqt_b64_to_strings(msg.feature_ids_b64) : (msg.feature_ids || []);
+  const colors = msg.colors_b64 ? pyolqt_b64_to_uint32(msg.colors_b64) : (msg.colors || []);
   if (fids.length !== colors.length) return;
   
   // Update colors for the specified features
@@ -1295,23 +1336,29 @@ function cmd_fast_geopoints_add_points(msg) {
   const perfStart = performance.now();
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
-  const coords = msg.coords || [];
-  const sma_m = msg.sma_m || [];
-  const smi_m = msg.smi_m || [];
-  const tilt_deg = msg.tilt_deg || [];
-  const ids = msg.ids || null;
-  const colors = msg.colors || null;
+  const pointData = pyolqt_points_from_msg(msg);
+  const coords = pointData.coords || null;
+  const coordsFlat = pointData.flat || null;
+  const pointCount = pointData.count;
+  const sma_m = msg.sma_m_b64 ? pyolqt_b64_to_float64(msg.sma_m_b64) : (msg.sma_m || []);
+  const smi_m = msg.smi_m_b64 ? pyolqt_b64_to_float64(msg.smi_m_b64) : (msg.smi_m || []);
+  const tilt_deg = msg.tilt_deg_b64 ? pyolqt_b64_to_float64(msg.tilt_deg_b64) : (msg.tilt_deg || []);
+  const ids = msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.ids || null);
+  const colors = msg.colors_b64 ? pyolqt_b64_to_uint32(msg.colors_b64) : (msg.colors || null);
 
   const startIndex = entry.x.length;
   const convertStart = performance.now();
-  for (let i = 0; i < coords.length; i++) {
-    const lon = coords[i][0], lat = coords[i][1];
+  for (let i = 0; i < pointCount; i++) {
+    const lon = coordsFlat ? coordsFlat[i * 2] : coords[i][0];
+    const lat = coordsFlat ? coordsFlat[i * 2 + 1] : coords[i][1];
     const p = lonlat_to_3857(lon, lat);
+    if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) continue;
+    const idx = entry.x.length;
     entry.x.push(p[0]);
     entry.y.push(p[1]);
-    const fid = (ids ? ids[i] : String(startIndex + i));
+    const fid = (ids ? ids[i] : String(idx));
     entry.ids.push(fid);
-    entry.idIndex.set(String(fid), startIndex + i);
+    entry.idIndex.set(String(fid), idx);
     entry.deleted.push(false);
     entry.hidden.push(false);
     entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
@@ -1326,8 +1373,8 @@ function cmd_fast_geopoints_add_points(msg) {
     // Convert to canvas rotation (radians from +X east): rot = (90 - tilt) deg
     entry.rot.push((90.0 - Number(tilt_deg[i] || 0.0)) * Math.PI / 180.0);
 
-    fp_index_insert(entry, startIndex + i);
-    fp_qt_insert(entry, startIndex + i);
+    fp_index_insert(entry, idx);
+    fp_qt_insert(entry, idx);
   }
   const convertIndexMs = performance.now() - convertStart;
   const shouldRedraw = (msg.redraw !== false);
@@ -1338,7 +1385,7 @@ function cmd_fast_geopoints_add_points(msg) {
     side: "javascript",
     layer_id: entry.layer_id,
     operation: "fast_geopoints_add_points",
-    point_count: coords.length,
+    point_count: pointCount,
     start_index: startIndex,
     total_points: entry.x.length,
     times: {
@@ -1372,7 +1419,7 @@ function cmd_fast_geopoints_clear(msg) {
 function cmd_fast_geopoints_remove_ids(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
-  const raw = (msg.feature_ids || msg.ids || []);
+  const raw = pyolqt_ids_from_msg(msg);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
   for (const id of ids) {
@@ -1423,7 +1470,7 @@ function cmd_fast_geopoints_set_selected_ellipses_visible(msg) {
 function cmd_fast_geopoints_select_set(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
-  entry.selectedIds = new Set(msg.feature_ids || []);
+  entry.selectedIds = new Set(pyolqt_ids_from_msg(msg));
   fgp_redraw(entry);
   fgp_emit_selection(entry);
 }
@@ -1431,7 +1478,7 @@ function cmd_fast_geopoints_select_set(msg) {
 function cmd_fast_geopoints_hide_ids(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
-  const raw = (msg.feature_ids || msg.ids || []);
+  const raw = pyolqt_ids_from_msg(msg);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
   for (const id of ids) {
@@ -1446,7 +1493,7 @@ function cmd_fast_geopoints_hide_ids(msg) {
 function cmd_fast_geopoints_show_ids(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
-  const raw = (msg.feature_ids || msg.ids || []);
+  const raw = pyolqt_ids_from_msg(msg);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
   for (const id of ids) {
@@ -1471,8 +1518,8 @@ function cmd_fast_geopoints_show_all(msg) {
 function cmd_fast_geopoints_set_colors(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
-  const fids = msg.feature_ids || [];
-  const colors = msg.colors || [];
+  const fids = msg.feature_ids_b64 ? pyolqt_b64_to_strings(msg.feature_ids_b64) : (msg.feature_ids || []);
+  const colors = msg.colors_b64 ? pyolqt_b64_to_uint32(msg.colors_b64) : (msg.colors || []);
   if (fids.length !== colors.length) return;
   
   // Update colors for the specified features

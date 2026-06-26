@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import base64
 import os
 import time
 from typing import Any, Dict, List, Optional, Sequence, Union
@@ -99,11 +100,24 @@ def _normalize_color(
 
 
 
-def _latlon_chunk_to_lonlat_list(coords: Sequence[LatLon]) -> list[list[float]]:
-    arr = np.asarray(coords, dtype=float)
+def _latlon_chunk_to_lonlat_array(coords: Sequence[LatLon]) -> np.ndarray:
+    arr = np.asarray(coords, dtype=np.float64)
     if arr.ndim != 2 or arr.shape[1] != 2:
         raise ValueError("coords must be a sequence of (lat, lon) pairs")
-    return arr[:, [1, 0]].tolist()
+    return np.ascontiguousarray(arr[:, [1, 0]], dtype=np.float64)
+
+
+def _latlon_chunk_to_lonlat_list(coords: Sequence[LatLon]) -> list[list[float]]:
+    return _latlon_chunk_to_lonlat_array(coords).tolist()
+
+
+def _array_to_base64(arr: np.ndarray) -> str:
+    return base64.b64encode(np.ascontiguousarray(arr).tobytes()).decode("ascii")
+
+
+def _strings_to_base64(values: Sequence[Any]) -> str:
+    data = "\0".join(str(value) for value in values).encode("utf-8")
+    return base64.b64encode(data).decode("ascii")
 
 
 def _perf_enabled() -> bool:
@@ -152,7 +166,11 @@ def _resolve_colormap_rgba(
     rgba = np.asarray(cmap_obj(norm))
     out = np.clip(np.rint(rgba * 255.0), 0, 255).astype(np.uint8)
     return [tuple(map(int, row)) for row in out]
-def _pack_rgba_colors(colors: List[Union[tuple[int, int, int, int], str, Any]]) -> List[int]:
+
+
+def _pack_rgba_colors_array(
+    colors: Sequence[Union[tuple[int, int, int, int], str, Any]]
+) -> np.ndarray:
     """Convert list of colors to packed 32-bit integers.
     
     Accepts colors as:
@@ -166,13 +184,19 @@ def _pack_rgba_colors(colors: List[Union[tuple[int, int, int, int], str, Any]]) 
     Returns:
         List of packed 32-bit integers.
     """
-    packed: List[int] = []
-    for color in colors:
+    packed = np.empty(len(colors), dtype=np.uint32)
+    for idx, color in enumerate(colors):
         r, g, b, a = _normalize_color(color)
-        packed.append(
+        packed[idx] = (
             ((r & 255) << 24) | ((g & 255) << 16) | ((b & 255) << 8) | (a & 255)
         )
     return packed
+
+
+def _pack_rgba_colors(
+    colors: Sequence[Union[tuple[int, int, int, int], str, Any]]
+) -> List[int]:
+    return _pack_rgba_colors_array(colors).tolist()
 
 
 def _expand_gradient_coords(
@@ -857,20 +881,25 @@ class FastPointsLayer(BaseLayer):
             end = min(n, start + chunk_size)
             # Swap lat,lon (public API) to lon,lat (internal format)
             convert_start = time.perf_counter()
-            coords_chunk = _latlon_chunk_to_lonlat_list(coords[start:end])
+            coords_chunk = _latlon_chunk_to_lonlat_array(coords[start:end])
             convert_ms = (time.perf_counter() - convert_start) * 1000.0
 
             msg: dict = {
                 "type": "fast_points.add_points",
                 "layer_id": self.id,
-                "coords": coords_chunk,
+                "coords_b64": _array_to_base64(coords_chunk),
+                "coords_dtype": "float64",
+                "point_count": end - start,
                 "redraw": bool(redraw and end == n),
             }
             if ids is not None:
-                msg["ids"] = ids[start:end]
+                msg["ids_b64"] = _strings_to_base64(ids[start:end])
             if colors_rgba is not None:
                 pack_start = time.perf_counter()
-                msg["colors"] = _pack_rgba_colors(colors_rgba[start:end])
+                msg["colors_b64"] = _array_to_base64(
+                    _pack_rgba_colors_array(colors_rgba[start:end])
+                )
+                msg["colors_dtype"] = "uint32"
                 pack_ms = (time.perf_counter() - pack_start) * 1000.0
             else:
                 pack_ms = 0.0
@@ -914,38 +943,31 @@ class FastPointsLayer(BaseLayer):
 
     def remove_points(self, feature_ids: Sequence[str]) -> None:
         """Remove fast points by id (marks deleted in JS)."""
-        # Send both 'feature_ids' and 'ids' for compatibility with any older/newer JS.
-        fids = [str(x) for x in feature_ids]
         self._map_widget._send(
             {
                 "type": "fast_points.remove_ids",
                 "layer_id": self.id,
-                "feature_ids": fids,
-                "ids": fids,
+                "ids_b64": _strings_to_base64(feature_ids),
             }
         )
 
     def hide_features(self, feature_ids: Sequence[str]) -> None:
         """Hide features by id (temporarily hide from view; can be unhidden)."""
-        fids = [str(x) for x in feature_ids]
         self._map_widget._send(
             {
                 "type": "fast_points.hide_ids",
                 "layer_id": self.id,
-                "feature_ids": fids,
-                "ids": fids,
+                "ids_b64": _strings_to_base64(feature_ids),
             }
         )
 
     def show_features(self, feature_ids: Sequence[str]) -> None:
         """Show previously hidden features by id."""
-        fids = [str(x) for x in feature_ids]
         self._map_widget._send(
             {
                 "type": "fast_points.show_ids",
                 "layer_id": self.id,
-                "feature_ids": fids,
-                "ids": fids,
+                "ids_b64": _strings_to_base64(feature_ids),
             }
         )
 
@@ -976,15 +998,16 @@ class FastPointsLayer(BaseLayer):
         if len(feature_ids) != len(colors_rgba):
             raise ValueError("feature_ids and colors_rgba must have the same length")
 
-        fids = [str(x) for x in feature_ids]
-        packed = _pack_rgba_colors(colors_rgba)
+        packed = _pack_rgba_colors_array(colors_rgba)
 
         self._map_widget._send(
             {
                 "type": "fast_points.set_colors",
                 "layer_id": self.id,
-                "feature_ids": fids,
-                "colors": packed,
+                "feature_ids_b64": _strings_to_base64(feature_ids),
+                "colors_b64": _array_to_base64(packed),
+                "colors_dtype": "uint32",
+                "count": len(feature_ids),
             }
         )
 
@@ -1058,21 +1081,32 @@ class FastGeoPointsLayer(BaseLayer):
         for start in range(0, n, chunk_size):
             end = min(n, start + chunk_size)
             # Swap lat,lon (public API) to lon,lat (internal format)
-            coords_chunk = _latlon_chunk_to_lonlat_list(coords[start:end])
+            coords_chunk = _latlon_chunk_to_lonlat_array(coords[start:end])
 
             msg: dict = {
                 "type": "fast_geopoints.add_points",
                 "layer_id": self.id,
-                "coords": coords_chunk,
-                "sma_m": np.asarray(sma_m[start:end], dtype=float).tolist(),
-                "smi_m": np.asarray(smi_m[start:end], dtype=float).tolist(),
-                "tilt_deg": np.asarray(tilt_deg[start:end], dtype=float).tolist(),
+                "coords_b64": _array_to_base64(coords_chunk),
+                "coords_dtype": "float64",
+                "point_count": end - start,
+                "sma_m_b64": _array_to_base64(
+                    np.asarray(sma_m[start:end], dtype=np.float64)
+                ),
+                "smi_m_b64": _array_to_base64(
+                    np.asarray(smi_m[start:end], dtype=np.float64)
+                ),
+                "tilt_deg_b64": _array_to_base64(
+                    np.asarray(tilt_deg[start:end], dtype=np.float64)
+                ),
                 "redraw": bool(redraw and end == n),
             }
             if ids is not None:
-                msg["ids"] = ids[start:end]
+                msg["ids_b64"] = _strings_to_base64(ids[start:end])
             if colors_rgba is not None:
-                msg["colors"] = _pack_rgba_colors(colors_rgba[start:end])
+                msg["colors_b64"] = _array_to_base64(
+                    _pack_rgba_colors_array(colors_rgba[start:end])
+                )
+                msg["colors_dtype"] = "uint32"
             self._map_widget._send(msg)
 
 
@@ -1086,7 +1120,7 @@ class FastGeoPointsLayer(BaseLayer):
             {
                 "type": "fast_geopoints.remove_ids",
                 "layer_id": self.id,
-                "feature_ids": [str(x) for x in feature_ids],
+                "ids_b64": _strings_to_base64(feature_ids),
             }
         )
 
@@ -1112,25 +1146,21 @@ class FastGeoPointsLayer(BaseLayer):
 
     def hide_features(self, feature_ids: Sequence[str]) -> None:
         """Hide features by id (temporarily hide from view; can be unhidden)."""
-        fids = [str(x) for x in feature_ids]
         self._map_widget._send(
             {
                 "type": "fast_geopoints.hide_ids",
                 "layer_id": self.id,
-                "feature_ids": fids,
-                "ids": fids,
+                "ids_b64": _strings_to_base64(feature_ids),
             }
         )
 
     def show_features(self, feature_ids: Sequence[str]) -> None:
         """Show previously hidden features by id."""
-        fids = [str(x) for x in feature_ids]
         self._map_widget._send(
             {
                 "type": "fast_geopoints.show_ids",
                 "layer_id": self.id,
-                "feature_ids": fids,
-                "ids": fids,
+                "ids_b64": _strings_to_base64(feature_ids),
             }
         )
 
@@ -1161,14 +1191,15 @@ class FastGeoPointsLayer(BaseLayer):
         if len(feature_ids) != len(colors_rgba):
             raise ValueError("feature_ids and colors_rgba must have the same length")
 
-        fids = [str(x) for x in feature_ids]
-        packed = _pack_rgba_colors(colors_rgba)
+        packed = _pack_rgba_colors_array(colors_rgba)
 
         self._map_widget._send(
             {
                 "type": "fast_geopoints.set_colors",
                 "layer_id": self.id,
-                "feature_ids": fids,
-                "colors": packed,
+                "feature_ids_b64": _strings_to_base64(feature_ids),
+                "colors_b64": _array_to_base64(packed),
+                "colors_dtype": "uint32",
+                "count": len(feature_ids),
             }
         )
