@@ -23,6 +23,28 @@ from pyopenlayersqt import FastPointsStyle, OLMapWidget, RangeSliderWidget
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
 
 
+
+def _datetime_series_to_epoch_seconds(values: pd.Series) -> np.ndarray:
+    """Convert a parsed datetime Series to epoch seconds regardless of unit."""
+    raw = values.astype("int64").to_numpy(dtype=np.float64, copy=False)
+    valid = values.notna().to_numpy(dtype=bool, copy=False)
+    if not valid.any():
+        return np.full(len(values), np.nan, dtype=np.float64)
+
+    magnitude = float(np.nanmedian(np.abs(raw[valid])))
+    if magnitude > 1e17:  # nanoseconds since epoch
+        scale = 1e9
+    elif magnitude > 1e14:  # microseconds since epoch
+        scale = 1e6
+    elif magnitude > 1e11:  # milliseconds since epoch
+        scale = 1e3
+    else:  # seconds since epoch
+        scale = 1.0
+
+    out = raw / scale
+    out[~valid] = np.nan
+    return out
+
 def _turbo_rgb(values: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Approximate Google's Turbo color map for values in [0, 1]."""
     x = np.clip(values.astype(np.float64, copy=False), 0.0, 1.0)
@@ -529,9 +551,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                     errors="coerce",
                     utc=True,
                 )
-                epoch_seconds = parsed_dates.astype("int64") / 10**9
-                chunk_df[self.mapped_epoch_col] = np.where(
-                    parsed_dates.notna(), epoch_seconds, np.nan
+                chunk_df[self.mapped_epoch_col] = _datetime_series_to_epoch_seconds(
+                    parsed_dates
                 )
 
         coords_start = time.perf_counter()
@@ -613,8 +634,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             t_min = float(valid_times.min())
             t_max = float(valid_times.max())
             self.slider.setEnabled(True)
-            self.slider.set_value_formatter(self._format_epoch_label)
             self.slider.set_range(t_min, t_max)
+            self.slider.set_value_formatter(self._format_epoch_label)
             if self._slider_range_conn:
                 self.slider.rangeChanged.disconnect(self._slider_range_conn)
             self._slider_range_conn = self.slider.rangeChanged.connect(
