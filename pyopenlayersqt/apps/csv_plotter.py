@@ -221,16 +221,28 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(central)
 
         toolbar = self.addToolBar("Map Tools")
-        self.measure_action = QtGui.QAction("📐 Measurement Mode", self)
+        self.measure_action = QtGui.QAction(
+            self._measurement_icon(), "Measurement Mode", self
+        )
         self.measure_action.setCheckable(True)
         self.measure_action.triggered.connect(self.toggle_measurement)
         toolbar.addAction(self.measure_action)
 
-        delete_action = QtGui.QAction("🗑️ Delete Selected", self)
+        delete_action = QtGui.QAction(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_TrashIcon),
+            "Delete Selected",
+            self,
+        )
         delete_action.triggered.connect(self.delete_selected_features)
         toolbar.addAction(delete_action)
 
-        save_action = QtGui.QAction("💾 Save Selected", self)
+        save_action = QtGui.QAction(
+            self.style().standardIcon(
+                QtWidgets.QStyle.StandardPixmap.SP_DialogSaveButton
+            ),
+            "Save Selected",
+            self,
+        )
         save_action.triggered.connect(self.save_selected_csv)
         toolbar.addAction(save_action)
 
@@ -274,6 +286,32 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.progress_bar.setFixedWidth(300)
         self.progress_bar.setVisible(False)
         status_bar.addPermanentWidget(self.progress_bar)
+
+    def _measurement_icon(self) -> QtGui.QIcon:
+        """Build a small ruler icon for the measurement action."""
+        pixmap = QtGui.QPixmap(24, 24)
+        pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+        painter = QtGui.QPainter(pixmap)
+        try:
+            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+            pen = QtGui.QPen(QtGui.QColor("#455a64"), 2)
+            painter.setPen(pen)
+            painter.setBrush(QtGui.QColor("#fff59d"))
+            polygon = QtGui.QPolygonF(
+                [
+                    QtCore.QPointF(4, 17),
+                    QtCore.QPointF(17, 4),
+                    QtCore.QPointF(21, 8),
+                    QtCore.QPointF(8, 21),
+                ]
+            )
+            painter.drawPolygon(polygon)
+            painter.drawLine(QtCore.QPointF(9, 16), QtCore.QPointF(11, 18))
+            painter.drawLine(QtCore.QPointF(12, 13), QtCore.QPointF(14, 15))
+            painter.drawLine(QtCore.QPointF(15, 10), QtCore.QPointF(17, 12))
+        finally:
+            painter.end()
+        return QtGui.QIcon(pixmap)
 
     def toggle_measurement(self, checked: bool) -> None:
         self.map_widget.set_measure_mode(checked)
