@@ -9,8 +9,6 @@ PYOPENLAYERSQT_PERF=1 or PYOPENLAYERSQT_BENCH=1.
 from __future__ import annotations
 
 import argparse
-import colorsys
-import hashlib
 import os
 import sys
 import time
@@ -22,6 +20,25 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from pyopenlayersqt import FastPointsStyle, OLMapWidget, RangeSliderWidget
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
+
+
+def _category_codes_to_packed_rgba(codes: np.ndarray) -> np.ndarray:
+    """Map integer category codes to deterministic packed RGBA colors."""
+    code_arr = np.asarray(codes, dtype=np.int64)
+    safe_codes = np.where(code_arr < 0, 0, code_arr).astype(np.uint32, copy=False)
+    hashed = safe_codes * np.uint32(2654435761)
+    red = 80 + (hashed & np.uint32(0x7F))
+    green = 80 + ((hashed >> np.uint32(8)) & np.uint32(0x7F))
+    blue = 80 + ((hashed >> np.uint32(16)) & np.uint32(0x7F))
+    alpha = np.full(code_arr.shape, 204, dtype=np.uint32)
+    packed = (
+        (red << np.uint32(24))
+        | (green << np.uint32(16))
+        | (blue << np.uint32(8))
+        | alpha
+    )
+    packed[code_arr < 0] = np.uint32(0x999999CC)
+    return packed.astype(np.uint32, copy=False)
 
 
 def perf_enabled() -> bool:
@@ -575,16 +592,15 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 self.fast_layer.clear_colors()
                 return
 
-            def val_to_hex(value):
-                hash_int = int(hashlib.md5(str(value).encode("utf-8")).hexdigest(), 16)
-                hue = (hash_int % 10000) / 10000.0
-                red, green, blue = colorsys.hsv_to_rgb(hue, 0.85, 0.9)
-                return f"#{int(red*255):02x}{int(green*255):02x}{int(blue*255):02x}"
-
-            unique_vals = self.df[column_name].astype(str).unique()
-            color_map = {value: val_to_hex(value) for value in unique_vals}
-            color_list = self.df[column_name].astype(str).map(color_map).tolist()
-            self.fast_layer.set_colors(self.feature_ids.tolist(), color_list)
+            codes, unique_values = pd.factorize(self.df[column_name], sort=False)
+            packed_colors = _category_codes_to_packed_rgba(codes)
+            self.fast_layer.set_packed_colors(self.feature_ids, packed_colors)
+            perf(
+                "color_by",
+                column=column_name,
+                category_count=len(unique_values),
+                row_count=len(codes),
+            )
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
 

@@ -1011,6 +1011,29 @@ class FastPointsLayer(BaseLayer):
             }
         )
 
+    def set_packed_colors(
+        self, feature_ids: Sequence[str], packed_colors: Sequence[int] | np.ndarray
+    ) -> None:
+        """Update colors using pre-packed uint32 RGBA values.
+
+        This avoids keeping millions of temporary Python color strings/tuples in
+        high-volume callers that can map categories to integer color codes.
+        """
+        if len(feature_ids) != len(packed_colors):
+            raise ValueError("feature_ids and packed_colors must have the same length")
+
+        packed = np.asarray(packed_colors, dtype=np.uint32)
+        self._map_widget._send(
+            {
+                "type": "fast_points.set_colors",
+                "layer_id": self.id,
+                "feature_ids_b64": _strings_to_base64(feature_ids),
+                "colors_b64": _array_to_base64(packed),
+                "colors_dtype": "uint32",
+                "count": len(feature_ids),
+            }
+        )
+
     def clear_colors(self) -> None:
         """Clear custom per-feature colors and return to the default style color."""
         self._map_widget._send(
@@ -1170,6 +1193,25 @@ class FastGeoPointsLayer(BaseLayer):
             {
                 "type": "fast_geopoints.show_all",
                 "layer_id": self.id,
+            }
+        )
+
+    def set_packed_colors(
+        self, feature_ids: Sequence[str], packed_colors: Sequence[int] | np.ndarray
+    ) -> None:
+        """Update colors using pre-packed uint32 RGBA values."""
+        if len(feature_ids) != len(packed_colors):
+            raise ValueError("feature_ids and packed_colors must have the same length")
+
+        packed = np.asarray(packed_colors, dtype=np.uint32)
+        self._map_widget._send(
+            {
+                "type": "fast_geopoints.set_colors",
+                "layer_id": self.id,
+                "feature_ids_b64": _strings_to_base64(feature_ids),
+                "colors_b64": _array_to_base64(packed),
+                "colors_dtype": "uint32",
+                "count": len(feature_ids),
             }
         )
 
