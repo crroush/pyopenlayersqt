@@ -581,8 +581,24 @@ class FeatureTableWidget(QWidget):
         )
         return keys
 
+    def _virtual_selected_row_indices(self) -> List[int]:
+        rows: List[int] = []
+        for key in self._virtual_selected_keys:
+            row_index = self.model.row_for_key(key)
+            if row_index is not None:
+                rows.append(row_index)
+        rows.sort()
+        return rows
+
     def selected_rows_data(self) -> List[Any]:
         """Return underlying row objects for all selected rows."""
+        if self._virtual_selected_keys:
+            return [
+                row_data
+                for row_index in self._virtual_selected_row_indices()
+                if (row_data := self.model.row_data(row_index)) is not None
+            ]
+
         sm = self.table.selectionModel()
         if sm is None:
             return []
@@ -742,16 +758,25 @@ class FeatureTableWidget(QWidget):
 
     def _on_custom_context_menu(self, pos: QtCore.QPoint) -> None:
         index = self.table.indexAt(pos)
-        if index.isValid() and not self.table.selectionModel().isRowSelected(
-            index.row(), QtCore.QModelIndex()
-        ):
-            self.table.selectRow(index.row())
-
         sm = self.table.selectionModel()
         if sm is None:
             return
 
-        selected_row_indices = [idx.row() for idx in sm.selectedRows(0)]
+        if index.isValid():
+            clicked_key = self.model.key_for_row(index.row())
+            clicked_is_virtual = (
+                clicked_key is not None and clicked_key in self._virtual_selected_keys
+            )
+            if not clicked_is_virtual and not sm.isRowSelected(
+                index.row(), QtCore.QModelIndex()
+            ):
+                self.table.selectRow(index.row())
+
+        if self._virtual_selected_keys:
+            selected_row_indices = self._virtual_selected_row_indices()
+        else:
+            selected_row_indices = [idx.row() for idx in sm.selectedRows(0)]
+
         keys = [
             key
             for row_idx in selected_row_indices

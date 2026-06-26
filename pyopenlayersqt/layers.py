@@ -988,6 +988,14 @@ class FastPointsLayer(BaseLayer):
             }
         )
 
+    def clear_colors(self) -> None:
+        """Clear custom per-feature colors and return to the default style color."""
+        self._map_widget._send(
+            {
+                "type": "fast_points.clear_colors",
+                "layer_id": self.id,
+            }
+        )
 
 
 class FastGeoPointsLayer(BaseLayer):

@@ -956,6 +956,13 @@ function cmd_fast_points_set_colors(msg) {
   fp_redraw(entry);
 }
 
+function cmd_fast_points_clear_colors(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== "fast_points") return;
+  entry.color_u32.fill(0);
+  fp_redraw(entry);
+}
+
 // --- FastGeoPoints (points + uncertainty ellipses; index-backed canvas layer) ---
 const _FGP_EARTH_R = 6378137.0;
 function _fgp_lat_from_y(y3857) {
@@ -2924,6 +2931,7 @@ function cmd_countries_set_visible(msg) {
     case "fast_points.show_ids": return cmd_fast_points_show_ids(msg);
     case "fast_points.show_all": return cmd_fast_points_show_all(msg);
     case "fast_points.set_colors": return cmd_fast_points_set_colors(msg);
+    case "fast_points.clear_colors": return cmd_fast_points_clear_colors(msg);
       case "base.set_opacity": return cmd_base_set_opacity(msg);
       case "base.set_visible": return cmd_base_set_visible(msg);
       case "vector.remove_features": return cmd_vector_remove_features(msg);

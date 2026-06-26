@@ -572,7 +572,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
         try:
             if column_name == "None (Uniform)":
-                # Preserve the current uniform style by clearing custom colors via IDs.
+                self.fast_layer.clear_colors()
                 return
 
             def val_to_hex(value):
