@@ -1008,7 +1008,28 @@ function fgp_make_canvas_layer(entry) {
         };
       }
 
-      function traverseRepresentatives(onIndex) {
+      const collapsePx = Math.max(
+        1.0,
+        Number(st.aggregate_pixel_size || st.point_radius || 3.0) * pixelRatio
+      );
+      const drawIndices = [];
+      const seenCenterPixels = new Set();
+
+      function addUnselectedDrawIndex(i, fromCollapsedNode) {
+        if (entry.deleted[i] || entry.hidden[i] || selectedSet.has(entry.ids[i]) || !inExtent(i)) return;
+        const x = (entry.x[i] - extent[0]) * scaleX;
+        const y = (extent[3] - entry.y[i]) * scaleY;
+        const pixelKey = Math.round(x) + ',' + Math.round(y);
+        if (seenCenterPixels.has(pixelKey)) {
+          skippedDuplicatePixels++;
+          return;
+        }
+        seenCenterPixels.add(pixelKey);
+        drawIndices.push(i);
+        if (fromCollapsedNode) representativeCount++;
+      }
+
+      function collectDrawIndices() {
         if (!root) return;
         const stack = [root];
         while (stack.length) {
@@ -1016,12 +1037,11 @@ function fgp_make_canvas_layer(entry) {
           if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) continue;
           visitedNodeCount++;
           const px = nodePixelSize(node);
-          if (px.w <= 1.0 && px.h <= 1.0) {
+          if (px.w <= collapsePx && px.h <= collapsePx) {
             const rep = fp_qt_pick_representative(entry, node, true);
-            if (rep >= 0 && inExtent(rep)) {
-              representativeCount++;
+            if (rep >= 0) {
               collapsedNodeCount++;
-              onIndex(rep);
+              addUnselectedDrawIndex(rep, true);
             }
             continue;
           }
@@ -1030,13 +1050,13 @@ function fgp_make_canvas_layer(entry) {
             continue;
           }
           for (let k = 0; k < node.items.length; k++) {
-            const i = node.items[k];
             scannedLeafPointCount++;
-            if (entry.deleted[i] || entry.hidden[i] || selectedSet.has(entry.ids[i]) || !inExtent(i)) continue;
-            onIndex(i);
+            addUnselectedDrawIndex(node.items[k], false);
           }
         }
       }
+
+      collectDrawIndices();
 
       // ---- Ellipses (batched, quadtree-collapsed for unselected points) ----
       const unselectedEllipsesVisible = entry.ellipsesVisible && st.ellipses_visible !== false;
@@ -1069,8 +1089,8 @@ function fgp_make_canvas_layer(entry) {
           if (fillEll) ctx.fillStyle = rgba_to_css(st.ellipse_fill_rgba || [255,204,0,40]);
           let nInPath = 0;
           ctx.beginPath();
-          traverseRepresentatives((i) => {
-            if (!addEllipsePath(i, false)) return;
+          for (let k = 0; k < drawIndices.length; k++) {
+            if (!addEllipsePath(drawIndices[k], false)) continue;
             nInPath++;
             if (nInPath >= maxPerPath) {
               if (fillEll) ctx.fill();
@@ -1078,7 +1098,7 @@ function fgp_make_canvas_layer(entry) {
               ctx.beginPath();
               nInPath = 0;
             }
-          });
+          }
           if (nInPath > 0) {
             if (fillEll) ctx.fill();
             ctx.stroke();
@@ -1109,7 +1129,6 @@ function fgp_make_canvas_layer(entry) {
       // ---- Points (batched, quadtree-collapsed for unselected points) ----
       const pointStart = performance.now();
       const batches = new Map();
-      const seenDrawPixels = new Set();
 
       function addPointToBatch(i, selectedOverride) {
         const fid = entry.ids[i];
@@ -1126,12 +1145,6 @@ function fgp_make_canvas_layer(entry) {
         } else {
           const u = entry.color_u32[i];
           colorKey = u !== 0 ? rgba_to_css(rgba_from_u32(u)) : rgba_to_css(st.default_point_rgba || [255,51,51,204]);
-          const dedupeKey = px + ',' + py + ',' + Math.round(radius * 10) + ',' + colorKey;
-          if (seenDrawPixels.has(dedupeKey)) {
-            skippedDuplicatePixels++;
-            return;
-          }
-          seenDrawPixels.add(dedupeKey);
         }
         const batchKey = colorKey + '|' + radius;
         let batch = batches.get(batchKey);
@@ -1143,7 +1156,7 @@ function fgp_make_canvas_layer(entry) {
         pointDrawCount++;
       }
 
-      traverseRepresentatives((i) => addPointToBatch(i, false));
+      for (let k = 0; k < drawIndices.length; k++) addPointToBatch(drawIndices[k], false);
       for (const fid of selectedSet) {
         const i = entry.idIndex.get(String(fid));
         if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
@@ -1172,6 +1185,8 @@ function fgp_make_canvas_layer(entry) {
           collapsed_node_count: collapsedNodeCount,
           scanned_leaf_point_count: scannedLeafPointCount,
           representative_count: representativeCount,
+          aggregate_draw_candidate_count: drawIndices.length,
+          collapse_pixel_threshold: collapsePx.toFixed(2),
           ellipse_draw_count: ellipseDrawCount,
           point_draw_count: pointDrawCount,
           skipped_duplicate_pixels: skippedDuplicatePixels,
