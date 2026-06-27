@@ -300,6 +300,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self.beginResetModel()
         self._rows = kept
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        self._external_selected_keys.intersection_update(self._row_by_key)
         self.endResetModel()
 
     def remove_keys(self, keys: Sequence[FeatureKey]) -> None:
@@ -318,6 +319,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self.beginResetModel()
         self._rows = kept
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        self._external_selected_keys.intersection_update(self._row_by_key)
         self.endResetModel()
 
     def row_for_key(self, key: FeatureKey) -> Optional[int]:
@@ -514,16 +516,19 @@ class FeatureTableWidget(QWidget):
 
     def clear(self) -> None:
         self.model.clear()
+        self.clear_selection()
 
     def append_rows(self, rows: Iterable[Any]) -> None:
         self.model.append_rows(rows)
 
     def remove_where(self, predicate: Callable[[Any], bool]) -> None:
         self.model.remove_where(predicate)
+        self._filter_virtual_selection_to_model()
 
     def remove_keys(self, keys: Sequence[FeatureKey]) -> None:
         """Remove rows by (layer_id, feature_id) keys."""
         self.model.remove_keys(keys)
+        self._filter_virtual_selection_to_model()
 
     def row_for(self, layer_id: str, feature_id: str) -> Optional[int]:
         """Return row index for (layer_id, feature_id), if present."""
@@ -537,6 +542,7 @@ class FeatureTableWidget(QWidget):
         """Return currently selected keys."""
         perf_start = time.perf_counter()
         if self._virtual_selected_keys:
+            self._filter_virtual_selection_to_model()
             keys = list(self._virtual_selected_keys)
             _perf_print(
                 {
@@ -590,6 +596,32 @@ class FeatureTableWidget(QWidget):
         rows.sort()
         return rows
 
+    def _current_selected_row_indices(self) -> List[int]:
+        """Return row indices selected by either virtual or Qt selection state."""
+        row_indices = set(self._virtual_selected_row_indices())
+        sm = self.table.selectionModel()
+        if sm is not None:
+            for idx in sm.selectedRows(0):
+                row = idx.row()
+                if 0 <= row < len(self.model.rows):
+                    row_indices.add(row)
+        return sorted(row_indices)
+
+    def _filter_virtual_selection_to_model(self) -> None:
+        """Drop virtual selection keys that no longer exist in the model."""
+        if not self._virtual_selected_keys:
+            return
+        existing_keys = {
+            key
+            for key in self._virtual_selected_keys
+            if self.model.row_for_key(key) is not None
+        }
+        if existing_keys == self._virtual_selected_keys:
+            return
+        self._virtual_selected_keys = existing_keys
+        self.model.set_external_selection(existing_keys)
+        self.table.viewport().update()
+
     def selected_rows_data(self) -> List[Any]:
         """Return underlying row objects for all selected rows."""
         if self._virtual_selected_keys:
@@ -617,11 +649,11 @@ class FeatureTableWidget(QWidget):
         self._context_menu_actions = list(actions)
 
     def clear_selection(self) -> None:
+        self._virtual_selected_keys = set()
+        self.model.set_external_selection(set())
         sm = self.table.selectionModel()
         if sm is None:
             return
-        self._virtual_selected_keys = set()
-        self.model.set_external_selection(set())
         self._building_selection = True
         sm.clearSelection()
         self._building_selection = False
@@ -641,6 +673,10 @@ class FeatureTableWidget(QWidget):
         if sm is None:
             return
 
+        if not clear_first:
+            current_rows = self._current_selected_row_indices()
+            if current_rows:
+                rows = sorted(set(rows).union(current_rows))
         rows.sort()
         matched_count = len(rows)
         selection = QtCore.QItemSelection()
@@ -679,13 +715,13 @@ class FeatureTableWidget(QWidget):
                     if (key := self.model.key_for_row(row)) is not None
                 }
                 self.model.set_external_selection(self._virtual_selected_keys)
-                if clear_first:
-                    sm.clearSelection()
+                sm.clearSelection()
                 self.table.viewport().update()
             else:
+                had_virtual_selection = bool(self._virtual_selected_keys)
                 self._virtual_selected_keys = set()
                 self.model.set_external_selection(set())
-                if clear_first:
+                if clear_first or had_virtual_selection:
                     sm.clearSelection()
                 sm.select(
                     selection,
