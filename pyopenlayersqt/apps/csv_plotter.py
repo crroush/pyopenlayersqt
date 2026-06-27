@@ -325,7 +325,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         )
         map_layout.addWidget(self.map_widget, stretch=1)
 
-        self.slider = RangeSliderWidget()
+        self.slider = RangeSliderWidget(is_iso8601=True)
         self.slider.setEnabled(False)
         map_layout.addWidget(self.slider)
         self.splitter.addWidget(map_panel)
@@ -701,8 +701,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             if self._slider_range_conn:
                 self.slider.rangeChanged.disconnect(self._slider_range_conn)
                 self._slider_range_conn = None
-            self.slider.set_value_formatter(self._format_epoch_label)
-            self.slider.set_available_range(t_min, t_max)
+            self.slider.set_value_formatter(None)
+            self.slider.set_available_range(
+                self._epoch_to_iso8601(t_min),
+                self._epoch_to_iso8601(t_max),
+            )
             self.slider.setEnabled(True)
             self._slider_range_conn = self.slider.rangeChanged.connect(
                 self._on_time_slider_changed
@@ -742,15 +745,24 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
 
-    def _format_epoch_label(self, value: float) -> str:
-        try:
-            dt = datetime.fromtimestamp(float(value), tz=timezone.utc)
-        except (OverflowError, OSError, ValueError):
-            return str(value)
-        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+    def _epoch_to_iso8601(self, value: float) -> str:
+        dt = datetime.fromtimestamp(float(value), tz=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
 
-    def _on_time_slider_changed(self, min_val: float, max_val: float) -> None:
-        self._pending_time_filter = (float(min_val), float(max_val))
+    def _slider_value_to_epoch(self, value: object) -> float:
+        if isinstance(value, str):
+            normalized = value.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc).timestamp()
+        return float(value)
+
+    def _on_time_slider_changed(self, min_val: object, max_val: object) -> None:
+        self._pending_time_filter = (
+            self._slider_value_to_epoch(min_val),
+            self._slider_value_to_epoch(max_val),
+        )
         self._time_filter_timer.start()
 
     def _apply_pending_time_filter(self) -> None:

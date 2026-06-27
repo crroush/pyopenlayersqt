@@ -572,11 +572,25 @@ class RangeSliderWidget(QWidget):
 
     def set_available_range(
         self,
-        min_value: float,
-        max_value: float,
+        min_value: Union[float, str],
+        max_value: Union[float, str],
         step: Optional[float] = None,
     ) -> None:
-        """Replace numeric bounds and select the full new available range."""
+        """Replace available bounds and select the full new range."""
+        if self._is_iso8601 or isinstance(min_value, str) or isinstance(max_value, str):
+            self._is_iso8601 = True
+            self._configure_iso_range(
+                min_value=str(min_value),
+                max_value=str(max_value),
+                step_seconds=step,
+            )
+            self._slider.setMinimum(self._slider_min)
+            self._slider.setMaximum(self._slider_max)
+            self._slider.setMinValue(self._slider_min)
+            self._slider.setMaxValue(self._slider_max)
+            self._update_labels()
+            return
+
         self._is_iso8601 = False
         self._configure_numeric_range(
             min_val=float(min_value),
