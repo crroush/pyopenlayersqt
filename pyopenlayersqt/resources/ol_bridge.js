@@ -51,6 +51,7 @@ const state = {
     hydrologyLayer: null,
     hydrologyLoaded: false,
     hydrologyLoadPromise: null,
+    perfEnabled: false,
     readyEmitted: false,
   };
 
@@ -131,6 +132,10 @@ function cmd_map_get_view_extent(msg) {
   const obj = _pyolqt_view_extent_obj();
   if (!obj) return;
   emitToPython("view_extent", obj);
+}
+
+function cmd_perf_set_enabled(msg) {
+  state.perfEnabled = !!msg.enabled;
 }
 
 const _extentWatch = { enabled: false, token: 0, debounce_ms: 150, timer: null, seq: 0, installed: false };
@@ -305,6 +310,18 @@ function cmd_map_fit_bounds(msg) {
     } catch (e) {
       jsError("emitToPython failed:", e);
     }
+  }
+
+  function pyolqt_perf_enabled() {
+    return !!(
+      state.perfEnabled ||
+      window.PYOLQT_RENDER_PERF ||
+      window.PYOLQT_SELECTION_PERF
+    );
+  }
+
+  function emitPerf(payloadObj) {
+    if (pyolqt_perf_enabled()) emitToPython("perf", payloadObj);
   }
 
 
@@ -559,7 +576,7 @@ function fp_emit_selection(entry) {
     feature_ids: featureIds,
   });
   if (featureIds.length > 100 || window.PYOLQT_SELECTION_PERF) {
-    emitToPython("perf", {
+    emitPerf({
       side: "javascript",
       layer_id: entry.layer_id,
       operation: "fast_points_emit_selection",
@@ -762,7 +779,7 @@ function fp_make_canvas_layer(entry) {
       
       // Emit performance data to Python side
       if (visiblePointCount > 100) {  // Only log when there are significant points
-        emitToPython("perf", {
+        emitPerf({
           layer_id: entry.layer_id,
           operation: "fast_points_render",
           point_count: visiblePointCount,
@@ -821,7 +838,7 @@ function cmd_fast_points_add_layer(msg) {
   state.map.addLayer(entry.layer);
   state.layers.set(layer_id, entry);
   state.layerByObj.set(entry.layer, layer_id);
-  emitToPython("perf", {
+  emitPerf({
     side: "javascript",
     layer_id,
     operation: "fast_points_add_layer",
@@ -867,7 +884,7 @@ function cmd_fast_points_add_points(msg) {
   const shouldRedraw = (msg.redraw !== false);
   if (shouldRedraw) fp_redraw(entry);
   const redrawMs = performance.now() - redrawStart;
-  emitToPython("perf", {
+  emitPerf({
     side: "javascript",
     layer_id: entry.layer_id,
     operation: "fast_points_add_points",
@@ -987,7 +1004,7 @@ function cmd_fast_points_select_set(msg) {
       emitMs = performance.now() - emitStart;
     }
     if (ids.length > 100 || window.PYOLQT_SELECTION_PERF) {
-      emitToPython("perf", {
+      emitPerf({
         side: "javascript",
         layer_id: entry.layer_id,
         operation: "fast_points_select_set",
@@ -1135,7 +1152,7 @@ function fgp_make_canvas_layer(entry) {
       ].join('|');
       if (entry.renderCache && entry.renderCache.key === cacheKey) {
         if (window.PYOLQT_RENDER_PERF) {
-          emitToPython("perf", {
+          emitPerf({
             layer_id: entry.layer_id,
             operation: "fast_geopoints_render_cache_hit",
             elapsed_ms: (performance.now() - perfStart).toFixed(2)
@@ -1375,7 +1392,7 @@ function fgp_make_canvas_layer(entry) {
       const totalTime = performance.now() - perfStart;
 
       if ((entry.x.length > 100) || window.PYOLQT_RENDER_PERF) {
-        emitToPython("perf", {
+        emitPerf({
           layer_id: entry.layer_id,
           operation: "fast_geopoints_render",
           point_count: entry.x.length,
@@ -1499,7 +1516,7 @@ function cmd_fast_geopoints_add_points(msg) {
   const redrawStart = performance.now();
   if (shouldRedraw) fgp_redraw(entry);
   const redrawMs = performance.now() - redrawStart;
-  emitToPython("perf", {
+  emitPerf({
     side: "javascript",
     layer_id: entry.layer_id,
     operation: "fast_geopoints_add_points",
@@ -1684,7 +1701,7 @@ function fp_install_interactions() {
       const emitStart = performance.now();
       fp_emit_selection(entry);
       const emitMs = performance.now() - emitStart;
-      emitToPython("perf", {
+      emitPerf({
         side: "javascript",
         layer_id: entry.layer_id,
         operation: "fast_points_singleclick_selection",
@@ -1735,7 +1752,7 @@ function fp_install_interactions() {
         const emitStart = performance.now();
         fp_emit_selection(entry);
         const emitMs = performance.now() - emitStart;
-        emitToPython("perf", {
+        emitPerf({
           side: "javascript",
           layer_id: entry.layer_id,
           operation: "fast_points_dragbox_selection",
@@ -2660,7 +2677,7 @@ function cmd_countries_set_visible(msg) {
     state.map.on("moveend", function(){ 
       const interactionTime = performance.now() - state.interactionStartTime;
       
-      emitToPython("perf", {
+      emitPerf({
         operation: "map_interaction",
         interaction_time_ms: interactionTime.toFixed(2),
         render_calls: state.renderCount,
@@ -3039,6 +3056,7 @@ function cmd_countries_set_visible(msg) {
     const t = msg.type;
     try {
     switch (t) {
+      case "perf.set_enabled": return cmd_perf_set_enabled(msg);
       case "layer.add_vector": return cmd_add_vector(msg);
       case "layer.add_wms": return cmd_add_wms(msg);
       case "layer.add_tile": return cmd_add_tile(msg);
@@ -3126,7 +3144,7 @@ function cmd_countries_set_visible(msg) {
     }
     } finally {
       if (t && (t.indexOf("fast_points.") === 0 || t === "fast_points.add_layer")) {
-        emitToPython("perf", {
+        emitPerf({
           side: "javascript",
           operation: "dispatch",
           type: t,

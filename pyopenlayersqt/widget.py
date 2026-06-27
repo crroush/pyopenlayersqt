@@ -728,6 +728,12 @@ class OLMapWidget(QWebEngineView):
                 }
             )
         self._send_now(
+            {
+                "type": "perf.set_enabled",
+                "enabled": self._perf_logging_enabled,
+            }
+        )
+        self._send_now(
             {"type": "coordinates.set_visible", "visible": self._show_coordinates}
         )
         self._send_now(
