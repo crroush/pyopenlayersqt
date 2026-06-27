@@ -467,6 +467,13 @@ function fp_qt_update_visibility(entry, i, delta) {
   }
 }
 
+function fp_qt_clear_visibility(node) {
+  if (!node) return;
+  node.visibleCount = 0;
+  if (!node.children) return;
+  for (let c = 0; c < 4; c++) fp_qt_clear_visibility(node.children[c]);
+}
+
 function fp_qt_intersects(node, extent) {
   return !(node.maxX < extent[0] || node.minX > extent[2] ||
            node.maxY < extent[1] || node.minY > extent[3]);
@@ -1080,6 +1087,22 @@ function cmd_fast_points_show_indices(msg) {
   for (let k = 0; k < indices.length; k++) {
     const i = indices[k];
     if (i == null || i >= entry.hidden.length || entry.deleted[i] || !entry.hidden[i]) continue;
+    entry.hidden[i] = false;
+    fp_qt_update_visibility(entry, i, 1);
+  }
+  fp_redraw(entry);
+}
+
+function cmd_fast_points_show_only_indices(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== "fast_points") return;
+  const indices = pyolqt_indices_from_msg(msg);
+  entry.hidden = new Array(entry.hidden.length).fill(true);
+  fp_qt_clear_visibility(entry.qtRoot);
+  for (let k = 0; k < indices.length; k++) {
+    const i = indices[k];
+    if (i == null || i >= entry.hidden.length || entry.deleted[i]) continue;
+    if (!entry.hidden[i]) continue;
     entry.hidden[i] = false;
     fp_qt_update_visibility(entry, i, 1);
   }
@@ -3114,6 +3137,7 @@ function cmd_countries_set_visible(msg) {
     case "fast_points.show_ids": return cmd_fast_points_show_ids(msg);
     case "fast_points.hide_indices": return cmd_fast_points_hide_indices(msg);
     case "fast_points.show_indices": return cmd_fast_points_show_indices(msg);
+    case "fast_points.show_only_indices": return cmd_fast_points_show_only_indices(msg);
     case "fast_points.show_all": return cmd_fast_points_show_all(msg);
     case "fast_points.set_colors": return cmd_fast_points_set_colors(msg);
     case "fast_points.clear_colors": return cmd_fast_points_clear_colors(msg);

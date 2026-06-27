@@ -1018,6 +1018,19 @@ class FastPointsLayer(BaseLayer):
             }
         )
 
+    def show_only_indices(self, indices: Sequence[int] | np.ndarray) -> None:
+        """Show only the provided JS-side row indices and hide all others."""
+        idx = np.asarray(indices, dtype=np.uint32)
+        self._map_widget._send(
+            {
+                "type": "fast_points.show_only_indices",
+                "layer_id": self.id,
+                "indices_b64": _array_to_base64(idx),
+                "indices_dtype": "uint32",
+                "count": int(idx.size),
+            }
+        )
+
     def set_colors(
         self,
         feature_ids: Sequence[str],

@@ -131,11 +131,24 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._sort_order: Qt.SortOrder = Qt.AscendingOrder
         self._hidden_keys: set[FeatureKey] = set()  # Track hidden rows
         self._external_selected_keys: set[FeatureKey] = set()
+        self._visible_row_indices: Optional[List[int]] = None
+        self._visible_row_by_source: Dict[int, int] = {}
+
+    def _source_row(self, row_index: int) -> int:
+        if self._visible_row_indices is None:
+            return row_index
+        if row_index < 0 or row_index >= len(self._visible_row_indices):
+            return -1
+        return self._visible_row_indices[row_index]
 
     def rowCount(
         self, parent: QtCore.QModelIndex = QtCore.QModelIndex()
     ) -> int:  # noqa: N802
-        return 0 if parent.isValid() else len(self._rows)
+        if parent.isValid():
+            return 0
+        if self._visible_row_indices is not None:
+            return len(self._visible_row_indices)
+        return len(self._rows)
 
     def columnCount(
         self, parent: QtCore.QModelIndex = QtCore.QModelIndex()
@@ -163,16 +176,17 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         if not index.isValid():
             return result
         row_index = index.row()
+        source_row = self._source_row(row_index)
         column_index = index.column()
         if (
-            row_index < 0
-            or row_index >= len(self._rows)
+            source_row < 0
+            or source_row >= len(self._rows)
             or column_index < 0
             or column_index >= len(self._columns)
         ):
             return result
 
-        row = self._rows[row_index]
+        row = self._rows[source_row]
         col = self._columns[column_index]
 
         if role in (Qt.DisplayRole, Qt.EditRole):
@@ -211,7 +225,10 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
     def setData(self, index, value, role=Qt.EditRole):
         """Apply data from an edit to the underlying model"""
         if role == Qt.EditRole:
-            row = self._rows[index.row()]
+            source_row = self._source_row(index.row())
+            if source_row < 0:
+                return False
+            row = self._rows[source_row]
             col = self._columns[index.column()]
             if col.setter is None:
                 return False
@@ -235,6 +252,8 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         if key_fn is not None:
             self._key_fn = key_fn
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        self._visible_row_indices = None
+        self._visible_row_by_source = {}
         self.endResetModel()
 
     def clear(self) -> None:
@@ -243,6 +262,8 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._rows = []
         self._row_by_key = {}
         self._external_selected_keys = set()
+        self._visible_row_indices = None
+        self._visible_row_by_source = {}
         self.endResetModel()
 
     def append_rows(self, rows: Iterable[Any]) -> None:
@@ -300,6 +321,8 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self.beginResetModel()
         self._rows = kept
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        self._visible_row_indices = None
+        self._visible_row_by_source = {}
         self._external_selected_keys.intersection_update(self._row_by_key)
         self.endResetModel()
 
@@ -319,12 +342,35 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self.beginResetModel()
         self._rows = kept
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        self._visible_row_indices = None
+        self._visible_row_by_source = {}
         self._external_selected_keys.intersection_update(self._row_by_key)
+        self.endResetModel()
+
+    def set_visible_row_indices(self, indices: Optional[Sequence[int]]) -> None:
+        """Restrict displayed rows to source row indices, or clear filtering."""
+        self.beginResetModel()
+        if indices is None:
+            self._visible_row_indices = None
+            self._visible_row_by_source = {}
+        else:
+            max_row = len(self._rows)
+            visible = [int(i) for i in indices if 0 <= int(i) < max_row]
+            self._visible_row_indices = visible
+            self._visible_row_by_source = {
+                source_row: view_row
+                for view_row, source_row in enumerate(visible)
+            }
         self.endResetModel()
 
     def row_for_key(self, key: FeatureKey) -> Optional[int]:
         """Return row index for a key, if present."""
-        return self._row_by_key.get(key)
+        source_row = self._row_by_key.get(key)
+        if source_row is None:
+            return None
+        if self._visible_row_indices is None:
+            return source_row
+        return self._visible_row_by_source.get(source_row)
 
     def row_for(self, layer_id: str, feature_id: str) -> Optional[int]:
         """Convenience lookup by (layer_id, feature_id)."""
@@ -332,15 +378,17 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
 
     def key_for_row(self, row_index: int) -> Optional[FeatureKey]:
         """Return the key for a given row index."""
-        if row_index < 0 or row_index >= len(self._rows):
+        source_row = self._source_row(row_index)
+        if source_row < 0 or source_row >= len(self._rows):
             return None
-        return self._key_fn(self._rows[row_index])
+        return self._key_fn(self._rows[source_row])
 
     def row_data(self, row_index: int) -> Optional[Any]:
         """Return the underlying row object for a given row index."""
-        if row_index < 0 or row_index >= len(self._rows):
+        source_row = self._source_row(row_index)
+        if source_row < 0 or source_row >= len(self._rows):
             return None
-        return self._rows[row_index]
+        return self._rows[source_row]
 
     def sort(self, column: int, order: Qt.SortOrder = Qt.AscendingOrder) -> None:  # noqa: N802
         """Sort the table by the given column."""
@@ -528,6 +576,11 @@ class FeatureTableWidget(QWidget):
     def remove_keys(self, keys: Sequence[FeatureKey]) -> None:
         """Remove rows by (layer_id, feature_id) keys."""
         self.model.remove_keys(keys)
+        self._filter_virtual_selection_to_model()
+
+    def set_visible_row_indices(self, indices: Optional[Sequence[int]]) -> None:
+        """Restrict the displayed rows to source row indices, or clear filtering."""
+        self.model.set_visible_row_indices(indices)
         self._filter_virtual_selection_to_model()
 
     def row_for(self, layer_id: str, feature_id: str) -> Optional[int]:

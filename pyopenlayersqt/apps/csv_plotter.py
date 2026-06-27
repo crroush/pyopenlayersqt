@@ -768,6 +768,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if self._visible_mask is None or len(self._visible_mask) != len(new_visible):
             self._visible_mask = np.ones(len(new_visible), dtype=bool)
 
+        visible_indices = np.flatnonzero(new_visible).astype(np.uint32)
         hide_indices = np.flatnonzero(self._visible_mask & ~new_visible).astype(
             np.uint32
         )
@@ -776,14 +777,24 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         )
         self._visible_mask = new_visible
 
-        if hide_indices.size:
+        used_show_only = visible_indices.size < hide_indices.size
+        if used_show_only:
+            self.fast_layer.show_only_indices(visible_indices)
+        elif hide_indices.size:
             self.fast_layer.hide_indices(hide_indices)
-        if show_indices.size:
+        if show_indices.size and not used_show_only:
             self.fast_layer.show_indices(show_indices)
+
+        if visible_indices.size == len(new_visible):
+            self.table_widget.set_visible_row_indices(None)
+        else:
+            self.table_widget.set_visible_row_indices(visible_indices)
         perf(
             "filter_by_time",
             hide_count=int(hide_indices.size),
             show_count=int(show_indices.size),
+            visible_count=int(visible_indices.size),
+            show_only=used_show_only,
         )
 
 
