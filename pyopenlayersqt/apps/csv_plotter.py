@@ -34,7 +34,7 @@ def _datetime_series_to_epoch_seconds(values: pd.Series) -> np.ndarray:
     valid = values.notna().to_numpy(dtype=bool, copy=False)
     epoch = pd.Timestamp("1970-01-01T00:00:00Z")
     seconds = (values - epoch).dt.total_seconds()
-    out = seconds.to_numpy(dtype=np.float64, copy=False)
+    out = seconds.to_numpy(dtype=np.float64, copy=True)
     out[~valid] = np.nan
     return out
 
