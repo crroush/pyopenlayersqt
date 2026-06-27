@@ -338,6 +338,16 @@ function rgba_to_css(rgba) {
   return "rgba(" + r + "," + g + "," + b + "," + (a / 255.0) + ")";
 }
 
+function rgba_to_css_with_opacity(rgba, opacity) {
+  const rawOpacity = Number(opacity);
+  const effectiveOpacity = Number.isFinite(rawOpacity)
+    ? Math.max(0, Math.min(1, rawOpacity))
+    : 1.0;
+  const r = rgba[0], g = rgba[1], b = rgba[2], a = rgba[3];
+  return "rgba(" + r + "," + g + "," + b + "," +
+    ((a / 255.0) * effectiveOpacity) + ")";
+}
+
 function fp_cell_key(ix, iy) { return ix + "," + iy; }
 
 function fp_index_insert(entry, i) {
@@ -582,7 +592,10 @@ function fp_make_canvas_layer(entry) {
       const ctx = canvas.getContext("2d", { willReadFrequently: !!window.OL_WILL_READ_FREQUENTLY });
       if (!ctx) return canvas;
 
-      ctx.globalAlpha = entry.opacity;
+      // Fold layer opacity into every rendered color instead of relying on
+      // ctx.globalAlpha.  This keeps exact, collapsed-quadtree, and any
+      // future direct pixel paths visually consistent.
+      ctx.globalAlpha = 1.0;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const scaleX = canvas.width / (extent[2] - extent[0]);
@@ -593,8 +606,14 @@ function fp_make_canvas_layer(entry) {
       const visiblePointCount = root ? root.visibleCount : entry.x.length;
       const queryTime = performance.now() - queryStart;
 
-      const defCss = rgba_to_css(entry.style.default_rgba);
-      const selCss = rgba_to_css(entry.style.selected_rgba);
+      const defCss = rgba_to_css_with_opacity(
+        entry.style.default_rgba,
+        entry.opacity
+      );
+      const selCss = rgba_to_css_with_opacity(
+        entry.style.selected_rgba,
+        entry.opacity
+      );
 
       // Render algorithm:
       //
@@ -629,7 +648,10 @@ function fp_make_canvas_layer(entry) {
 
         let fill = defCss;
         const u = entry.color_u32[i];
-        if (u !== 0) fill = rgba_to_css(rgba_from_u32(u));
+        if (u !== 0) fill = rgba_to_css_with_opacity(
+          rgba_from_u32(u),
+          entry.opacity
+        );
         if (isSel) fill = selCss;
 
         const key = fill + "|" + radius;
@@ -1113,7 +1135,10 @@ function fgp_make_canvas_layer(entry) {
       const ctx = canvas.getContext('2d', { willReadFrequently: !!window.OL_WILL_READ_FREQUENTLY });
       if (!ctx) return canvas;
 
-      ctx.globalAlpha = entry.opacity;
+      // Keep FastGeoPoints opacity consistent with FastPoints by folding the
+      // layer opacity into stroke/fill colors.  This avoids special cases for
+      // cached or quadtree-collapsed renders.
+      ctx.globalAlpha = 1.0;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const scaleX = canvas.width / (extent[2] - extent[0]);
@@ -1146,9 +1171,16 @@ function fgp_make_canvas_layer(entry) {
         };
       }
 
+      // Dense views are handled by quadtree traversal/collapse at render time,
+      // not by a separate pre-aggregation or raw ImageData branch.  The legacy
+      // `aggregate_pixel_size` option is still accepted as an alias for older
+      // callers, but the algorithm remains quadtree-based.
       const collapsePx = Math.max(
         1.0,
-        Number(st.aggregate_pixel_size || st.point_radius || 3.0) * pixelRatio
+        Number(
+          st.collapse_pixel_size || st.aggregate_pixel_size ||
+          st.point_radius || 3.0
+        ) * pixelRatio
       );
       const drawIndices = [];
       const seenCenterPixels = new Set();
@@ -1222,9 +1254,17 @@ function fgp_make_canvas_layer(entry) {
 
         if (unselectedEllipsesVisible) {
           ctx.lineWidth = (Number(st.ellipse_stroke_width || 1.5) * pixelRatio);
-          ctx.strokeStyle = rgba_to_css(st.ellipse_stroke_rgba || [255,204,0,180]);
+          ctx.strokeStyle = rgba_to_css_with_opacity(
+            st.ellipse_stroke_rgba || [255,204,0,180],
+            entry.opacity
+          );
           const fillEll = !!st.fill_ellipses;
-          if (fillEll) ctx.fillStyle = rgba_to_css(st.ellipse_fill_rgba || [255,204,0,40]);
+          if (fillEll) {
+            ctx.fillStyle = rgba_to_css_with_opacity(
+              st.ellipse_fill_rgba || [255,204,0,40],
+              entry.opacity
+            );
+          }
           let nInPath = 0;
           ctx.beginPath();
           for (let k = 0; k < drawIndices.length; k++) {
@@ -1245,7 +1285,10 @@ function fgp_make_canvas_layer(entry) {
 
         if (selectedEllipsesVisible) {
           ctx.lineWidth = (Number(st.selected_ellipse_stroke_width || (st.ellipse_stroke_width || 1.5) * 1.8) * pixelRatio);
-          ctx.strokeStyle = rgba_to_css(st.selected_ellipse_stroke_rgba || [0,255,255,255]);
+          ctx.strokeStyle = rgba_to_css_with_opacity(
+            st.selected_ellipse_stroke_rgba || [0,255,255,255],
+            entry.opacity
+          );
           let nInPath = 0;
           ctx.beginPath();
           for (const fid of selectedSet) {
@@ -1279,10 +1322,18 @@ function fgp_make_canvas_layer(entry) {
         const radius = (selected ? (st.selected_point_radius || 6.0) : (st.point_radius || 3.0)) * pixelRatio;
         let colorKey;
         if (selected) {
-          colorKey = rgba_to_css(st.selected_point_rgba || [0,255,255,255]);
+          colorKey = rgba_to_css_with_opacity(
+            st.selected_point_rgba || [0,255,255,255],
+            entry.opacity
+          );
         } else {
           const u = entry.color_u32[i];
-          colorKey = u !== 0 ? rgba_to_css(rgba_from_u32(u)) : rgba_to_css(st.default_point_rgba || [255,51,51,204]);
+          colorKey = u !== 0
+            ? rgba_to_css_with_opacity(rgba_from_u32(u), entry.opacity)
+            : rgba_to_css_with_opacity(
+              st.default_point_rgba || [255,51,51,204],
+              entry.opacity
+            );
         }
         const batchKey = colorKey + '|' + radius;
         let batch = batches.get(batchKey);
@@ -1323,7 +1374,7 @@ function fgp_make_canvas_layer(entry) {
           collapsed_node_count: collapsedNodeCount,
           scanned_leaf_point_count: scannedLeafPointCount,
           representative_count: representativeCount,
-          aggregate_draw_candidate_count: drawIndices.length,
+          quadtree_draw_candidate_count: drawIndices.length,
           collapse_pixel_threshold: collapsePx.toFixed(2),
           ellipse_draw_count: ellipseDrawCount,
           point_draw_count: pointDrawCount,
