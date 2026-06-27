@@ -455,27 +455,41 @@ function fp_qt_intersects(node, extent) {
            node.maxY < extent[1] || node.minY > extent[3]);
 }
 
-function fp_qt_pick_representative(entry, node, skipSelected) {
+function fp_qt_point_in_extent(entry, i, extent) {
+  const x = entry.x[i];
+  const y = entry.y[i];
+  return x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3];
+}
+
+function fp_qt_is_drawable_representative(entry, i, skipSelected, extent) {
+  return i >= 0 &&
+    !entry.deleted[i] &&
+    !entry.hidden[i] &&
+    fp_qt_point_in_extent(entry, i, extent) &&
+    (!skipSelected || !entry.selectedIds.has(entry.ids[i]));
+}
+
+function fp_qt_pick_representative(entry, node, skipSelected, extent) {
+  // Collapsed nodes can straddle a viewport edge.  Pick a representative that
+  // is itself inside the current extent; otherwise a partially visible node
+  // could collapse to an off-screen point and hide on-screen children.
   if (!node || node.visibleCount <= 0) return -1;
   const first = node.firstIndex;
-  if (
-    first >= 0 && !entry.deleted[first] && !entry.hidden[first] &&
-    (!skipSelected || !entry.selectedIds.has(entry.ids[first]))
-  ) {
+  if (fp_qt_is_drawable_representative(entry, first, skipSelected, extent)) {
     return first;
   }
   if (node.children) {
     for (let c = 0; c < 4; c++) {
-      const idx = fp_qt_pick_representative(entry, node.children[c], skipSelected);
+      const child = node.children[c];
+      if (!fp_qt_intersects(child, extent)) continue;
+      const idx = fp_qt_pick_representative(entry, child, skipSelected, extent);
       if (idx >= 0) return idx;
     }
     return -1;
   }
   for (let k = 0; k < node.items.length; k++) {
     const i = node.items[k];
-    if (entry.deleted[i] || entry.hidden[i]) continue;
-    if (skipSelected && entry.selectedIds.has(entry.ids[i])) continue;
-    return i;
+    if (fp_qt_is_drawable_representative(entry, i, skipSelected, extent)) return i;
   }
   return -1;
 }
@@ -685,7 +699,7 @@ function fp_make_canvas_layer(entry) {
         const pxW = (node.maxX - node.minX) * scaleX;
         const pxH = (node.maxY - node.minY) * scaleY;
         if (pxW <= 1.0 && pxH <= 1.0) {
-          const i = fp_qt_pick_representative(entry, node, true);
+          const i = fp_qt_pick_representative(entry, node, true, extent);
           if (i >= 0) {
             collapsedNodeCount++;
             addPointToBatch(i, false);
@@ -1203,7 +1217,7 @@ function fgp_make_canvas_layer(entry) {
           visitedNodeCount++;
           const px = nodePixelSize(node);
           if (px.w <= collapsePx && px.h <= collapsePx) {
-            const rep = fp_qt_pick_representative(entry, node, true);
+            const rep = fp_qt_pick_representative(entry, node, true, extent);
             if (rep >= 0) {
               collapsedNodeCount++;
               addUnselectedDrawIndex(rep, true);
