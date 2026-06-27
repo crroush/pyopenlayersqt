@@ -358,6 +358,13 @@ class OLMapWidget(QWebEngineView):
             )
 
     def _send(self, msg: Dict[str, Any]) -> None:
+        # Preserve command FIFO ordering across the page-ready transition.
+        #
+        # `_flush_next_pending()` drains queued startup messages one timer tick
+        # at a time so large CSV/FastPoints payloads do not block the Qt event
+        # loop.  During that drain `_js_ready` is already true, but new messages
+        # must still append behind the remaining backlog; otherwise a later
+        # chunk could overtake an earlier queued clear/add command.
         if not self._js_ready or self._pending_flush_active or self._pending:
             self._pending.append(msg)
             if self._pending_flush_active:
@@ -586,6 +593,7 @@ class OLMapWidget(QWebEngineView):
         return cls.WEB_MERCATOR_INITIAL_RESOLUTION_M_PER_PX / (2 ** int(zoom))
 
     def _flush_pending(self) -> None:
+        """Start an asynchronous FIFO drain of queued JavaScript commands."""
         if not self._pending or self._pending_flush_active:
             return
         self._pending_flush_active = True
@@ -594,6 +602,12 @@ class OLMapWidget(QWebEngineView):
         QTimer.singleShot(0, self._flush_next_pending)
 
     def _flush_next_pending(self) -> None:
+        """Send one queued command and reschedule until the backlog is empty.
+
+        Commands produced while this timer-driven flush is active remain in
+        `_pending` and are drained after older messages.  This keeps startup
+        streams ordered without forcing one large synchronous flush.
+        """
         if not self._pending:
             message_count = self._pending_flush_count
             perf_start = self._pending_flush_start

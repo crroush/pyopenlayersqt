@@ -59,6 +59,11 @@ const state = {
 
   window._pyolqt_state = state;
 
+// Binary transport helpers -------------------------------------------------
+//
+// Python sends large coordinate/id/color payloads as base64-encoded packed
+// arrays instead of JSON lists.  Decoding once into TypedArrays avoids parsing
+// millions of JSON tokens and lets the render paths read contiguous memory.
 function pyolqt_b64_to_bytes(b64) {
   const binary = atob(b64 || "");
   const bytes = new Uint8Array(binary.length);
@@ -349,6 +354,18 @@ const FP_QT_WORLD = 20037508.342789244;
 const FP_QT_MAX_DEPTH = 18;
 const FP_QT_LEAF_CAPACITY = 32;
 
+// FastPoints quadtree -------------------------------------------------------
+//
+// The tree is maintained in WebMercator meters.  Each node keeps a
+// `visibleCount` so hide/show/filter operations can skip entire invisible
+// subtrees.  Rendering traverses the tree breadth-first by view extent:
+//
+//   1. Reject nodes outside the current map extent.
+//   2. Collapse nodes whose projected size is below the pixel threshold.
+//   3. Scan leaf items only when the node is too large to collapse.
+//
+// `firstIndex` gives "first color wins" representative selection for collapsed
+// nodes while preserving deterministic color/category output.
 function fp_qt_new_node(minX, minY, maxX, maxY, depth) {
   return {
     minX, minY, maxX, maxY, depth,
@@ -579,9 +596,14 @@ function fp_make_canvas_layer(entry) {
       const defCss = rgba_to_css(entry.style.default_rgba);
       const selCss = rgba_to_css(entry.style.selected_rgba);
 
-      // Performance optimization: batch points by color to reduce canvas API calls
-      // Group points by their fill color and radius to draw them together
-      // Draw unselected points first, then selected points on top for visibility
+      // Render algorithm:
+      //
+      // - Traverse the quadtree for the current extent rather than scanning
+      //   every point.
+      // - Collapse dense nodes to one representative when the node is smaller
+      //   than the configured pixel threshold.
+      // - Batch point draws by color/radius and skip duplicate pixel locations.
+      // - Draw unselected points first, then selected points on top.
       const batchStart = performance.now();
       const unselectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
       const selectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
@@ -1062,6 +1084,10 @@ function fgp_make_canvas_layer(entry) {
     ratio: 1,
     canvasFunction: function(extent, resolution, pixelRatio, size, projection) {
       const perfStart = performance.now();
+      // FastGeoPoints uses the same quadtree traversal as FastPoints, but it
+      // also caches the rendered canvas for identical extent/resolution/style
+      // inputs.  Panning/zooming invalidates the key; selection/color/filter
+      // changes bump `renderVersion` from Python or command handlers.
       const cacheKey = [
         entry.renderVersion || 0,
         state.viewInteracting ? 1 : 0,

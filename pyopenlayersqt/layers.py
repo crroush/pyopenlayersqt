@@ -112,10 +112,17 @@ def _latlon_chunk_to_lonlat_list(coords: Sequence[LatLon]) -> list[list[float]]:
 
 
 def _array_to_base64(arr: np.ndarray) -> str:
+    """Encode a dense NumPy array for QWebChannel transfer.
+
+    Large point/color/index payloads are much cheaper to move as a contiguous
+    binary buffer than as millions of JSON numbers.  The JavaScript bridge
+    decodes this base64 string into a matching TypedArray.
+    """
     return base64.b64encode(np.ascontiguousarray(arr).tobytes()).decode("ascii")
 
 
 def _strings_to_base64(values: Sequence[Any]) -> str:
+    """Encode feature IDs as one NUL-delimited UTF-8 buffer."""
     data = "\0".join(str(value) for value in values).encode("utf-8")
     return base64.b64encode(data).decode("ascii")
 
