@@ -1172,15 +1172,10 @@ function fgp_make_canvas_layer(entry) {
       }
 
       // Dense views are handled by quadtree traversal/collapse at render time,
-      // not by a separate pre-aggregation or raw ImageData branch.  The legacy
-      // `aggregate_pixel_size` option is still accepted as an alias for older
-      // callers, but the algorithm remains quadtree-based.
+      // not by a separate pre-aggregation or raw ImageData branch.
       const collapsePx = Math.max(
         1.0,
-        Number(
-          st.collapse_pixel_size || st.aggregate_pixel_size ||
-          st.point_radius || 3.0
-        ) * pixelRatio
+        Number(st.collapse_pixel_size || st.point_radius || 3.0) * pixelRatio
       );
       const drawIndices = [];
       const seenCenterPixels = new Set();
