@@ -25,25 +25,19 @@ from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
 
 
 def _datetime_series_to_epoch_seconds(values: pd.Series) -> np.ndarray:
-    """Convert a parsed datetime Series to epoch seconds regardless of unit."""
+    """Convert a parsed pandas datetime Series to Unix epoch seconds.
+
+    ``pd.to_datetime`` normalizes parsed strings to nanosecond-resolution
+    datetime values even when the timestamp is close to 1970-01-01.  Always
+    divide the integer datetime representation by 1e9 instead of inferring the
+    unit from magnitude; magnitude inference breaks for early epoch times.
+    """
     raw = values.astype("int64").to_numpy(dtype=np.float64, copy=False)
     valid = values.notna().to_numpy(dtype=bool, copy=False)
-    if not valid.any():
-        return np.full(len(values), np.nan, dtype=np.float64)
-
-    magnitude = float(np.nanmedian(np.abs(raw[valid])))
-    if magnitude > 1e17:  # nanoseconds since epoch
-        scale = 1e9
-    elif magnitude > 1e14:  # microseconds since epoch
-        scale = 1e6
-    elif magnitude > 1e11:  # milliseconds since epoch
-        scale = 1e3
-    else:  # seconds since epoch
-        scale = 1.0
-
-    out = raw / scale
+    out = raw / 1e9
     out[~valid] = np.nan
     return out
+
 
 def _turbo_rgb(values: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Approximate Google's Turbo color map for values in [0, 1]."""
@@ -578,10 +572,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
     def _on_chunk_ready(self, chunk_df: pd.DataFrame) -> None:
         perf_start = time.perf_counter()
-        num_rows = len(chunk_df)
-        start_idx = self.global_fid_counter
-        chunk_fids = [f"pt_{i}" for i in range(start_idx, start_idx + num_rows)]
-        chunk_df["_fid"] = chunk_fids
+        incoming_rows = len(chunk_df)
+        chunk_df = chunk_df.copy()
 
         if self.current_time_col and self.current_time_col != "None":
             if pd.api.types.is_numeric_dtype(chunk_df[self.current_time_col]):
@@ -600,8 +592,34 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 )
 
         coords_start = time.perf_counter()
-        lats = chunk_df[self.current_lat_col].values
-        lons = chunk_df[self.current_lon_col].values
+        lats = pd.to_numeric(
+            chunk_df[self.current_lat_col],
+            errors="coerce",
+        ).to_numpy(dtype=np.float64, copy=False)
+        lons = pd.to_numeric(
+            chunk_df[self.current_lon_col],
+            errors="coerce",
+        ).to_numpy(dtype=np.float64, copy=False)
+        valid_coords = np.isfinite(lats) & np.isfinite(lons)
+        skipped_invalid_coords = int(incoming_rows - np.count_nonzero(valid_coords))
+        if skipped_invalid_coords:
+            chunk_df = chunk_df.loc[valid_coords].copy()
+            lats = lats[valid_coords]
+            lons = lons[valid_coords]
+        num_rows = len(chunk_df)
+        if num_rows == 0:
+            perf(
+                "chunk_ready_skipped",
+                rows=incoming_rows,
+                skipped_invalid_coords=skipped_invalid_coords,
+            )
+            return
+
+        chunk_df[self.current_lat_col] = lats
+        chunk_df[self.current_lon_col] = lons
+        start_idx = self.global_fid_counter
+        chunk_fids = [f"pt_{i}" for i in range(start_idx, start_idx + num_rows)]
+        chunk_df["_fid"] = chunk_fids
         coords = np.column_stack((lats, lons))
         coords_ms = (time.perf_counter() - coords_start) * 1000.0
 
@@ -626,6 +644,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         perf(
             "chunk_ready",
             rows=num_rows,
+            incoming_rows=incoming_rows,
+            skipped_invalid_coords=skipped_invalid_coords,
             coords_ms=round(coords_ms, 2),
             map_add_ms=round(map_ms, 2),
             table_rows_ms=round(table_rows_ms, 2),
