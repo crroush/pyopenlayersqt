@@ -474,6 +474,32 @@ function fp_qt_clear_visibility(node) {
   for (let c = 0; c < 4; c++) fp_qt_clear_visibility(node.children[c]);
 }
 
+function fp_qt_rebuild_visibility_node(entry, node) {
+  if (!node) return 0;
+  if (node.children) {
+    let total = 0;
+    for (let c = 0; c < 4; c++) {
+      total += fp_qt_rebuild_visibility_node(entry, node.children[c]);
+    }
+    node.visibleCount = total;
+    return total;
+  }
+  let total = 0;
+  for (let k = 0; k < node.items.length; k++) {
+    const i = node.items[k];
+    if (!entry.deleted[i] && !entry.hidden[i]) total++;
+  }
+  node.visibleCount = total;
+  return total;
+}
+
+function fp_qt_rebuild_visibility(entry) {
+  // Bulk filters can change millions of visibility bits at once.  Rebuilding
+  // counts bottom-up is O(points + nodes), while per-index updates are
+  // O(changed_points * tree_depth) and visibly stall full-range restores.
+  fp_qt_rebuild_visibility_node(entry, entry.qtRoot);
+}
+
 function fp_qt_intersects(node, extent) {
   return !(node.maxX < extent[0] || node.minX > extent[2] ||
            node.maxY < extent[1] || node.minY > extent[3]);
@@ -1060,10 +1086,8 @@ function cmd_fast_points_show_ids(msg) {
 function cmd_fast_points_show_all(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
-  for (let i = 0; i < entry.hidden.length; i++) {
-    if (entry.hidden[i] && !entry.deleted[i]) fp_qt_update_visibility(entry, i, 1);
-    entry.hidden[i] = false;
-  }
+  entry.hidden.fill(false);
+  fp_qt_rebuild_visibility(entry);
   fp_redraw(entry);
 }
 

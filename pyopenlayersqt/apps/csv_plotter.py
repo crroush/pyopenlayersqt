@@ -789,15 +789,24 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         )
         self._visible_mask = new_visible
 
-        used_show_only = visible_indices.size < hide_indices.size
-        if used_show_only:
+        all_rows_visible = visible_indices.size == len(new_visible)
+        used_show_only = (
+            not all_rows_visible and visible_indices.size < hide_indices.size
+        )
+        if all_rows_visible:
+            # Restoring the full range is a common path after narrowing the
+            # time filter.  Sending millions of indices back to JavaScript is
+            # much slower than one reset command, and the JS side can rebuild
+            # quadtree visibility counts in a single pass.
+            self.fast_layer.show_all_features()
+        elif used_show_only:
             self.fast_layer.show_only_indices(visible_indices)
         elif hide_indices.size:
             self.fast_layer.hide_indices(hide_indices)
-        if show_indices.size and not used_show_only:
+        if show_indices.size and not used_show_only and not all_rows_visible:
             self.fast_layer.show_indices(show_indices)
 
-        if visible_indices.size == len(new_visible):
+        if all_rows_visible:
             self.table_widget.set_visible_row_indices(None)
         else:
             self.table_widget.set_visible_row_indices(visible_indices)
