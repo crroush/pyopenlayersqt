@@ -1031,6 +1031,21 @@ class FastPointsLayer(BaseLayer):
             }
         )
 
+    def show_only_index_ranges(
+        self, ranges: Sequence[Sequence[int]] | np.ndarray
+    ) -> None:
+        """Show only inclusive JS-side row-index ranges and hide all others."""
+        range_array = np.asarray(ranges, dtype=np.uint32).reshape(-1, 2)
+        self._map_widget._send(
+            {
+                "type": "fast_points.show_only_index_ranges",
+                "layer_id": self.id,
+                "ranges_b64": _array_to_base64(range_array.ravel()),
+                "ranges_dtype": "uint32",
+                "count": int(range_array.shape[0]),
+            }
+        )
+
     def set_colors(
         self,
         feature_ids: Sequence[str],

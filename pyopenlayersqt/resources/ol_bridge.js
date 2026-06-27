@@ -1133,6 +1133,22 @@ function cmd_fast_points_show_only_indices(msg) {
   fp_redraw(entry);
 }
 
+function cmd_fast_points_show_only_index_ranges(msg) {
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== "fast_points") return;
+  const ranges = msg.ranges_b64 ? pyolqt_b64_to_uint32(msg.ranges_b64) : (msg.ranges || []);
+  entry.hidden.fill(true);
+  for (let k = 0; k + 1 < ranges.length; k += 2) {
+    const start = Math.min(ranges[k], entry.hidden.length);
+    const end = Math.min(ranges[k + 1], entry.hidden.length - 1);
+    for (let i = start; i <= end; i++) {
+      if (!entry.deleted[i]) entry.hidden[i] = false;
+    }
+  }
+  fp_qt_rebuild_visibility(entry);
+  fp_redraw(entry);
+}
+
 function cmd_fast_points_set_colors(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
@@ -3162,6 +3178,7 @@ function cmd_countries_set_visible(msg) {
     case "fast_points.hide_indices": return cmd_fast_points_hide_indices(msg);
     case "fast_points.show_indices": return cmd_fast_points_show_indices(msg);
     case "fast_points.show_only_indices": return cmd_fast_points_show_only_indices(msg);
+    case "fast_points.show_only_index_ranges": return cmd_fast_points_show_only_index_ranges(msg);
     case "fast_points.show_all": return cmd_fast_points_show_all(msg);
     case "fast_points.set_colors": return cmd_fast_points_set_colors(msg);
     case "fast_points.clear_colors": return cmd_fast_points_clear_colors(msg);

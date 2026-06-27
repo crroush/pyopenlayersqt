@@ -23,6 +23,16 @@ from pyopenlayersqt import FastPointsStyle, OLMapWidget, RangeSliderWidget
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
 
 
+def _sorted_indices_to_ranges(indices: np.ndarray) -> np.ndarray:
+    """Compress sorted uint32 indices into inclusive [start, end] ranges."""
+    if indices.size == 0:
+        return np.empty((0, 2), dtype=np.uint32)
+    sorted_indices = np.asarray(indices, dtype=np.uint32)
+    breaks = np.flatnonzero(np.diff(sorted_indices) != 1) + 1
+    starts = np.concatenate((sorted_indices[:1], sorted_indices[breaks]))
+    ends = np.concatenate((sorted_indices[breaks - 1], sorted_indices[-1:]))
+    return np.column_stack((starts, ends)).astype(np.uint32, copy=False)
+
 
 def _datetime_series_to_epoch_seconds(values: pd.Series) -> np.ndarray:
     """Convert a parsed pandas datetime Series to Unix epoch seconds.
@@ -790,6 +800,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._visible_mask = new_visible
 
         all_rows_visible = visible_indices.size == len(new_visible)
+        visible_ranges = np.empty((0, 2), dtype=np.uint32)
+        rebuild_from_ranges = False
+        if not all_rows_visible and show_indices.size > 50_000:
+            visible_ranges = _sorted_indices_to_ranges(visible_indices)
+            rebuild_from_ranges = visible_ranges.size < show_indices.size
         used_show_only = (
             not all_rows_visible and visible_indices.size < hide_indices.size
         )
@@ -799,11 +814,21 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             # much slower than one reset command, and the JS side can rebuild
             # quadtree visibility counts in a single pass.
             self.fast_layer.show_all_features()
+        elif rebuild_from_ranges:
+            # Time filters usually produce contiguous row windows.  Rebuild the
+            # visible set from compressed ranges instead of re-enabling millions
+            # of individual indices and updating the quadtree for each point.
+            self.fast_layer.show_only_index_ranges(visible_ranges)
         elif used_show_only:
             self.fast_layer.show_only_indices(visible_indices)
         elif hide_indices.size:
             self.fast_layer.hide_indices(hide_indices)
-        if show_indices.size and not used_show_only and not all_rows_visible:
+        if (
+            show_indices.size
+            and not used_show_only
+            and not all_rows_visible
+            and not rebuild_from_ranges
+        ):
             self.fast_layer.show_indices(show_indices)
 
         if all_rows_visible:
@@ -816,6 +841,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             show_count=int(show_indices.size),
             visible_count=int(visible_indices.size),
             show_only=used_show_only,
+            range_rebuild=rebuild_from_ranges,
+            range_count=int(len(visible_ranges)),
         )
 
 
