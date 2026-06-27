@@ -570,31 +570,6 @@ class RangeSliderWidget(QWidget):
                 lambda slider_val: self._format_value(self._slider_to_value(slider_val))
             )
 
-    def set_available_range(
-        self,
-        min_value: float,
-        max_value: float,
-        step: Optional[float] = None,
-    ) -> None:
-        """Replace the numeric bounds and select the full new range.
-
-        ``set_range`` only expands existing bounds when needed because it is
-        primarily a selection API.  Data-driven callers, such as the CSV viewer,
-        need to replace the bounds on every load so labels are formatted from
-        the dataset's epoch origin instead of a previous/default range.
-        """
-        self._is_iso8601 = False
-        self._configure_numeric_range(
-            min_val=float(min_value),
-            max_val=float(max_value),
-            step=float(step) if step is not None else self._step,
-        )
-        self._slider.setMinimum(self._slider_min)
-        self._slider.setMaximum(self._slider_max)
-        self._slider.setMinValue(self._slider_min)
-        self._slider.setMaxValue(self._slider_max)
-        self._update_labels()
-
     def _format_value(self, numeric_value: float) -> str:
         """Format a numeric value for display."""
         if self._value_formatter is not None:

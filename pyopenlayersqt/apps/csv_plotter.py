@@ -27,14 +27,14 @@ from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
 def _datetime_series_to_epoch_seconds(values: pd.Series) -> np.ndarray:
     """Convert a parsed pandas datetime Series to Unix epoch seconds.
 
-    ``pd.to_datetime`` normalizes parsed strings to nanosecond-resolution
-    datetime values even when the timestamp is close to 1970-01-01.  Always
-    divide the integer datetime representation by 1e9 instead of inferring the
-    unit from magnitude; magnitude inference breaks for early epoch times.
+    Use pandas' timedelta conversion from a fixed UTC epoch instead of guessing
+    units from value magnitude.  AIS values like ``2022-03-31T00:00:01`` and
+    near-epoch values like ``1970-01-01T00:00:01Z`` both convert correctly.
     """
-    raw = values.astype("int64").to_numpy(dtype=np.float64, copy=False)
     valid = values.notna().to_numpy(dtype=bool, copy=False)
-    out = raw / 1e9
+    epoch = pd.Timestamp("1970-01-01T00:00:00Z")
+    seconds = (values - epoch).dt.total_seconds()
+    out = seconds.to_numpy(dtype=np.float64, copy=False)
     out[~valid] = np.nan
     return out
 
@@ -697,12 +697,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 return
             t_min = float(valid_times.min())
             t_max = float(valid_times.max())
+            self.slider.setEnabled(True)
+            self.slider.set_range(t_min, t_max)
+            self.slider.set_value_formatter(self._format_epoch_label)
             if self._slider_range_conn:
                 self.slider.rangeChanged.disconnect(self._slider_range_conn)
-                self._slider_range_conn = None
-            self.slider.set_value_formatter(self._format_epoch_label)
-            self.slider.set_available_range(t_min, t_max)
-            self.slider.setEnabled(True)
             self._slider_range_conn = self.slider.rangeChanged.connect(
                 self._on_time_slider_changed
             )
