@@ -697,11 +697,12 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 return
             t_min = float(valid_times.min())
             t_max = float(valid_times.max())
-            self.slider.setEnabled(True)
-            self.slider.set_range(t_min, t_max)
-            self.slider.set_value_formatter(self._format_epoch_label)
             if self._slider_range_conn:
                 self.slider.rangeChanged.disconnect(self._slider_range_conn)
+                self._slider_range_conn = None
+            self.slider.set_value_formatter(self._format_epoch_label)
+            self.slider.set_available_range(t_min, t_max)
+            self.slider.setEnabled(True)
             self._slider_range_conn = self.slider.rangeChanged.connect(
                 self._on_time_slider_changed
             )
