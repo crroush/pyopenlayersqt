@@ -31,6 +31,7 @@ Google-style docstrings + PEP8.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 from typing import Any, Callable, List, Optional, Tuple, Union
 
 from PySide6.QtCore import Qt, QEvent, Signal, QRect
@@ -380,6 +381,7 @@ class RangeSliderWidget(QWidget):
         self._show_value_tooltips = show_value_tooltips
         self._value_formatter: Optional[Callable[[float], str]] = None
         self._iso_origin_ts: float = 0.0
+        self._iso_max_ts: float = 0.0
         self._iso_step_seconds: float = 1.0
 
         if self._is_iso8601:
@@ -404,9 +406,14 @@ class RangeSliderWidget(QWidget):
                 step=step,
             )
 
-        # Convert to slider integer range (sliders work with integers)
-        self._slider_min = 0
-        self._slider_max = int((self._max_numeric - self._min_numeric) / self._step)
+        # Convert to slider integer range (sliders work with integers).
+        # ISO range configuration may use a ceiling max slot so the true max
+        # timestamp is still reachable when the step does not divide evenly.
+        if not self._is_iso8601:
+            self._slider_min = 0
+            self._slider_max = int(
+                (self._max_numeric - self._min_numeric) / self._step
+            )
 
         # Create UI
         self._setup_ui(label)
@@ -432,6 +439,12 @@ class RangeSliderWidget(QWidget):
     def _configure_iso_values(self, values: List[str]) -> None:
         """Configure ISO8601 values and map them to slider indices."""
         self._iso_values = sorted(set(values))
+        self._iso_origin_ts = (
+            self._parse_iso8601(self._iso_values[0]) if self._iso_values else 0.0
+        )
+        self._iso_max_ts = (
+            self._parse_iso8601(self._iso_values[-1]) if self._iso_values else 0.0
+        )
         self._min_numeric = 0.0
         self._max_numeric = float(max(len(self._iso_values) - 1, 0))
         self._step = 1.0
@@ -474,6 +487,7 @@ class RangeSliderWidget(QWidget):
 
         self._iso_values = []
         self._iso_origin_ts = min_ts
+        self._iso_max_ts = max_ts
         self._iso_step_seconds = float(computed_step)
         self._min_numeric = 0.0
         self._max_numeric = (
@@ -483,7 +497,7 @@ class RangeSliderWidget(QWidget):
         )
         self._step = 1.0
         self._slider_min = 0
-        self._slider_max = int(max(self._max_numeric, 0.0))
+        self._slider_max = int(math.ceil(max(self._max_numeric, 0.0)))
 
     def _choose_iso_step_seconds(
         self, range_seconds: float, target_steps: int = 400
@@ -613,9 +627,8 @@ class RangeSliderWidget(QWidget):
                 if 0 <= idx < len(self._iso_values):
                     return self._iso_values[idx]
                 return ""
-            return self._timestamp_to_iso8601(
-                self._iso_origin_ts + (idx * self._iso_step_seconds)
-            )
+            timestamp = self._iso_origin_ts + (idx * self._iso_step_seconds)
+            return self._timestamp_to_iso8601(min(timestamp, self._iso_max_ts))
         # Format numeric value nicely
         if self._step >= 1.0:
             return str(int(numeric_value))
@@ -698,9 +711,7 @@ class RangeSliderWidget(QWidget):
                 max_ts = self._parse_iso8601(str(max_value))
 
                 current_min_ts = self._iso_origin_ts
-                current_max_ts = self._iso_origin_ts + (
-                    self._slider_max * self._iso_step_seconds
-                )
+                current_max_ts = self._iso_max_ts
                 if (
                     self._slider_max == 0
                     or min_ts < current_min_ts
@@ -715,7 +726,9 @@ class RangeSliderWidget(QWidget):
                     self._slider.setMaximum(self._slider_max)
 
                 min_idx = int((min_ts - self._iso_origin_ts) / self._iso_step_seconds)
-                max_idx = int((max_ts - self._iso_origin_ts) / self._iso_step_seconds)
+                max_idx = int(
+                    math.ceil((max_ts - self._iso_origin_ts) / self._iso_step_seconds)
+                )
                 self._slider.setMinValue(min_idx)
                 self._slider.setMaxValue(max_idx)
         else:

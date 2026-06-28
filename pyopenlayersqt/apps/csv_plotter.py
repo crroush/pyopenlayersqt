@@ -262,6 +262,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.mapped_epoch_col = "_slider_epoch_time"
         self.feature_ids: list[str] | np.ndarray = []
         self._visible_mask: np.ndarray | None = None
+        self._deleted_mask: np.ndarray | None = None
         self.current_selection_fids: list[str] = []
         self.table_widget: FeatureTableWidget | None = None
         self._map_selection_conn = None
@@ -400,15 +401,55 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if not checked:
             self.map_widget.clear_measurements()
 
+    def _feature_ids_to_row_indices(self, feature_ids: Sequence[str]) -> np.ndarray:
+        """Return stable CSV/JS row indices for app-generated feature ids."""
+        indices: list[int] = []
+        for fid in feature_ids:
+            if not fid.startswith("pt_"):
+                continue
+            try:
+                indices.append(int(fid[3:]))
+            except ValueError:
+                continue
+        if self.df is None:
+            return np.empty(0, dtype=np.uint32)
+        row_count = len(self.df)
+        return np.asarray(
+            [idx for idx in indices if 0 <= idx < row_count], dtype=np.uint32
+        )
+
+    def _sync_table_visible_rows(self) -> None:
+        """Apply current time/deleted masks without compacting table row order."""
+        if self.table_widget is None or self.df is None:
+            return
+        visible = (
+            np.ones(len(self.df), dtype=bool)
+            if self._visible_mask is None
+            else self._visible_mask.copy()
+        )
+        if self._deleted_mask is not None:
+            visible &= ~self._deleted_mask
+        if visible.all():
+            self.table_widget.set_visible_row_indices(None)
+        else:
+            self.table_widget.set_visible_row_indices(
+                np.flatnonzero(visible).astype(np.uint32)
+            )
+
     def delete_selected_features(self) -> None:
         if not self.current_selection_fids:
             return
         self.fast_layer.remove_points(self.current_selection_fids)
+        deleted_indices = self._feature_ids_to_row_indices(self.current_selection_fids)
+        if self.df is not None and deleted_indices.size:
+            if self._deleted_mask is None or len(self._deleted_mask) != len(self.df):
+                self._deleted_mask = np.zeros(len(self.df), dtype=bool)
+            self._deleted_mask[deleted_indices] = True
+            if self._visible_mask is not None:
+                self._visible_mask[deleted_indices] = False
+            self._sync_table_visible_rows()
         if self.table_widget is not None:
-            keys_to_remove = [
-                (self.fast_layer.id, fid) for fid in self.current_selection_fids
-            ]
-            self.table_widget.remove_keys(keys_to_remove)
+            self.table_widget.clear_selection()
         self.current_selection_fids = []
 
     def save_selected_csv(self) -> None:
@@ -486,6 +527,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.chunk_list = []
         self.feature_ids = []
         self._visible_mask = None
+        self._deleted_mask = None
         self.current_selection_fids = []
         self.global_fid_counter = 0
         self._initialize_empty_table(base_columns)
@@ -673,6 +715,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.df = pd.concat(self.chunk_list, ignore_index=True)
         self.feature_ids = np.array(self.feature_ids)
         self._visible_mask = np.ones(len(self.df), dtype=bool)
+        self._deleted_mask = np.zeros(len(self.df), dtype=bool)
         self.fast_layer.redraw()
         self._setup_slider_and_view()
         self._cleanup_load_ui()
@@ -787,6 +830,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             return
         time_values = self.df[self.mapped_epoch_col].to_numpy(dtype=float, copy=False)
         new_visible = (time_values >= min_val) & (time_values <= max_val)
+        if (
+            self._deleted_mask is not None
+            and len(self._deleted_mask) == len(new_visible)
+        ):
+            new_visible &= ~self._deleted_mask
         if self._visible_mask is None or len(self._visible_mask) != len(new_visible):
             self._visible_mask = np.ones(len(new_visible), dtype=bool)
 
@@ -831,10 +879,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         ):
             self.fast_layer.show_indices(show_indices)
 
-        if all_rows_visible:
-            self.table_widget.set_visible_row_indices(None)
-        else:
-            self.table_widget.set_visible_row_indices(visible_indices)
+        self._sync_table_visible_rows()
         perf(
             "filter_by_time",
             hide_count=int(hide_indices.size),
