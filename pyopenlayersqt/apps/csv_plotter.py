@@ -832,7 +832,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         new_visible = (time_values >= min_val) & (time_values <= max_val)
         deleted_mask = self._deleted_mask
         if deleted_mask is not None and len(deleted_mask) == len(new_visible):
-            new_visible &= ~deleted_mask
+            new_visible = np.logical_and(
+                new_visible, np.logical_not(deleted_mask)
+            )
         if self._visible_mask is None or len(self._visible_mask) != len(new_visible):
             self._visible_mask = np.ones(len(new_visible), dtype=bool)
 
