@@ -267,6 +267,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.table_widget: FeatureTableWidget | None = None
         self._map_selection_conn = None
         self._slider_range_conn = None
+        self._table_sort_column: int | None = None
+        self._table_sort_order = QtCore.Qt.SortOrder.AscendingOrder
         self._pending_time_filter: tuple[float, float] | None = None
         self._time_filter_timer = QtCore.QTimer(self)
         self._time_filter_timer.setSingleShot(True)
@@ -430,11 +432,24 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if self._deleted_mask is not None:
             visible &= ~self._deleted_mask
         if visible.all():
-            self.table_widget.set_visible_row_indices(None)
+            visible_indices = None
         else:
-            self.table_widget.set_visible_row_indices(
-                np.flatnonzero(visible).astype(np.uint32)
+            visible_indices = np.flatnonzero(visible).astype(np.uint32)
+        self._set_table_visible_indices(visible_indices)
+
+    def _set_table_visible_indices(
+        self, indices: Sequence[int] | np.ndarray | None
+    ) -> None:
+        """Apply table visibility while preserving immutable CSV source indices."""
+        if self.table_widget is None:
+            return
+        if self._table_sort_column is not None:
+            sorted_indices = self.table_widget.model.sorted_source_indices(
+                self._table_sort_column, self._table_sort_order, indices
             )
+            self.table_widget.set_visible_row_indices(sorted_indices)
+            return
+        self.table_widget.set_visible_row_indices(indices)
 
     def delete_selected_features(self) -> None:
         if not self.current_selection_fids:
@@ -529,6 +544,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._visible_mask = None
         self._deleted_mask = None
         self.current_selection_fids = []
+        self._table_sort_column = None
+        self._table_sort_order = QtCore.Qt.SortOrder.AscendingOrder
         self.global_fid_counter = 0
         self._initialize_empty_table(base_columns)
 
@@ -617,7 +634,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
         try:
             self.statusBar().showMessage("Sorting table...")
-            self.table_widget.model.sort(column, order)
+            self._table_sort_column = column
+            self._table_sort_order = order
+            self._sync_table_visible_rows()
             header.setSortIndicator(column, order)
             self.statusBar().showMessage("Table sorted.", 5000)
         finally:

@@ -383,6 +383,48 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
             return None
         return self._key_fn(self._rows[source_row])
 
+    def _normalized_source_indices(
+        self, indices: Optional[Sequence[int]] = None
+    ) -> List[int]:
+        """Return valid source row indices, or all rows when no filter is given."""
+        if indices is None:
+            return list(range(len(self._rows)))
+        return [int(i) for i in indices if 0 <= int(i) < len(self._rows)]
+
+    def sorted_source_indices(
+        self,
+        column: int,
+        order: Qt.SortOrder = Qt.AscendingOrder,
+        indices: Optional[Sequence[int]] = None,
+    ) -> List[int]:
+        """Return source row indices sorted by a column without reordering rows."""
+        if column < 0 or column >= len(self._columns):
+            return self._normalized_source_indices(indices)
+
+        col_spec = self._columns[column]
+        if not col_spec.sortable:
+            return self._normalized_source_indices(indices)
+
+        def make_sort_key(source_row: int) -> Any:
+            try:
+                value = col_spec.getter(self._rows[source_row])
+                if col_spec.sort_key is not None:
+                    return col_spec.sort_key(value)
+                if value is None:
+                    return (1, "")
+                try:
+                    return (0, float(value))
+                except (ValueError, TypeError):
+                    pass
+                return (0, str(value))
+            except (AttributeError, KeyError, TypeError, IndexError):
+                return (1, "")
+
+        source_rows = self._normalized_source_indices(indices)
+        reverse = order == Qt.DescendingOrder
+        source_rows.sort(key=make_sort_key, reverse=reverse)
+        return source_rows
+
     def row_data(self, row_index: int) -> Optional[Any]:
         """Return the underlying row object for a given row index."""
         source_row = self._source_row(row_index)
