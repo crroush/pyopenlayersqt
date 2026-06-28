@@ -830,11 +830,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             return
         time_values = self.df[self.mapped_epoch_col].to_numpy(dtype=float, copy=False)
         new_visible = (time_values >= min_val) & (time_values <= max_val)
-        if (
-            self._deleted_mask is not None
-            and len(self._deleted_mask) == len(new_visible)
-        ):
-            new_visible &= ~self._deleted_mask
+        deleted_mask = self._deleted_mask
+        if deleted_mask is not None and len(deleted_mask) == len(new_visible):
+            new_visible &= ~deleted_mask
         if self._visible_mask is None or len(self._visible_mask) != len(new_visible):
             self._visible_mask = np.ones(len(new_visible), dtype=bool)
 

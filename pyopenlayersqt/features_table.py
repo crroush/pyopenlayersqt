@@ -429,6 +429,13 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         # Store the persistent indexes before sorting
         persistent_indexes = self.persistentIndexList()
         old_rows = self._rows[:]
+        visible_keys = None
+        if self._visible_row_indices is not None:
+            visible_keys = {
+                self._key_fn(old_rows[row])
+                for row in self._visible_row_indices
+                if 0 <= row < len(old_rows)
+            }
 
         # Sort the rows
         reverse = order == Qt.DescendingOrder
@@ -436,6 +443,16 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
 
         # Rebuild the key mapping
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        if visible_keys is not None:
+            self._visible_row_indices = [
+                row
+                for row, item in enumerate(self._rows)
+                if self._key_fn(item) in visible_keys
+            ]
+            self._visible_row_by_source = {
+                source_row: view_row
+                for view_row, source_row in enumerate(self._visible_row_indices)
+            }
 
         # Build a reverse mapping for efficient lookup (O(n) instead of O(n²))
         # old_row_to_new_row = {id(old_rows[i]): i for i in range(len(old_rows))}
