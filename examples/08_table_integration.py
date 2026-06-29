@@ -90,6 +90,7 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         # Connect signals for bidirectional sync
         self.map_widget.selectionChanged.connect(self._on_map_selection)
         self.table.selectionKeysChanged.connect(self._on_table_selection)
+        self.table.table.installEventFilter(self)
 
         # Optional hook if GUI wants to observe context-menu requests directly.
         self.table.contextMenuRequested.connect(self._on_table_context_menu_requested)
@@ -128,6 +129,26 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         # Add Delete key shortcut
         delete_shortcut = QShortcut(QKeySequence.Delete, self)
         delete_shortcut.activated.connect(self._delete_selected)
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        """Keep Ctrl+A on huge tables from selecting every map feature."""
+        if (
+            watched is self.table.table
+            and event.type() == QtCore.QEvent.Type.KeyPress
+            and event.key() == Qt.Key.Key_A
+            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            self._syncing_map_to_table = True
+            try:
+                self.table.select_all_visible(emit=False)
+            finally:
+                self._syncing_map_to_table = False
+            self.statusBar().showMessage(
+                "Selected all visible table rows without selecting every map point.",
+                5000,
+            )
+            return True
+        return super().eventFilter(watched, event)
 
     def _create_controls(self):
         """Create the control panel for adding/deleting features."""

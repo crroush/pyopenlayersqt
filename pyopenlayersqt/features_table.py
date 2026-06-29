@@ -829,7 +829,10 @@ class FeatureTableWidget(QWidget):
 
         self._building_selection = True
         apply_start = time.perf_counter()
-        virtualized = range_count > self._virtual_selection_range_threshold
+        virtualized = (
+            range_count > self._virtual_selection_range_threshold
+            or matched_count > self._virtual_selection_range_threshold
+        )
         self.table.setUpdatesEnabled(False)
         try:
             if virtualized:
@@ -872,6 +875,67 @@ class FeatureTableWidget(QWidget):
                 },
             }
         )
+
+    def select_all_visible(self, *, emit: bool = True) -> None:
+        """Select all currently visible rows using the virtual path when needed."""
+        row_count = self.model.rowCount()
+        if row_count <= 0:
+            self.clear_selection()
+            if emit:
+                self.selectionKeysChanged.emit([])
+            return
+
+        perf_start = time.perf_counter()
+        if row_count > self._virtual_selection_range_threshold:
+            build_start = time.perf_counter()
+            keys = {
+                key
+                for row in range(row_count)
+                if (key := self.model.key_for_row(row)) is not None
+            }
+            build_ms = (time.perf_counter() - build_start) * 1000.0
+            self._building_selection = True
+            apply_start = time.perf_counter()
+            try:
+                self._virtual_selected_keys = keys
+                self.model.set_external_selection(keys)
+                sm = self.table.selectionModel()
+                if sm is not None:
+                    sm.clearSelection()
+                self.table.viewport().update()
+            finally:
+                self._building_selection = False
+            _perf_print(
+                {
+                    "side": "python",
+                    "operation": "feature_table_select_all_visible",
+                    "requested_count": row_count,
+                    "matched_count": len(keys),
+                    "virtualized": True,
+                    "times": {
+                        "build_selection_ms": round(build_ms, 2),
+                        "apply_selection_ms": round(
+                            (time.perf_counter() - apply_start) * 1000.0, 2
+                        ),
+                        "total_ms": round(
+                            (time.perf_counter() - perf_start) * 1000.0, 2
+                        ),
+                    },
+                }
+            )
+        else:
+            build_start = time.perf_counter()
+            rows = list(range(row_count))
+            self._select_row_indices(
+                rows,
+                requested_count=row_count,
+                clear_first=True,
+                operation="feature_table_select_all_visible",
+                perf_start=perf_start,
+                build_start=build_start,
+            )
+        if emit:
+            self.selectionKeysChanged.emit(self.selected_keys())
 
     def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
         """Programmatically select rows by keys."""
