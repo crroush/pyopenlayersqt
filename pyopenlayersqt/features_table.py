@@ -42,10 +42,13 @@ Google-style docstrings + PEP8.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+import time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from PySide6 import QtCore
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -63,6 +66,18 @@ ValueSetter = Callable[[Any, Any], Any]
 ValueFormatter = Callable[[Any], str]
 KeyFn = Callable[[Any], FeatureKey]
 ContextMenuCallback = Callable[["TableContextMenuEvent"], None]
+
+
+def _perf_enabled() -> bool:
+    return (
+        os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
+        or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
+    )
+
+
+def _perf_print(payload: dict[str, Any]) -> None:
+    if _perf_enabled():
+        print("PERF:", payload, flush=True)
 
 
 @dataclass(frozen=True)
@@ -115,11 +130,25 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._sort_column: int = -1
         self._sort_order: Qt.SortOrder = Qt.AscendingOrder
         self._hidden_keys: set[FeatureKey] = set()  # Track hidden rows
+        self._external_selected_keys: set[FeatureKey] = set()
+        self._visible_row_indices: Optional[List[int]] = None
+        self._visible_row_by_source: Dict[int, int] = {}
+
+    def _source_row(self, row_index: int) -> int:
+        if self._visible_row_indices is None:
+            return row_index
+        if row_index < 0 or row_index >= len(self._visible_row_indices):
+            return -1
+        return self._visible_row_indices[row_index]
 
     def rowCount(
         self, parent: QtCore.QModelIndex = QtCore.QModelIndex()
     ) -> int:  # noqa: N802
-        return 0 if parent.isValid() else len(self._rows)
+        if parent.isValid():
+            return 0
+        if self._visible_row_indices is not None:
+            return len(self._visible_row_indices)
+        return len(self._rows)
 
     def columnCount(
         self, parent: QtCore.QModelIndex = QtCore.QModelIndex()
@@ -143,35 +172,48 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
     def data(
         self, index: QtCore.QModelIndex, role: int = Qt.DisplayRole
     ):  # noqa: ANN001
+        result = None
         if not index.isValid():
-            return None
-        r = index.row()
-        c = index.column()
-        if r < 0 or r >= len(self._rows) or c < 0 or c >= len(self._columns):
-            return None
+            return result
+        row_index = index.row()
+        source_row = self._source_row(row_index)
+        column_index = index.column()
+        if (
+            source_row < 0
+            or source_row >= len(self._rows)
+            or column_index < 0
+            or column_index >= len(self._columns)
+        ):
+            return result
 
-        row = self._rows[r]
-        col = self._columns[c]
+        row = self._rows[source_row]
+        col = self._columns[column_index]
 
         if role in (Qt.DisplayRole, Qt.EditRole):
             try:
                 value = col.getter(row)
+                if col.fmt is not None:
+                    try:
+                        result = col.fmt(value)
+                    except Exception:
+                        result = str(value)
+                else:
+                    result = str(value)
             except Exception:
-                return ""
-            if col.fmt is not None:
-                try:
-                    return col.fmt(value)
-                except Exception:
-                    return str(value)
-            return str(value)
-
-        if role == Qt.ToolTipRole and col.tooltip is not None:
+                result = ""
+        elif role == Qt.ToolTipRole and col.tooltip is not None:
             try:
-                return col.tooltip(row)
+                result = col.tooltip(row)
             except Exception:
-                return None
+                result = None
+        elif role == Qt.BackgroundRole and self._external_selected_keys:
+            try:
+                if self._key_fn(row) in self._external_selected_keys:
+                    result = QColor(0, 120, 215, 80)
+            except Exception:
+                result = None
 
-        return None
+        return result
 
     def flags(self, index: QtCore.QModelIndex) -> Qt.ItemFlags:  # noqa: N802
         if not index.isValid():
@@ -183,7 +225,10 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
     def setData(self, index, value, role=Qt.EditRole):
         """Apply data from an edit to the underlying model"""
         if role == Qt.EditRole:
-            row = self._rows[index.row()]
+            source_row = self._source_row(index.row())
+            if source_row < 0:
+                return False
+            row = self._rows[source_row]
             col = self._columns[index.column()]
             if col.setter is None:
                 return False
@@ -207,6 +252,8 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         if key_fn is not None:
             self._key_fn = key_fn
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        self._visible_row_indices = None
+        self._visible_row_by_source = {}
         self.endResetModel()
 
     def clear(self) -> None:
@@ -214,33 +261,69 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self.beginResetModel()
         self._rows = []
         self._row_by_key = {}
+        self._external_selected_keys = set()
+        self._visible_row_indices = None
+        self._visible_row_by_source = {}
         self.endResetModel()
 
     def append_rows(self, rows: Iterable[Any]) -> None:
         """Append many rows efficiently."""
+        perf_start = time.perf_counter()
         incoming_rows = list(rows)
         if not incoming_rows:
             return
 
         # Filter out duplicate keys first so beginInsertRows uses the exact range.
+        filter_start = time.perf_counter()
         new_rows: List[Any] = []
         for row in incoming_rows:
             key = self._key_fn(row)
             if key in self._row_by_key:
                 continue
             new_rows.append(row)
+        filter_ms = (time.perf_counter() - filter_start) * 1000.0
 
         if not new_rows:
             return
 
-        start = len(self._rows)
-        end = start + len(new_rows) - 1
-        self.beginInsertRows(QtCore.QModelIndex(), start, end)
-        for r in new_rows:
-            k = self._key_fn(r)
-            self._row_by_key[k] = len(self._rows)
-            self._rows.append(r)
-        self.endInsertRows()
+        insert_start = time.perf_counter()
+        if self._visible_row_indices is not None:
+            # A filtered model's view rows are not the same as source rows, so
+            # source-position beginInsertRows() calls can be out of range.  Use
+            # a reset while preserving the existing visible source-index map;
+            # callers that want new rows visible can recompute the filter.
+            self.beginResetModel()
+            for row in new_rows:
+                key = self._key_fn(row)
+                self._row_by_key[key] = len(self._rows)
+                self._rows.append(row)
+            self.endResetModel()
+        else:
+            start = len(self._rows)
+            end = start + len(new_rows) - 1
+            self.beginInsertRows(QtCore.QModelIndex(), start, end)
+            for row in new_rows:
+                key = self._key_fn(row)
+                self._row_by_key[key] = len(self._rows)
+                self._rows.append(row)
+            self.endInsertRows()
+        _perf_print(
+            {
+                "side": "python",
+                "operation": "feature_table_append_rows",
+                "incoming_count": len(incoming_rows),
+                "inserted_count": len(new_rows),
+                "total_rows": len(self._rows),
+                "times": {
+                    "filter_ms": round(filter_ms, 2),
+                    "insert_ms": round((time.perf_counter() - insert_start) * 1000.0, 2),
+                    "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                },
+            }
+        )
+
+    def set_external_selection(self, keys: set[FeatureKey]) -> None:
+        self._external_selected_keys = keys
 
     def remove_where(self, predicate: Callable[[Any], bool]) -> None:
         """Remove rows matching predicate (full reset)."""
@@ -250,6 +333,9 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self.beginResetModel()
         self._rows = kept
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        self._visible_row_indices = None
+        self._visible_row_by_source = {}
+        self._external_selected_keys.intersection_update(self._row_by_key)
         self.endResetModel()
 
     def remove_keys(self, keys: Sequence[FeatureKey]) -> None:
@@ -268,11 +354,35 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self.beginResetModel()
         self._rows = kept
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        self._visible_row_indices = None
+        self._visible_row_by_source = {}
+        self._external_selected_keys.intersection_update(self._row_by_key)
+        self.endResetModel()
+
+    def set_visible_row_indices(self, indices: Optional[Sequence[int]]) -> None:
+        """Restrict displayed rows to source row indices, or clear filtering."""
+        self.beginResetModel()
+        if indices is None:
+            self._visible_row_indices = None
+            self._visible_row_by_source = {}
+        else:
+            max_row = len(self._rows)
+            visible = [int(i) for i in indices if 0 <= int(i) < max_row]
+            self._visible_row_indices = visible
+            self._visible_row_by_source = {
+                source_row: view_row
+                for view_row, source_row in enumerate(visible)
+            }
         self.endResetModel()
 
     def row_for_key(self, key: FeatureKey) -> Optional[int]:
         """Return row index for a key, if present."""
-        return self._row_by_key.get(key)
+        source_row = self._row_by_key.get(key)
+        if source_row is None:
+            return None
+        if self._visible_row_indices is None:
+            return source_row
+        return self._visible_row_by_source.get(source_row)
 
     def row_for(self, layer_id: str, feature_id: str) -> Optional[int]:
         """Convenience lookup by (layer_id, feature_id)."""
@@ -280,15 +390,59 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
 
     def key_for_row(self, row_index: int) -> Optional[FeatureKey]:
         """Return the key for a given row index."""
-        if row_index < 0 or row_index >= len(self._rows):
+        source_row = self._source_row(row_index)
+        if source_row < 0 or source_row >= len(self._rows):
             return None
-        return self._key_fn(self._rows[row_index])
+        return self._key_fn(self._rows[source_row])
+
+    def _normalized_source_indices(
+        self, indices: Optional[Sequence[int]] = None
+    ) -> List[int]:
+        """Return valid source row indices, or all rows when no filter is given."""
+        if indices is None:
+            return list(range(len(self._rows)))
+        return [int(i) for i in indices if 0 <= int(i) < len(self._rows)]
+
+    def sorted_source_indices(
+        self,
+        column: int,
+        order: Qt.SortOrder = Qt.AscendingOrder,
+        indices: Optional[Sequence[int]] = None,
+    ) -> List[int]:
+        """Return source row indices sorted by a column without reordering rows."""
+        if column < 0 or column >= len(self._columns):
+            return self._normalized_source_indices(indices)
+
+        col_spec = self._columns[column]
+        if not col_spec.sortable:
+            return self._normalized_source_indices(indices)
+
+        def make_sort_key(source_row: int) -> Any:
+            try:
+                value = col_spec.getter(self._rows[source_row])
+                if col_spec.sort_key is not None:
+                    return col_spec.sort_key(value)
+                if value is None:
+                    return (1, "")
+                try:
+                    return (0, float(value))
+                except (ValueError, TypeError):
+                    pass
+                return (0, str(value))
+            except (AttributeError, KeyError, TypeError, IndexError):
+                return (1, "")
+
+        source_rows = self._normalized_source_indices(indices)
+        reverse = order == Qt.DescendingOrder
+        source_rows.sort(key=make_sort_key, reverse=reverse)
+        return source_rows
 
     def row_data(self, row_index: int) -> Optional[Any]:
         """Return the underlying row object for a given row index."""
-        if row_index < 0 or row_index >= len(self._rows):
+        source_row = self._source_row(row_index)
+        if source_row < 0 or source_row >= len(self._rows):
             return None
-        return self._rows[row_index]
+        return self._rows[source_row]
 
     def sort(self, column: int, order: Qt.SortOrder = Qt.AscendingOrder) -> None:  # noqa: N802
         """Sort the table by the given column."""
@@ -329,6 +483,13 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         # Store the persistent indexes before sorting
         persistent_indexes = self.persistentIndexList()
         old_rows = self._rows[:]
+        visible_keys = None
+        if self._visible_row_indices is not None:
+            visible_keys = {
+                self._key_fn(old_rows[row])
+                for row in self._visible_row_indices
+                if 0 <= row < len(old_rows)
+            }
 
         # Sort the rows
         reverse = order == Qt.DescendingOrder
@@ -336,6 +497,16 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
 
         # Rebuild the key mapping
         self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        if visible_keys is not None:
+            self._visible_row_indices = [
+                row
+                for row, item in enumerate(self._rows)
+                if self._key_fn(item) in visible_keys
+            ]
+            self._visible_row_by_source = {
+                source_row: view_row
+                for view_row, source_row in enumerate(self._visible_row_indices)
+            }
 
         # Build a reverse mapping for efficient lookup (O(n) instead of O(n²))
         # old_row_to_new_row = {id(old_rows[i]): i for i in range(len(old_rows))}
@@ -424,6 +595,8 @@ class FeatureTableWidget(QWidget):
         self._building_selection = False
         self._pending_emit = False
         self._context_menu_actions: List[ContextMenuActionSpec] = []
+        self._virtual_selected_keys: set[FeatureKey] = set()
+        self._virtual_selection_range_threshold = 5000
 
         self._debounce_timer = QtCore.QTimer(self)
         self._debounce_timer.setSingleShot(True)
@@ -462,16 +635,24 @@ class FeatureTableWidget(QWidget):
 
     def clear(self) -> None:
         self.model.clear()
+        self.clear_selection()
 
     def append_rows(self, rows: Iterable[Any]) -> None:
         self.model.append_rows(rows)
 
     def remove_where(self, predicate: Callable[[Any], bool]) -> None:
         self.model.remove_where(predicate)
+        self._filter_virtual_selection_to_model()
 
     def remove_keys(self, keys: Sequence[FeatureKey]) -> None:
         """Remove rows by (layer_id, feature_id) keys."""
         self.model.remove_keys(keys)
+        self._filter_virtual_selection_to_model()
+
+    def set_visible_row_indices(self, indices: Optional[Sequence[int]]) -> None:
+        """Restrict the displayed rows to source row indices, or clear filtering."""
+        self.model.set_visible_row_indices(indices)
+        self._filter_virtual_selection_to_model()
 
     def row_for(self, layer_id: str, feature_id: str) -> Optional[int]:
         """Return row index for (layer_id, feature_id), if present."""
@@ -483,10 +664,31 @@ class FeatureTableWidget(QWidget):
 
     def selected_keys(self) -> List[FeatureKey]:
         """Return currently selected keys."""
+        perf_start = time.perf_counter()
+        if self._virtual_selected_keys:
+            self._filter_virtual_selection_to_model()
+            keys = list(self._virtual_selected_keys)
+            _perf_print(
+                {
+                    "side": "python",
+                    "operation": "feature_table_selected_keys",
+                    "selection_count": len(keys),
+                    "virtualized": True,
+                    "times": {
+                        "selected_rows_ms": 0.0,
+                        "build_keys_ms": 0.0,
+                        "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                    },
+                }
+            )
+            return keys
         sm = self.table.selectionModel()
         if sm is None:
             return []
+        selected_start = time.perf_counter()
         selected_rows = sm.selectedRows(0)
+        selected_rows_ms = (time.perf_counter() - selected_start) * 1000.0
+        build_start = time.perf_counter()
         keys: List[FeatureKey] = []
         for idx in selected_rows:
             r = idx.row()
@@ -495,10 +697,64 @@ class FeatureTableWidget(QWidget):
             key = self.model.key_for_row(r)
             if key is not None:
                 keys.append(key)
+        _perf_print(
+            {
+                "side": "python",
+                "operation": "feature_table_selected_keys",
+                "selection_count": len(keys),
+                "times": {
+                    "selected_rows_ms": round(selected_rows_ms, 2),
+                    "build_keys_ms": round((time.perf_counter() - build_start) * 1000.0, 2),
+                    "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                },
+            }
+        )
         return keys
+
+    def _virtual_selected_row_indices(self) -> List[int]:
+        rows: List[int] = []
+        for key in self._virtual_selected_keys:
+            row_index = self.model.row_for_key(key)
+            if row_index is not None:
+                rows.append(row_index)
+        rows.sort()
+        return rows
+
+    def _current_selected_row_indices(self) -> List[int]:
+        """Return row indices selected by either virtual or Qt selection state."""
+        row_indices = set(self._virtual_selected_row_indices())
+        sm = self.table.selectionModel()
+        if sm is not None:
+            for idx in sm.selectedRows(0):
+                row = idx.row()
+                if 0 <= row < len(self.model.rows):
+                    row_indices.add(row)
+        return sorted(row_indices)
+
+    def _filter_virtual_selection_to_model(self) -> None:
+        """Drop virtual selection keys that no longer exist in the model."""
+        if not self._virtual_selected_keys:
+            return
+        existing_keys = {
+            key
+            for key in self._virtual_selected_keys
+            if self.model.row_for_key(key) is not None
+        }
+        if existing_keys == self._virtual_selected_keys:
+            return
+        self._virtual_selected_keys = existing_keys
+        self.model.set_external_selection(existing_keys)
+        self.table.viewport().update()
 
     def selected_rows_data(self) -> List[Any]:
         """Return underlying row objects for all selected rows."""
+        if self._virtual_selected_keys:
+            return [
+                row_data
+                for row_index in self._virtual_selected_row_indices()
+                if (row_data := self.model.row_data(row_index)) is not None
+            ]
+
         sm = self.table.selectionModel()
         if sm is None:
             return []
@@ -517,39 +773,152 @@ class FeatureTableWidget(QWidget):
         self._context_menu_actions = list(actions)
 
     def clear_selection(self) -> None:
+        self._virtual_selected_keys = set()
+        self.model.set_external_selection(set())
         sm = self.table.selectionModel()
         if sm is None:
             return
         self._building_selection = True
         sm.clearSelection()
         self._building_selection = False
+        self.table.viewport().update()
 
-    def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
-        """Programmatically select rows by keys."""
+    def _select_row_indices(
+        self,
+        rows: List[int],
+        *,
+        requested_count: int,
+        clear_first: bool,
+        operation: str,
+        perf_start: float,
+        build_start: float,
+    ) -> None:
         sm = self.table.selectionModel()
         if sm is None:
             return
 
+        if not clear_first:
+            current_rows = self._current_selected_row_indices()
+            if current_rows:
+                rows = sorted(set(rows).union(current_rows))
+        rows.sort()
+        matched_count = len(rows)
         selection = QtCore.QItemSelection()
         last_col = max(0, self.model.columnCount() - 1)
-        for key in keys:
-            r = self.model.row_for_key(key)
-            if r is None:
-                continue
-            selection.select(self.model.index(r, 0), self.model.index(r, last_col))
+        range_count = 0
+        if rows:
+            range_start = rows[0]
+            previous = rows[0]
+            for row in rows[1:]:
+                if row == previous + 1:
+                    previous = row
+                    continue
+                selection.select(
+                    self.model.index(range_start, 0),
+                    self.model.index(previous, last_col),
+                )
+                range_count += 1
+                range_start = row
+                previous = row
+            selection.select(
+                self.model.index(range_start, 0),
+                self.model.index(previous, last_col),
+            )
+            range_count += 1
+        build_ms = (time.perf_counter() - build_start) * 1000.0
 
         self._building_selection = True
-        if clear_first:
-            sm.clearSelection()
-        sm.select(
-            selection,
-            QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
+        apply_start = time.perf_counter()
+        virtualized = range_count > self._virtual_selection_range_threshold
+        self.table.setUpdatesEnabled(False)
+        try:
+            if virtualized:
+                self._virtual_selected_keys = {
+                    key
+                    for row in rows
+                    if (key := self.model.key_for_row(row)) is not None
+                }
+                self.model.set_external_selection(self._virtual_selected_keys)
+                sm.clearSelection()
+                self.table.viewport().update()
+            else:
+                had_virtual_selection = bool(self._virtual_selected_keys)
+                self._virtual_selected_keys = set()
+                self.model.set_external_selection(set())
+                if clear_first or had_virtual_selection:
+                    sm.clearSelection()
+                sm.select(
+                    selection,
+                    QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
+                )
+        finally:
+            self.table.setUpdatesEnabled(True)
+            self._building_selection = False
+        _perf_print(
+            {
+                "side": "python",
+                "operation": operation,
+                "requested_count": requested_count,
+                "matched_count": matched_count,
+                "range_count": range_count,
+                "virtualized": virtualized,
+                "clear_first": bool(clear_first),
+                "times": {
+                    "build_selection_ms": round(build_ms, 2),
+                    "apply_selection_ms": round(
+                        (time.perf_counter() - apply_start) * 1000.0, 2
+                    ),
+                    "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                },
+            }
         )
-        self._building_selection = False
+
+    def select_keys(self, keys: Sequence[FeatureKey], clear_first: bool = True) -> None:
+        """Programmatically select rows by keys."""
+        perf_start = time.perf_counter()
+        build_start = time.perf_counter()
+        rows = [
+            row
+            for key in keys
+            if (row := self.model.row_for_key(key)) is not None
+        ]
+        self._select_row_indices(
+            rows,
+            requested_count=len(keys),
+            clear_first=clear_first,
+            operation="feature_table_select_keys",
+            perf_start=perf_start,
+            build_start=build_start,
+        )
+
+    def select_feature_ids(
+        self, layer_id: str, feature_ids: Sequence[str], clear_first: bool = True
+    ) -> None:
+        """Select feature IDs for one layer using sorted continuous row ranges."""
+        perf_start = time.perf_counter()
+        lid = str(layer_id)
+        build_start = time.perf_counter()
+        rows = [
+            row
+            for fid in feature_ids
+            if (row := self.model.row_for(lid, str(fid))) is not None
+        ]
+        self._select_row_indices(
+            rows,
+            requested_count=len(feature_ids),
+            clear_first=clear_first,
+            operation="feature_table_select_feature_ids",
+            perf_start=perf_start,
+            build_start=build_start,
+        )
 
     def _on_selection_changed(self, *_args) -> None:
         if self._building_selection:
             return
+        if self._virtual_selected_keys:
+            self._virtual_selected_keys = set()
+            self.model.set_external_selection(set())
+            self.table.viewport().update()
         self._pending_emit = True
         self._debounce_timer.start(self._debounce_ms)
 
@@ -587,16 +956,25 @@ class FeatureTableWidget(QWidget):
 
     def _on_custom_context_menu(self, pos: QtCore.QPoint) -> None:
         index = self.table.indexAt(pos)
-        if index.isValid() and not self.table.selectionModel().isRowSelected(
-            index.row(), QtCore.QModelIndex()
-        ):
-            self.table.selectRow(index.row())
-
         sm = self.table.selectionModel()
         if sm is None:
             return
 
-        selected_row_indices = [idx.row() for idx in sm.selectedRows(0)]
+        if index.isValid():
+            clicked_key = self.model.key_for_row(index.row())
+            clicked_is_virtual = (
+                clicked_key is not None and clicked_key in self._virtual_selected_keys
+            )
+            if not clicked_is_virtual and not sm.isRowSelected(
+                index.row(), QtCore.QModelIndex()
+            ):
+                self.table.selectRow(index.row())
+
+        if self._virtual_selected_keys:
+            selected_row_indices = self._virtual_selected_row_indices()
+        else:
+            selected_row_indices = [idx.row() for idx in sm.selectedRows(0)]
+
         keys = [
             key
             for row_idx in selected_row_indices

@@ -44,6 +44,10 @@ class TableLink:
         lid = self.table_lid
         return [(lid, fid) for fid in ids]
 
+    def select_ids(self, ids: Sequence[str], *, clear_first: bool = True) -> None:
+        """Select layer feature IDs via the table's range-batched fast path."""
+        self.table.select_feature_ids(self.table_lid, ids, clear_first=clear_first)
+
 
 class MultiSelectLink:
     """Sync one parent layer/table with many child layer/table links."""
@@ -106,7 +110,7 @@ class MultiSelectLink:
         pids = list(dict.fromkeys(str(pid) for pid in parent_ids))
         self.parent_sel = set(pids)
 
-        self.parent.table.select_keys(self.parent.keys(pids), clear_first=True)
+        self.parent.select_ids(pids, clear_first=True)
         if set_map:
             self._set_map(self.parent, pids)
 
@@ -117,7 +121,7 @@ class MultiSelectLink:
                 for kid_id in self.kid_by_parent[kid_name].get(pid, [])
             ]
             self.kid_sel[kid_name] = set(kid_ids)
-            link.table.select_keys(link.keys(kid_ids), clear_first=True)
+            link.select_ids(kid_ids, clear_first=True)
             self._set_map(link, kid_ids)
 
     def set_kid(
@@ -135,7 +139,7 @@ class MultiSelectLink:
         ids = list(dict.fromkeys(str(kid_id) for kid_id in kid_ids))
         self.kid_sel[kid_name] = set(ids)
 
-        link.table.select_keys(link.keys(ids), clear_first=True)
+        link.select_ids(ids, clear_first=True)
         if set_map:
             self._set_map(link, ids)
 

@@ -84,6 +84,8 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
 
         # Cache map-side selection per layer; map events are emitted per-layer.
         self._map_selection_by_layer = {}
+        self._syncing_map_to_table = False
+        self._syncing_table_to_map = False
 
         # Connect signals for bidirectional sync
         self.map_widget.selectionChanged.connect(self._on_map_selection)
@@ -443,15 +445,15 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         for layer_id, fids in by_layer.items():
             if layer_id == self.vector_layer.id:
                 self.vector_layer.remove_features(fids)
-                self.map_widget.set_vector_selection(layer_id, [])
+                self.map_widget.set_vector_selection(layer_id, [], emit=False)
                 print(f"Deleted {len(fids)} cities")
             elif layer_id == self.fast_layer.id:
                 self.fast_layer.remove_points(fids)
-                self.map_widget.set_fast_points_selection(layer_id, [])
+                self.map_widget.set_fast_points_selection(layer_id, [], emit=False)
                 print(f"Deleted {len(fids)} measurements")
             elif layer_id == self.geo_layer.id:
                 self.geo_layer.remove_ids(fids)
-                self.map_widget.set_fast_geopoints_selection(layer_id, [])
+                self.map_widget.set_fast_geopoints_selection(layer_id, [], emit=False)
                 print(f"Deleted {len(fids)} geo points")
             self._map_selection_by_layer[layer_id] = []
 
@@ -467,6 +469,8 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
 
     def _on_map_selection(self, selection):
         """Handle map selection changes -> update table."""
+        if self._syncing_table_to_map:
+            return
         self._map_selection_by_layer[selection.layer_id] = list(selection.feature_ids)
 
         # JS emits selection events per-layer; aggregate all known layer selections
@@ -475,23 +479,42 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         for layer_id, feature_ids in self._map_selection_by_layer.items():
             keys.extend((layer_id, fid) for fid in feature_ids)
 
-        self.table.select_keys(keys, clear_first=True)
+        self._syncing_map_to_table = True
+        try:
+            self.table.select_keys(keys, clear_first=True)
+        finally:
+            self._syncing_map_to_table = False
 
     def _on_table_selection(self, keys):
         """Handle table selection changes -> update map."""
-        # Group by layer
-        by_layer = {}
-        for layer_id, fid in keys:
-            by_layer.setdefault(layer_id, []).append(fid)
+        if self._syncing_map_to_table:
+            return
 
-        # Update each layer's selection
-        for layer_id, fids in by_layer.items():
-            if layer_id == self.vector_layer.id:
-                self.map_widget.set_vector_selection(layer_id, fids)
-            elif layer_id == self.fast_layer.id:
-                self.map_widget.set_fast_points_selection(layer_id, fids)
-            elif layer_id == self.geo_layer.id:
-                self.map_widget.set_fast_geopoints_selection(layer_id, fids)
+        by_layer = {
+            self.vector_layer.id: [],
+            self.fast_layer.id: [],
+            self.geo_layer.id: [],
+        }
+        for layer_id, fid in keys:
+            if layer_id in by_layer:
+                by_layer[layer_id].append(fid)
+
+        self._syncing_table_to_map = True
+        try:
+            self.map_widget.set_vector_selection(
+                self.vector_layer.id, by_layer[self.vector_layer.id], emit=False
+            )
+            self.map_widget.set_fast_points_selection(
+                self.fast_layer.id, by_layer[self.fast_layer.id], emit=False
+            )
+            self.map_widget.set_fast_geopoints_selection(
+                self.geo_layer.id, by_layer[self.geo_layer.id], emit=False
+            )
+            self._map_selection_by_layer = {
+                layer_id: list(fids) for layer_id, fids in by_layer.items()
+            }
+        finally:
+            self._syncing_table_to_map = False
 
 
 def main():

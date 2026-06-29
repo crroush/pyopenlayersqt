@@ -258,7 +258,12 @@ class OLMapWidget(QWebEngineView):
 
         # queue until JS is ready (prevents "pyolqt_send is not a function")
         self._js_ready = False
+        self._ready_handled = False
         self._pending: list[Dict[str, Any]] = []
+        self._pending_flush_active = False
+        self._pending_flush_start = 0.0
+        self._pending_flush_count = 0
+        self._emit_ready_after_flush = False
         self._measurement_callbacks: list[Any] = []
 
         # load
@@ -333,13 +338,39 @@ class OLMapWidget(QWebEngineView):
         return f"{prefix}{self._layer_seq}"
 
     def _send_now(self, msg: Dict[str, Any]) -> None:
+        perf_start = time.perf_counter()
         payload = json.dumps(_to_jsonable(msg), separators=(",", ":"))
         js = f"window.pyolqt_send({json.dumps(payload)});"
         self.page().runJavaScript(js)
+        if self._perf_logging_enabled:
+            payload_bytes = len(payload.encode("utf-8"))
+            print(
+                "PERF:",
+                {
+                    "side": "python",
+                    "operation": "send_now",
+                    "type": msg.get("type"),
+                    "layer_id": msg.get("layer_id"),
+                    "payload_bytes": payload_bytes,
+                    "elapsed_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                },
+                flush=True,
+            )
 
     def _send(self, msg: Dict[str, Any]) -> None:
-        if not self._js_ready:
+        # Preserve command FIFO ordering across the page-ready transition.
+        #
+        # `_flush_next_pending()` drains queued startup messages one timer tick
+        # at a time so large CSV/FastPoints payloads do not block the Qt event
+        # loop.  During that drain `_js_ready` is already true, but new messages
+        # must still append behind the remaining backlog; otherwise a later
+        # chunk could overtake an earlier queued clear/add command.
+        if not self._js_ready or self._pending_flush_active or self._pending:
             self._pending.append(msg)
+            if self._pending_flush_active:
+                self._pending_flush_count += 1
+            elif self._js_ready:
+                self._flush_pending()
             return
         self._send_now(msg)
 
@@ -351,24 +382,34 @@ class OLMapWidget(QWebEngineView):
         """
         self._send(msg)
 
-    def set_vector_selection(self, layer_id: str, feature_ids: list[str]) -> None:
+    def set_vector_selection(
+        self, layer_id: str, feature_ids: list[str], emit: bool = True
+    ) -> None:
         """Set selection for a vector layer."""
         self.send(
-            {"type": "select.set", "layer_id": layer_id, "feature_ids": feature_ids}
+            {
+                "type": "select.set",
+                "layer_id": layer_id,
+                "feature_ids": feature_ids,
+                "emit": bool(emit),
+            }
         )
 
-    def set_fast_points_selection(self, layer_id: str, feature_ids: list[str]) -> None:
+    def set_fast_points_selection(
+        self, layer_id: str, feature_ids: list[str], emit: bool = True
+    ) -> None:
         """Set selection for a fast-points layer."""
         self.send(
             {
                 "type": "fast_points.select.set",
                 "layer_id": layer_id,
                 "feature_ids": feature_ids,
+                "emit": bool(emit),
             }
         )
 
     def set_fast_geopoints_selection(
-        self, layer_id: str, feature_ids: list[str]
+        self, layer_id: str, feature_ids: list[str], emit: bool = True
     ) -> None:
         """Set selection for a fast-geo-points layer."""
         self.send(
@@ -376,6 +417,7 @@ class OLMapWidget(QWebEngineView):
                 "type": "fast_geopoints.select.set",
                 "layer_id": layer_id,
                 "feature_ids": feature_ids,
+                "emit": bool(emit),
             }
         )
 
@@ -559,12 +601,48 @@ class OLMapWidget(QWebEngineView):
         return cls.WEB_MERCATOR_INITIAL_RESOLUTION_M_PER_PX / (2 ** int(zoom))
 
     def _flush_pending(self) -> None:
-        if not self._pending:
+        """Start an asynchronous FIFO drain of queued JavaScript commands."""
+        if not self._pending or self._pending_flush_active:
             return
-        pending = self._pending
-        self._pending = []
-        for m in pending:
-            self._send_now(m)
+        self._pending_flush_active = True
+        self._pending_flush_start = time.perf_counter()
+        self._pending_flush_count = len(self._pending)
+        QTimer.singleShot(0, self._flush_next_pending)
+
+    def _flush_next_pending(self) -> None:
+        """Send one queued command and reschedule until the backlog is empty.
+
+        Commands produced while this timer-driven flush is active remain in
+        `_pending` and are drained after older messages.  This keeps startup
+        streams ordered without forcing one large synchronous flush.
+        """
+        if not self._pending:
+            message_count = self._pending_flush_count
+            perf_start = self._pending_flush_start
+            self._pending_flush_active = False
+            self._pending_flush_count = 0
+            self._pending_flush_start = 0.0
+            if self._perf_logging_enabled:
+                print(
+                    "PERF:",
+                    {
+                        "side": "python",
+                        "operation": "flush_pending",
+                        "message_count": message_count,
+                        "elapsed_ms": round(
+                            (time.perf_counter() - perf_start) * 1000.0, 2
+                        ),
+                    },
+                    flush=True,
+                )
+            if self._emit_ready_after_flush:
+                self._emit_ready_after_flush = False
+                self.ready.emit()
+            return
+
+        msg = self._pending.pop(0)
+        self._send_now(msg)
+        QTimer.singleShot(0, self._flush_next_pending)
 
     def _on_load_finished(self, ok: bool) -> None:
         if not ok:
@@ -574,19 +652,22 @@ class OLMapWidget(QWebEngineView):
             if self._js_ready:
                 return
             self.page().runJavaScript(
-                "typeof window.pyolqt_send === 'function';", self._on_pyolqt_send_check
+                (
+                    "typeof window.pyolqt_is_ready === 'function' "
+                    "&& window.pyolqt_is_ready();"
+                ),
+                self._on_pyolqt_ready_check,
             )
 
         # ol_bridge boot is async; poll a few times
         for ms in (50, 150, 350, 700, 1200):
             QTimer.singleShot(ms, poll)
 
-    def _on_pyolqt_send_check(self, exists: Any) -> None:
+    def _on_pyolqt_ready_check(self, ready: Any) -> None:
         if self._js_ready:
             return
-        if exists is True:
-            self._js_ready = True
-            self._flush_pending()
+        if ready is True:
+            self._handle_ready_event()
 
     def _ensure_overlay_url(self, image: Union[str, bytes, bytearray]) -> str:
         """
@@ -637,6 +718,9 @@ class OLMapWidget(QWebEngineView):
             return {} if default is None else default
 
     def _handle_ready_event(self) -> None:
+        if self._ready_handled:
+            return
+        self._ready_handled = True
         self._js_ready = True
         if (
             self._initial_center != self.DEFAULT_CENTER
@@ -652,6 +736,12 @@ class OLMapWidget(QWebEngineView):
                 }
             )
         self._send_now(
+            {
+                "type": "perf.set_enabled",
+                "enabled": self._perf_logging_enabled,
+            }
+        )
+        self._send_now(
             {"type": "coordinates.set_visible", "visible": self._show_coordinates}
         )
         self._send_now(
@@ -659,8 +749,11 @@ class OLMapWidget(QWebEngineView):
         )
         self._send_now({"type": "base.set_visible", "visible": self._show_osm_layer})
         self.set_country_boundaries_visible(self._show_country_boundaries)
-        self._flush_pending()
-        self.ready.emit()
+        if self._pending:
+            self._emit_ready_after_flush = True
+            self._flush_pending()
+        else:
+            self.ready.emit()
 
     def _handle_selection_event(self, payload_json: str) -> None:
         obj = self._parse_event_payload(payload_json)
