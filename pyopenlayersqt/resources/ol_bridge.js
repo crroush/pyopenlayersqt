@@ -97,8 +97,19 @@ function pyolqt_points_from_msg(msg) {
   return { coords, count: coords.length };
 }
 
+function pyolqt_normalize_feature_id(value) {
+  if (Array.isArray(value)) {
+    return value.length > 0 ? String(value[value.length - 1]) : "";
+  }
+  if (value && typeof value === "object" && value.feature_id != null) {
+    return String(value.feature_id);
+  }
+  return String(value);
+}
+
 function pyolqt_ids_from_msg(msg) {
-  return msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.feature_ids || msg.ids || []);
+  const raw = msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.feature_ids || msg.ids || []);
+  return raw.map(pyolqt_normalize_feature_id);
 }
 
 function pyolqt_indices_from_msg(msg) {
@@ -1025,7 +1036,7 @@ function cmd_fast_points_select_set(msg) {
     const perfStart = performance.now();
     const entry = getLayerEntry(msg.layer_id);
     if (entry.type !== "fast_points") return;
-    const ids = msg.feature_ids || [];
+    const ids = pyolqt_ids_from_msg(msg);
     const setStart = performance.now();
     entry.selectedIds = new Set(ids);
     fgp_rebuild_selected_indices(entry);
@@ -3163,7 +3174,7 @@ function cmd_countries_set_visible(msg) {
     selected.clear();
 
     const layer_id = msg.layer_id || "";
-    const ids = msg.feature_ids || [];
+    const ids = pyolqt_ids_from_msg(msg);
     if (!layer_id) return;
 
     const e = state.layers.get(layer_id);
