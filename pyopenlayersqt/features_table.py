@@ -579,7 +579,7 @@ class FeatureTableWidget(QWidget):
         *,
         columns: Optional[Sequence[ColumnSpec]] = None,
         key_fn: Optional[KeyFn] = None,
-        debounce_ms: int = 90,
+        debounce_ms: int = 25,
         sorting_enabled: bool = True,
     ) -> None:
         super().__init__(parent)
