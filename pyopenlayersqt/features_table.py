@@ -82,13 +82,12 @@ def _perf_print(payload: dict[str, Any]) -> None:
 
 def _perf_selection_summary(selection: QtCore.QItemSelection) -> dict[str, Any]:
     """Return cheap diagnostics for a Qt item selection payload."""
-    ranges = selection
-    range_count = ranges.count()
+    range_count = selection.count()
     row_count = 0
     index_count = 0
     min_row: Optional[int] = None
     max_row: Optional[int] = None
-    for selection_range in ranges:
+    for selection_range in selection:
         top = selection_range.top()
         bottom = selection_range.bottom()
         left = selection_range.left()
@@ -106,6 +105,12 @@ def _perf_selection_summary(selection: QtCore.QItemSelection) -> dict[str, Any]:
         "min_row": min_row,
         "max_row": max_row,
     }
+
+
+def _selection_rows(selection: QtCore.QItemSelection) -> Iterable[int]:
+    """Yield row numbers covered by a Qt item selection payload."""
+    for selection_range in selection:
+        yield from range(selection_range.top(), selection_range.bottom() + 1)
 
 
 @dataclass(frozen=True)
@@ -965,7 +970,12 @@ class FeatureTableWidget(QWidget):
             return
 
         self._selection_change_sequence += 1
+        selected_summary = _perf_selection_summary(selected)
+        deselected_summary = _perf_selection_summary(deselected)
         cleared_virtual_count = 0
+        virtualized_table_selection = False
+        virtualize_start = time.perf_counter()
+        virtualize_ms = 0.0
         clear_virtual_start = time.perf_counter()
         if self._virtual_selected_keys:
             cleared_virtual_count = len(self._virtual_selected_keys)
@@ -973,6 +983,26 @@ class FeatureTableWidget(QWidget):
             self.model.set_external_selection(set())
             self.table.viewport().update()
         clear_virtual_ms = (time.perf_counter() - clear_virtual_start) * 1000.0
+
+        if selected_summary["row_count"] > self._virtual_selection_range_threshold:
+            virtualized_table_selection = True
+            self._virtual_selected_keys = {
+                key
+                for row in _selection_rows(selected)
+                if (key := self.model.key_for_row(row)) is not None
+            }
+            self.model.set_external_selection(self._virtual_selected_keys)
+            self._building_selection = True
+            self.table.setUpdatesEnabled(False)
+            try:
+                sm = self.table.selectionModel()
+                if sm is not None:
+                    sm.clearSelection()
+            finally:
+                self.table.setUpdatesEnabled(True)
+                self._building_selection = False
+            self.table.viewport().update()
+            virtualize_ms = (time.perf_counter() - virtualize_start) * 1000.0
 
         self._pending_emit = True
         self._pending_emit_started_at = time.perf_counter()
@@ -983,12 +1013,15 @@ class FeatureTableWidget(QWidget):
                     "side": "python",
                     "operation": "feature_table_selection_changed",
                     "sequence": self._selection_change_sequence,
-                    "selected": _perf_selection_summary(selected),
-                    "deselected": _perf_selection_summary(deselected),
+                    "selected": selected_summary,
+                    "deselected": deselected_summary,
                     "cleared_virtual_count": cleared_virtual_count,
+                    "virtualized_table_selection": virtualized_table_selection,
+                    "virtual_selection_count": len(self._virtual_selected_keys),
                     "debounce_ms": self._debounce_ms,
                     "times": {
                         "clear_virtual_ms": round(clear_virtual_ms, 2),
+                        "virtualize_ms": round(virtualize_ms, 2),
                         "handler_ms": round(
                             (time.perf_counter() - perf_start) * 1000.0, 2
                         ),
