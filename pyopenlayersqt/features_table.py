@@ -631,6 +631,7 @@ class FeatureTableWidget(QWidget):
         self._selection_change_sequence = 0
         self._context_menu_actions: List[ContextMenuActionSpec] = []
         self._virtual_selected_keys: set[FeatureKey] = set()
+        self._virtual_selection_model_clean = False
         self._virtual_selection_range_threshold = 5000
 
         self._debounce_timer = QtCore.QTimer(self)
@@ -701,7 +702,8 @@ class FeatureTableWidget(QWidget):
         """Return currently selected keys."""
         perf_start = time.perf_counter()
         if self._virtual_selected_keys:
-            self._filter_virtual_selection_to_model()
+            if not self._virtual_selection_model_clean:
+                self._filter_virtual_selection_to_model()
             keys = list(self._virtual_selected_keys)
             _perf_print(
                 {
@@ -776,8 +778,10 @@ class FeatureTableWidget(QWidget):
             if self.model.row_for_key(key) is not None
         }
         if existing_keys == self._virtual_selected_keys:
+            self._virtual_selection_model_clean = True
             return
         self._virtual_selected_keys = existing_keys
+        self._virtual_selection_model_clean = True
         self.model.set_external_selection(existing_keys)
         self.table.viewport().update()
 
@@ -809,6 +813,7 @@ class FeatureTableWidget(QWidget):
 
     def clear_selection(self) -> None:
         self._virtual_selected_keys = set()
+        self._virtual_selection_model_clean = False
         self.model.set_external_selection(set())
         sm = self.table.selectionModel()
         if sm is None:
@@ -873,12 +878,14 @@ class FeatureTableWidget(QWidget):
                     for row in rows
                     if (key := self.model.key_for_row(row)) is not None
                 }
+                self._virtual_selection_model_clean = True
                 self.model.set_external_selection(self._virtual_selected_keys)
                 sm.clearSelection()
                 self.table.viewport().update()
             else:
                 had_virtual_selection = bool(self._virtual_selected_keys)
                 self._virtual_selected_keys = set()
+                self._virtual_selection_model_clean = False
                 self.model.set_external_selection(set())
                 if clear_first or had_virtual_selection:
                     sm.clearSelection()
@@ -980,6 +987,7 @@ class FeatureTableWidget(QWidget):
         if self._virtual_selected_keys:
             cleared_virtual_count = len(self._virtual_selected_keys)
             self._virtual_selected_keys = set()
+            self._virtual_selection_model_clean = False
             self.model.set_external_selection(set())
             self.table.viewport().update()
         clear_virtual_ms = (time.perf_counter() - clear_virtual_start) * 1000.0
@@ -991,6 +999,7 @@ class FeatureTableWidget(QWidget):
                 for row in _selection_rows(selected)
                 if (key := self.model.key_for_row(row)) is not None
             }
+            self._virtual_selection_model_clean = True
             self.model.set_external_selection(self._virtual_selected_keys)
             self._building_selection = True
             self.table.setUpdatesEnabled(False)
