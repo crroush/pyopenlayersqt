@@ -397,6 +397,7 @@ function fp_qt_new_node(minX, minY, maxX, maxY, depth) {
   return {
     minX, minY, maxX, maxY, depth,
     visibleCount: 0,
+    selectedCount: 0,
     firstIndex: -1,
     items: [],
     children: null,
@@ -511,35 +512,33 @@ function fp_qt_point_in_extent(entry, i, extent) {
   return x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3];
 }
 
-function fp_qt_is_drawable_representative(entry, i, skipSelected, extent) {
-  return i >= 0 &&
-    !entry.deleted[i] &&
-    !entry.hidden[i] &&
-    fp_qt_point_in_extent(entry, i, extent) &&
-    (!skipSelected || !entry.selectedIds.has(entry.ids[i]));
+function fp_qt_is_drawable_representative(entry, i, skipSelected, extent, selectedOnly) {
+  if (i < 0 || entry.deleted[i] || entry.hidden[i] || !fp_qt_point_in_extent(entry, i, extent)) return false;
+  const selected = (entry.selectedIndices || new Set()).has(i);
+  return (!skipSelected || !selected) && (!selectedOnly || selected);
 }
 
-function fp_qt_pick_representative(entry, node, skipSelected, extent) {
+function fp_qt_pick_representative(entry, node, skipSelected, extent, selectedOnly) {
   // Collapsed nodes can straddle a viewport edge.  Pick a representative that
   // is itself inside the current extent; otherwise a partially visible node
   // could collapse to an off-screen point and hide on-screen children.
   if (!node || node.visibleCount <= 0) return -1;
   const first = node.firstIndex;
-  if (fp_qt_is_drawable_representative(entry, first, skipSelected, extent)) {
+  if (fp_qt_is_drawable_representative(entry, first, skipSelected, extent, selectedOnly)) {
     return first;
   }
   if (node.children) {
     for (let c = 0; c < 4; c++) {
       const child = node.children[c];
       if (!fp_qt_intersects(child, extent)) continue;
-      const idx = fp_qt_pick_representative(entry, child, skipSelected, extent);
+      const idx = fp_qt_pick_representative(entry, child, skipSelected, extent, selectedOnly);
       if (idx >= 0) return idx;
     }
     return -1;
   }
   for (let k = 0; k < node.items.length; k++) {
     const i = node.items[k];
-    if (fp_qt_is_drawable_representative(entry, i, skipSelected, extent)) return i;
+    if (fp_qt_is_drawable_representative(entry, i, skipSelected, extent, selectedOnly)) return i;
   }
   return -1;
 }
@@ -950,6 +949,7 @@ function cmd_fast_points_clear(msg) {
   fp_qt_init(entry);
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
+  entry.selectedIndices = new Set();
   fp_redraw(entry);
   fp_emit_selection(entry);
 }
@@ -1028,6 +1028,7 @@ function cmd_fast_points_select_set(msg) {
     const ids = msg.feature_ids || [];
     const setStart = performance.now();
     entry.selectedIds = new Set(ids);
+    fgp_rebuild_selected_indices(entry);
     const setMs = performance.now() - setStart;
     const redrawStart = performance.now();
     fp_redraw(entry);
@@ -1202,6 +1203,21 @@ function fgp_rebuild_selected_indices(entry) {
     if (i != null && !entry.deleted[i]) selectedIndices.add(i);
   }
   entry.selectedIndices = selectedIndices;
+  fp_qt_rebuild_selected_counts(entry, entry.qtRoot);
+}
+function fp_qt_rebuild_selected_counts(entry, node) {
+  if (!node) return 0;
+  let total = 0;
+  if (node.children) {
+    for (let c = 0; c < 4; c++) total += fp_qt_rebuild_selected_counts(entry, node.children[c]);
+  } else {
+    for (let k = 0; k < node.items.length; k++) {
+      const i = node.items[k];
+      if (!entry.deleted[i] && !entry.hidden[i] && entry.selectedIndices.has(i)) total++;
+    }
+  }
+  node.selectedCount = total;
+  return total;
 }
 
 function fgp_make_canvas_layer(entry) {
@@ -1286,50 +1302,64 @@ function fgp_make_canvas_layer(entry) {
       const selectedDrawIndices = [];
       const seenCenterPixels = new Set();
 
-      function addVisibleDrawIndex(i, fromCollapsedNode) {
+      function addDrawIndex(i, selected, fromCollapsedNode) {
         if (entry.deleted[i] || entry.hidden[i] || !inExtent(i)) return;
-        const isSelected = selectedIndexSet.has(i);
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
-        const pixelKey = (isSelected ? 's:' : 'u:') + Math.round(x) + ',' + Math.round(y);
+        const pixelKey = (selected ? 's:' : 'u:') + Math.round(x) + ',' + Math.round(y);
         if (seenCenterPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
           return;
         }
         seenCenterPixels.add(pixelKey);
-        if (isSelected) selectedDrawIndices.push(i);
+        if (selected) selectedDrawIndices.push(i);
         else drawIndices.push(i);
         if (fromCollapsedNode) representativeCount++;
       }
 
-      function collectDrawIndices() {
-        if (!root) return;
-        const stack = [root];
-        while (stack.length) {
-          const node = stack.pop();
-          if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) continue;
-          visitedNodeCount++;
-          const px = nodePixelSize(node);
-          if (px.w <= collapsePx && px.h <= collapsePx) {
-            const rep = fp_qt_pick_representative(entry, node, true, extent);
-            if (rep >= 0) {
-              collapsedNodeCount++;
-              addVisibleDrawIndex(rep, true);
-            }
-            continue;
+      function collectUnselectedDrawIndices(node) {
+        if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) return;
+        visitedNodeCount++;
+        const px = nodePixelSize(node);
+        if (px.w <= collapsePx && px.h <= collapsePx) {
+          const rep = fp_qt_pick_representative(entry, node, true, extent, false);
+          if (rep >= 0) {
+            collapsedNodeCount++;
+            addDrawIndex(rep, false, true);
           }
-          if (node.children) {
-            for (let c = 0; c < 4; c++) stack.push(node.children[c]);
-            continue;
-          }
-          for (let k = 0; k < node.items.length; k++) {
-            scannedLeafPointCount++;
-            addVisibleDrawIndex(node.items[k], false);
-          }
+          return;
+        }
+        if (node.children) {
+          for (let c = 0; c < 4; c++) collectUnselectedDrawIndices(node.children[c]);
+          return;
+        }
+        for (let k = 0; k < node.items.length; k++) {
+          scannedLeafPointCount++;
+          const i = node.items[k];
+          if (!selectedIndexSet.has(i)) addDrawIndex(i, false, false);
         }
       }
 
-      collectDrawIndices();
+      function collectSelectedDrawIndices(node) {
+        if (!node || node.selectedCount <= 0 || !fp_qt_intersects(node, extent)) return;
+        const px = nodePixelSize(node);
+        if (px.w <= collapsePx && px.h <= collapsePx) {
+          const rep = fp_qt_pick_representative(entry, node, false, extent, true);
+          if (rep >= 0) addDrawIndex(rep, true, true);
+          return;
+        }
+        if (node.children) {
+          for (let c = 0; c < 4; c++) collectSelectedDrawIndices(node.children[c]);
+          return;
+        }
+        for (let k = 0; k < node.items.length; k++) {
+          const i = node.items[k];
+          if (selectedIndexSet.has(i)) addDrawIndex(i, true, false);
+        }
+      }
+
+      collectUnselectedDrawIndices(root);
+      collectSelectedDrawIndices(root);
 
       // ---- Ellipses (batched, quadtree-collapsed for unselected points) ----
       const unselectedEllipsesVisible = entry.ellipsesVisible && st.ellipses_visible !== false;
@@ -1779,6 +1809,7 @@ function fp_install_interactions() {
         entry.selectedIds.add(fid);
         entry.selectedIndices.add(idx);
       }
+      fp_qt_rebuild_selected_counts(entry, entry.qtRoot);
       const redrawStart = performance.now();
       if (entry.type === "fast_geopoints") fgp_redraw(entry);
       else fp_redraw(entry);
