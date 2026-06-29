@@ -420,6 +420,29 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             [idx for idx in indices if 0 <= idx < row_count], dtype=np.uint32
         )
 
+    def _clear_time_slider(self) -> None:
+        """Disable the time slider and disconnect stale range callbacks."""
+        self._time_filter_timer.stop()
+        self._pending_time_filter = None
+        if self._slider_range_conn:
+            self.slider.rangeChanged.disconnect(self._slider_range_conn)
+            self._slider_range_conn = None
+        self.slider.set_value_formatter(None)
+        self.slider.setEnabled(False)
+
+    def _reset_loaded_data_state(self) -> None:
+        """Clear loaded CSV state before starting or after failing a load."""
+        self.df = None
+        self.chunk_list = []
+        self.feature_ids = []
+        self._visible_mask = None
+        self._deleted_mask = None
+        self.current_selection_fids = []
+        self._table_sort_column = None
+        self._table_sort_order = QtCore.Qt.SortOrder.AscendingOrder
+        self.global_fid_counter = 0
+        self._clear_time_slider()
+
     def _sync_table_visible_rows(self) -> None:
         """Apply current time/deleted masks without compacting table row order."""
         if self.table_widget is None or self.df is None:
@@ -536,17 +559,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.progress_bar.setVisible(True)
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
 
-        self._time_filter_timer.stop()
-        self._pending_time_filter = None
         self.fast_layer.clear()
-        self.chunk_list = []
-        self.feature_ids = []
-        self._visible_mask = None
-        self._deleted_mask = None
-        self.current_selection_fids = []
-        self._table_sort_column = None
-        self._table_sort_order = QtCore.Qt.SortOrder.AscendingOrder
-        self.global_fid_counter = 0
+        self._reset_loaded_data_state()
         self._initialize_empty_table(base_columns)
 
         self.loader_thread = CsvLoaderThread(paths, base_columns, self.cli_args.chunk_size)
@@ -727,6 +741,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
     def _on_load_success(self, error_files: list[str]) -> None:
         if not self.chunk_list:
+            self._reset_loaded_data_state()
             self._cleanup_load_ui()
             QtWidgets.QMessageBox.warning(self, "No Data", "No valid data could be loaded.")
             return
@@ -751,6 +766,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.statusBar().showMessage(f"Successfully loaded {len(self.df):,} points.", 10000)
 
     def _on_load_error(self, error_msg: str) -> None:
+        self._reset_loaded_data_state()
         self._cleanup_load_ui()
         QtWidgets.QMessageBox.critical(self, "Error Loading Data", error_msg)
         self.statusBar().showMessage("Load failed.")

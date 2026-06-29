@@ -286,15 +286,27 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         if not new_rows:
             return
 
-        start = len(self._rows)
-        end = start + len(new_rows) - 1
         insert_start = time.perf_counter()
-        self.beginInsertRows(QtCore.QModelIndex(), start, end)
-        for r in new_rows:
-            k = self._key_fn(r)
-            self._row_by_key[k] = len(self._rows)
-            self._rows.append(r)
-        self.endInsertRows()
+        if self._visible_row_indices is not None:
+            # A filtered model's view rows are not the same as source rows, so
+            # source-position beginInsertRows() calls can be out of range.  Use
+            # a reset while preserving the existing visible source-index map;
+            # callers that want new rows visible can recompute the filter.
+            self.beginResetModel()
+            for row in new_rows:
+                key = self._key_fn(row)
+                self._row_by_key[key] = len(self._rows)
+                self._rows.append(row)
+            self.endResetModel()
+        else:
+            start = len(self._rows)
+            end = start + len(new_rows) - 1
+            self.beginInsertRows(QtCore.QModelIndex(), start, end)
+            for row in new_rows:
+                key = self._key_fn(row)
+                self._row_by_key[key] = len(self._rows)
+                self._rows.append(row)
+            self.endInsertRows()
         _perf_print(
             {
                 "side": "python",
