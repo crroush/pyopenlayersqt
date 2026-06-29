@@ -1199,8 +1199,13 @@ function _fgp_sec(lat) {
   return c === 0 ? 1e9 : (1.0 / c);
 }
 
-function fgp_redraw(entry) {
-  entry.renderVersion = (entry.renderVersion || 0) + 1;
+function fgp_redraw(entry, selectionOnly) {
+  if (selectionOnly) {
+    entry.selectionVersion = (entry.selectionVersion || 0) + 1;
+  } else {
+    entry.renderVersion = (entry.renderVersion || 0) + 1;
+    entry.baseRenderCache = null;
+  }
   entry.renderCache = null;
   if (entry.source) entry.source.changed();
 }
@@ -1241,7 +1246,7 @@ function fgp_make_canvas_layer(entry) {
       // also caches the rendered canvas for identical extent/resolution/style
       // inputs.  Panning/zooming invalidates the key; selection/color/filter
       // changes bump `renderVersion` from Python or command handlers.
-      const cacheKey = [
+      const baseCacheKey = [
         entry.renderVersion || 0,
         state.viewInteracting ? 1 : 0,
         resolution.toPrecision(12),
@@ -1250,6 +1255,7 @@ function fgp_make_canvas_layer(entry) {
         size[1],
         extent.map((v) => v.toFixed(2)).join(',')
       ].join('|');
+      const cacheKey = [baseCacheKey, entry.selectionVersion || 0].join('|');
       if (entry.renderCache && entry.renderCache.key === cacheKey) {
         if (window.PYOLQT_RENDER_PERF) {
           emitPerf({
@@ -1368,6 +1374,102 @@ function fgp_make_canvas_layer(entry) {
           const i = node.items[k];
           if (selectedIndexSet.has(i)) addDrawIndex(i, true, false);
         }
+      }
+
+      function drawSelectedOverlay() {
+        const overlayEllipseStart = performance.now();
+        const selectedEllipsesVisible = entry.selectedEllipsesVisible && st.selected_ellipses_visible !== false;
+        const skipWhileInteracting = (st.skip_ellipses_while_interacting !== false);
+        if (selectedEllipsesVisible && !(skipWhileInteracting && state.viewInteracting)) {
+          const minPx = Math.max(0.0, Number(st.min_ellipse_px || 0.0));
+          const maxPerPath = Math.max(250, (st.max_ellipses_per_path | 0) || 2000);
+          ctx.lineWidth = (Number(st.selected_ellipse_stroke_width || (st.ellipse_stroke_width || 1.5) * 1.8) * pixelRatio);
+          ctx.strokeStyle = rgba_to_css_with_opacity(st.selected_ellipse_stroke_rgba || [0,255,255,255], entry.opacity);
+          let nInPath = 0;
+          ctx.beginPath();
+          for (let k = 0; k < selectedDrawIndices.length; k++) {
+            const i = selectedDrawIndices[k];
+            const rx = (entry.a[i] / resolution) * pixelRatio;
+            const ry = (entry.b[i] / resolution) * pixelRatio;
+            if (rx < minPx && ry < minPx) continue;
+            const x = (entry.x[i] - extent[0]) * scaleX;
+            const y = (extent[3] - entry.y[i]) * scaleY;
+            const rot = entry.rot[i];
+            ctx.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
+            ctx.ellipse(x, y, rx, ry, rot, 0, TAU);
+            ellipseDrawCount++;
+            nInPath++;
+            if (nInPath >= maxPerPath) {
+              ctx.stroke();
+              ctx.beginPath();
+              nInPath = 0;
+            }
+          }
+          if (nInPath > 0) ctx.stroke();
+        }
+        const overlayEllipseMs = performance.now() - overlayEllipseStart;
+        const overlayPointStart = performance.now();
+        const radius = (st.selected_point_radius || 6.0) * pixelRatio;
+        ctx.fillStyle = rgba_to_css_with_opacity(st.selected_point_rgba || [0,255,255,255], entry.opacity);
+        ctx.beginPath();
+        for (let k = 0; k < selectedDrawIndices.length; k++) {
+          const i = selectedDrawIndices[k];
+          const x = (entry.x[i] - extent[0]) * scaleX;
+          const y = (extent[3] - entry.y[i]) * scaleY;
+          ctx.moveTo(x + radius, y);
+          ctx.arc(x, y, radius, 0, TAU);
+          pointDrawCount++;
+        }
+        ctx.fill();
+        return { ellipse_ms: overlayEllipseMs, point_ms: performance.now() - overlayPointStart };
+      }
+
+      const baseCacheHit = entry.baseRenderCache && entry.baseRenderCache.key === baseCacheKey;
+      if (baseCacheHit && selectedSet.size > 0) {
+        ctx.drawImage(entry.baseRenderCache.canvas, 0, 0);
+        collectSelectedDrawIndices(root);
+        if (selectedDrawIndices.length === 0) {
+          for (const fid of selectedSet) {
+            const i = entry.idIndex.get(String(fid));
+            if (i == null) continue;
+            const before = selectedDrawIndices.length;
+            addDrawIndex(i, true, false);
+            if (selectedDrawIndices.length !== before) selectedFallbackCount++;
+          }
+        }
+        const overlayTimes = drawSelectedOverlay();
+        const totalTime = performance.now() - perfStart;
+        if ((entry.x.length > 100) || window.PYOLQT_RENDER_PERF) {
+          emitPerf({
+            layer_id: entry.layer_id,
+            operation: "fast_geopoints_render",
+            point_count: entry.x.length,
+            base_cache_hit: true,
+            visited_node_count: visitedNodeCount,
+            collapsed_node_count: collapsedNodeCount,
+            scanned_leaf_point_count: scannedLeafPointCount,
+            representative_count: representativeCount,
+            quadtree_draw_candidate_count: 0,
+            selected_quadtree_draw_candidate_count: selectedDrawIndices.length,
+            selected_fallback_count: selectedFallbackCount,
+            selected_count: selectedSet.size,
+            collapse_pixel_threshold: collapsePx.toFixed(2),
+            ellipse_draw_count: ellipseDrawCount,
+            point_draw_count: pointDrawCount,
+            skipped_duplicate_pixels: skippedDuplicatePixels,
+            batch_count: selectedDrawIndices.length > 0 ? 1 : 0,
+            ellipses_visible: !!entry.ellipsesVisible,
+            selected_ellipses_visible: !!entry.selectedEllipsesVisible,
+            times: {
+              query_ms: queryTime.toFixed(2),
+              ellipse_ms: overlayTimes.ellipse_ms.toFixed(2),
+              point_ms: overlayTimes.point_ms.toFixed(2),
+              total_ms: totalTime.toFixed(2)
+            }
+          });
+        }
+        entry.renderCache = { key: cacheKey, canvas: canvas };
+        return canvas;
       }
 
       collectUnselectedDrawIndices(root);
@@ -1545,6 +1647,9 @@ function fgp_make_canvas_layer(entry) {
         });
       }
 
+      if (selectedSet.size === 0) {
+        entry.baseRenderCache = { key: baseCacheKey, canvas: canvas };
+      }
       entry.renderCache = { key: cacheKey, canvas: canvas };
       return canvas;
     },
@@ -1738,7 +1843,7 @@ function cmd_fast_geopoints_select_set(msg) {
   if (entry.type !== 'fast_geopoints') return;
   entry.selectedIds = new Set(pyolqt_ids_from_msg(msg));
   fgp_rebuild_selected_indices(entry);
-  fgp_redraw(entry);
+  fgp_redraw(entry, true);
   if (msg.emit !== false) fgp_emit_selection(entry);
 }
 
