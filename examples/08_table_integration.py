@@ -38,8 +38,6 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         self.setWindowTitle("Interactive Map-Table Integration")
         self.resize(1600, 900)
 
-        self.max_table_to_map_sync = 50_000
-
         # Counters for generating unique IDs
         self.city_counter = 0
         self.meas_counter = 0
@@ -501,32 +499,22 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
             if layer_id in by_layer:
                 by_layer[layer_id].append(fid)
 
-        setters = {
-            self.vector_layer.id: self.map_widget.set_vector_selection,
-            self.fast_layer.id: self.map_widget.set_fast_points_selection,
-            self.geo_layer.id: self.map_widget.set_fast_geopoints_selection,
-        }
-        skipped_layers = []
         self._syncing_table_to_map = True
         try:
-            synced_selection = {}
-            for layer_id, fids in by_layer.items():
-                if len(fids) > self.max_table_to_map_sync:
-                    skipped_layers.append(layer_id)
-                    synced_selection[layer_id] = []
-                    continue
-                setters[layer_id](layer_id, fids, emit=False)
-                synced_selection[layer_id] = list(fids)
-            self._map_selection_by_layer = synced_selection
+            self.map_widget.set_vector_selection(
+                self.vector_layer.id, by_layer[self.vector_layer.id], emit=False
+            )
+            self.map_widget.set_fast_points_selection(
+                self.fast_layer.id, by_layer[self.fast_layer.id], emit=False
+            )
+            self.map_widget.set_fast_geopoints_selection(
+                self.geo_layer.id, by_layer[self.geo_layer.id], emit=False
+            )
+            self._map_selection_by_layer = {
+                layer_id: list(fids) for layer_id, fids in by_layer.items()
+            }
         finally:
             self._syncing_table_to_map = False
-
-        if skipped_layers:
-            self.statusBar().showMessage(
-                "Large table selection kept in the table; map sync skipped "
-                f"for {len(skipped_layers)} layer(s).",
-                6000,
-            )
 
 
 def main():

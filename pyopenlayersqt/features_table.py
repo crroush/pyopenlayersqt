@@ -686,18 +686,17 @@ class FeatureTableWidget(QWidget):
         if sm is None:
             return []
         selected_start = time.perf_counter()
-        selection_ranges = list(sm.selection())
+        selected_rows = sm.selectedRows(0)
         selected_rows_ms = (time.perf_counter() - selected_start) * 1000.0
         build_start = time.perf_counter()
         keys: List[FeatureKey] = []
-        row_count = self.model.rowCount()
-        for selection_range in selection_ranges:
-            top = max(0, selection_range.top())
-            bottom = min(row_count - 1, selection_range.bottom())
-            for row in range(top, bottom + 1):
-                key = self.model.key_for_row(row)
-                if key is not None:
-                    keys.append(key)
+        for idx in selected_rows:
+            r = idx.row()
+            if r < 0 or r >= len(self.model.rows):
+                continue
+            key = self.model.key_for_row(r)
+            if key is not None:
+                keys.append(key)
         _perf_print(
             {
                 "side": "python",
