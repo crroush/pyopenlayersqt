@@ -1279,6 +1279,7 @@ function fgp_make_canvas_layer(entry) {
       let representativeCount = 0;
       let ellipseDrawCount = 0;
       let pointDrawCount = 0;
+      let selectedFallbackCount = 0;
 
       function inExtent(i) {
         return entry.x[i] >= extent[0] && entry.x[i] <= extent[2] &&
@@ -1360,6 +1361,15 @@ function fgp_make_canvas_layer(entry) {
 
       collectUnselectedDrawIndices(root);
       collectSelectedDrawIndices(root);
+      if (selectedSet.size > 0 && selectedDrawIndices.length === 0) {
+        for (const fid of selectedSet) {
+          const i = entry.idIndex.get(String(fid));
+          if (i == null) continue;
+          const before = selectedDrawIndices.length;
+          addDrawIndex(i, true, false);
+          if (selectedDrawIndices.length !== before) selectedFallbackCount++;
+        }
+      }
 
       // ---- Ellipses (batched, quadtree-collapsed for unselected points) ----
       const unselectedEllipsesVisible = entry.ellipsesVisible && st.ellipses_visible !== false;
@@ -1506,6 +1516,7 @@ function fgp_make_canvas_layer(entry) {
           representative_count: representativeCount,
           quadtree_draw_candidate_count: drawIndices.length,
           selected_quadtree_draw_candidate_count: selectedDrawIndices.length,
+          selected_fallback_count: selectedFallbackCount,
           selected_count: selectedSet.size,
           collapse_pixel_threshold: collapsePx.toFixed(2),
           ellipse_draw_count: ellipseDrawCount,
