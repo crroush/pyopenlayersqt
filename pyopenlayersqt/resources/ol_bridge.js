@@ -1611,7 +1611,7 @@ function cmd_fast_geopoints_clear(msg) {
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
   fgp_redraw(entry);
-  fgp_emit_selection(entry);
+  if (msg.emit !== false) fgp_emit_selection(entry);
 }
 
 function cmd_fast_geopoints_remove_ids(msg) {
@@ -1670,7 +1670,7 @@ function cmd_fast_geopoints_select_set(msg) {
   if (entry.type !== 'fast_geopoints') return;
   entry.selectedIds = new Set(pyolqt_ids_from_msg(msg));
   fgp_redraw(entry);
-  fgp_emit_selection(entry);
+  if (msg.emit !== false) fgp_emit_selection(entry);
 }
 
 function cmd_fast_geopoints_hide_ids(msg) {
@@ -3099,7 +3099,7 @@ function cmd_countries_set_visible(msg) {
 
     const layer_id = msg.layer_id || "";
     const ids = msg.feature_ids || [];
-    if (!layer_id || !ids.length) return;
+    if (!layer_id) return;
 
     const e = state.layers.get(layer_id);
     if (!e || e.type !== "vector") return;
@@ -3108,10 +3108,13 @@ function cmd_countries_set_visible(msg) {
       const features = vector_features_for_id(e.source, String(fid));
       for (const f of features) selected.push(f);
     }
-    // emit selection via select handler
-    const features = selected.getArray();
-    const logical = Array.from(new Set(features.map(vector_logical_feature_id).filter(Boolean)));
-    emitToPython("selection", { layer_id, feature_ids: logical, count: logical.length });
+    if (msg.emit !== false) {
+      const features = selected.getArray();
+      const logical = Array.from(
+        new Set(features.map(vector_logical_feature_id).filter(Boolean))
+      );
+      emitToPython("selection", { layer_id, feature_ids: logical, count: logical.length });
+    }
   }
 
   function dispatch(msg) {

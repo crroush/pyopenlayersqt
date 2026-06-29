@@ -382,10 +382,17 @@ class OLMapWidget(QWebEngineView):
         """
         self._send(msg)
 
-    def set_vector_selection(self, layer_id: str, feature_ids: list[str]) -> None:
+    def set_vector_selection(
+        self, layer_id: str, feature_ids: list[str], emit: bool = True
+    ) -> None:
         """Set selection for a vector layer."""
         self.send(
-            {"type": "select.set", "layer_id": layer_id, "feature_ids": feature_ids}
+            {
+                "type": "select.set",
+                "layer_id": layer_id,
+                "feature_ids": feature_ids,
+                "emit": bool(emit),
+            }
         )
 
     def set_fast_points_selection(
@@ -402,7 +409,7 @@ class OLMapWidget(QWebEngineView):
         )
 
     def set_fast_geopoints_selection(
-        self, layer_id: str, feature_ids: list[str]
+        self, layer_id: str, feature_ids: list[str], emit: bool = True
     ) -> None:
         """Set selection for a fast-geo-points layer."""
         self.send(
@@ -410,6 +417,7 @@ class OLMapWidget(QWebEngineView):
                 "type": "fast_geopoints.select.set",
                 "layer_id": layer_id,
                 "feature_ids": feature_ids,
+                "emit": bool(emit),
             }
         )
 
