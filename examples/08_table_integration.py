@@ -38,6 +38,8 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         self.setWindowTitle("Interactive Map-Table Integration")
         self.resize(1600, 900)
 
+        self.max_table_to_map_sync = 50_000
+
         # Counters for generating unique IDs
         self.city_counter = 0
         self.meas_counter = 0
@@ -90,7 +92,6 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         # Connect signals for bidirectional sync
         self.map_widget.selectionChanged.connect(self._on_map_selection)
         self.table.selectionKeysChanged.connect(self._on_table_selection)
-        self.table.table.installEventFilter(self)
 
         # Optional hook if GUI wants to observe context-menu requests directly.
         self.table.contextMenuRequested.connect(self._on_table_context_menu_requested)
@@ -129,26 +130,6 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
         # Add Delete key shortcut
         delete_shortcut = QShortcut(QKeySequence.Delete, self)
         delete_shortcut.activated.connect(self._delete_selected)
-
-    def eventFilter(self, watched, event):  # noqa: N802
-        """Keep Ctrl+A on huge tables from selecting every map feature."""
-        if (
-            watched is self.table.table
-            and event.type() == QtCore.QEvent.Type.KeyPress
-            and event.key() == Qt.Key.Key_A
-            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-        ):
-            self._syncing_map_to_table = True
-            try:
-                self.table.select_all_visible(emit=False)
-            finally:
-                self._syncing_map_to_table = False
-            self.statusBar().showMessage(
-                "Selected all visible table rows without selecting every map point.",
-                5000,
-            )
-            return True
-        return super().eventFilter(watched, event)
 
     def _create_controls(self):
         """Create the control panel for adding/deleting features."""
@@ -520,22 +501,32 @@ class TableIntegrationExample(QtWidgets.QMainWindow):
             if layer_id in by_layer:
                 by_layer[layer_id].append(fid)
 
+        setters = {
+            self.vector_layer.id: self.map_widget.set_vector_selection,
+            self.fast_layer.id: self.map_widget.set_fast_points_selection,
+            self.geo_layer.id: self.map_widget.set_fast_geopoints_selection,
+        }
+        skipped_layers = []
         self._syncing_table_to_map = True
         try:
-            self.map_widget.set_vector_selection(
-                self.vector_layer.id, by_layer[self.vector_layer.id], emit=False
-            )
-            self.map_widget.set_fast_points_selection(
-                self.fast_layer.id, by_layer[self.fast_layer.id], emit=False
-            )
-            self.map_widget.set_fast_geopoints_selection(
-                self.geo_layer.id, by_layer[self.geo_layer.id], emit=False
-            )
-            self._map_selection_by_layer = {
-                layer_id: list(fids) for layer_id, fids in by_layer.items()
-            }
+            synced_selection = {}
+            for layer_id, fids in by_layer.items():
+                if len(fids) > self.max_table_to_map_sync:
+                    skipped_layers.append(layer_id)
+                    synced_selection[layer_id] = []
+                    continue
+                setters[layer_id](layer_id, fids, emit=False)
+                synced_selection[layer_id] = list(fids)
+            self._map_selection_by_layer = synced_selection
         finally:
             self._syncing_table_to_map = False
+
+        if skipped_layers:
+            self.statusBar().showMessage(
+                "Large table selection kept in the table; map sync skipped "
+                f"for {len(skipped_layers)} layer(s).",
+                6000,
+            )
 
 
 def main():
