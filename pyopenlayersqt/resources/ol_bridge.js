@@ -1240,6 +1240,11 @@ function fgp_make_canvas_layer(entry) {
       const TAU = Math.PI * 2;
       const st = entry.style || {};
       const selectedSet = entry.selectedIds || new Set();
+      const largeSelectionRenderThreshold = Math.max(
+        1,
+        (st.large_selection_render_threshold | 0) || 50000
+      );
+      const largeSelectionMode = selectedSet.size > largeSelectionRenderThreshold;
 
       const queryStart = performance.now();
       const root = entry.qtRoot;
@@ -1272,19 +1277,23 @@ function fgp_make_canvas_layer(entry) {
         Number(st.collapse_pixel_size || st.point_radius || 3.0) * pixelRatio
       );
       const drawIndices = [];
+      const selectedDrawIndices = [];
       const seenCenterPixels = new Set();
 
-      function addUnselectedDrawIndex(i, fromCollapsedNode) {
-        if (entry.deleted[i] || entry.hidden[i] || selectedSet.has(entry.ids[i]) || !inExtent(i)) return;
+      function addVisibleDrawIndex(i, fromCollapsedNode) {
+        if (entry.deleted[i] || entry.hidden[i] || !inExtent(i)) return;
+        const isSelected = selectedSet.has(entry.ids[i]);
+        if (isSelected && !largeSelectionMode) return;
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
-        const pixelKey = Math.round(x) + ',' + Math.round(y);
+        const pixelKey = (isSelected ? 's:' : 'u:') + Math.round(x) + ',' + Math.round(y);
         if (seenCenterPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
           return;
         }
         seenCenterPixels.add(pixelKey);
-        drawIndices.push(i);
+        if (isSelected) selectedDrawIndices.push(i);
+        else drawIndices.push(i);
         if (fromCollapsedNode) representativeCount++;
       }
 
@@ -1300,7 +1309,7 @@ function fgp_make_canvas_layer(entry) {
             const rep = fp_qt_pick_representative(entry, node, true, extent);
             if (rep >= 0) {
               collapsedNodeCount++;
-              addUnselectedDrawIndex(rep, true);
+              addVisibleDrawIndex(rep, true);
             }
             continue;
           }
@@ -1310,7 +1319,7 @@ function fgp_make_canvas_layer(entry) {
           }
           for (let k = 0; k < node.items.length; k++) {
             scannedLeafPointCount++;
-            addUnselectedDrawIndex(node.items[k], false);
+            addVisibleDrawIndex(node.items[k], false);
           }
         }
       }
@@ -1380,8 +1389,9 @@ function fgp_make_canvas_layer(entry) {
           );
           let nInPath = 0;
           ctx.beginPath();
-          for (const fid of selectedSet) {
-            const i = entry.idIndex.get(String(fid));
+          const selectedIndices = largeSelectionMode ? selectedDrawIndices : selectedSet;
+          for (const value of selectedIndices) {
+            const i = largeSelectionMode ? value : entry.idIndex.get(String(value));
             if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
             if (!addEllipsePath(i, true)) continue;
             nInPath++;
@@ -1435,10 +1445,16 @@ function fgp_make_canvas_layer(entry) {
       }
 
       for (let k = 0; k < drawIndices.length; k++) addPointToBatch(drawIndices[k], false);
-      for (const fid of selectedSet) {
-        const i = entry.idIndex.get(String(fid));
-        if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
-        addPointToBatch(i, true);
+      if (largeSelectionMode) {
+        for (let k = 0; k < selectedDrawIndices.length; k++) {
+          addPointToBatch(selectedDrawIndices[k], true);
+        }
+      } else {
+        for (const fid of selectedSet) {
+          const i = entry.idIndex.get(String(fid));
+          if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
+          addPointToBatch(i, true);
+        }
       }
 
       for (const batch of batches.values()) {
@@ -1464,6 +1480,9 @@ function fgp_make_canvas_layer(entry) {
           scanned_leaf_point_count: scannedLeafPointCount,
           representative_count: representativeCount,
           quadtree_draw_candidate_count: drawIndices.length,
+          selected_quadtree_draw_candidate_count: selectedDrawIndices.length,
+          large_selection_mode: largeSelectionMode,
+          selected_count: selectedSet.size,
           collapse_pixel_threshold: collapsePx.toFixed(2),
           ellipse_draw_count: ellipseDrawCount,
           point_draw_count: pointDrawCount,
