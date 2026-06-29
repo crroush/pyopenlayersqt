@@ -107,7 +107,23 @@ function pyolqt_normalize_feature_id(value) {
   return String(value);
 }
 
+function pyolqt_ids_from_ranges(ranges) {
+  const out = [];
+  for (const range of ranges || []) {
+    const prefix = String(range[0] || "");
+    const start = Number(range[1] || 0);
+    const end = Number(range[2] || start);
+    const width = Number(range[3] || 0);
+    for (let value = start; value <= end; value++) {
+      const suffix = width > 0 ? String(value).padStart(width, "0") : String(value);
+      out.push(prefix + suffix);
+    }
+  }
+  return out;
+}
+
 function pyolqt_ids_from_msg(msg) {
+  if (msg.id_ranges) return pyolqt_ids_from_ranges(msg.id_ranges);
   const raw = msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.feature_ids || msg.ids || []);
   return raw.map(pyolqt_normalize_feature_id);
 }
