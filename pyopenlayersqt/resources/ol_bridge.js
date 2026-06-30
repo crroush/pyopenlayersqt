@@ -128,6 +128,25 @@ function pyolqt_ids_from_msg(msg) {
   return raw.map(pyolqt_normalize_feature_id);
 }
 
+function pyolqt_id_set_from_msg(msg) {
+  const out = new Set();
+  if (msg.id_ranges) {
+    for (const range of msg.id_ranges || []) {
+      const prefix = String(range[0] || "");
+      const start = Number(range[1] || 0);
+      const end = Number(range[2] || start);
+      const width = Number(range[3] || 0);
+      for (let value = start; value <= end; value++) {
+        const suffix = width > 0 ? String(value).padStart(width, "0") : String(value);
+        out.add(prefix + suffix);
+      }
+    }
+    return out;
+  }
+  for (const fid of pyolqt_ids_from_msg(msg)) out.add(fid);
+  return out;
+}
+
 function pyolqt_indices_from_msg(msg) {
   return msg.indices_b64 ? pyolqt_b64_to_uint32(msg.indices_b64) : (msg.indices || []);
 }
@@ -1054,7 +1073,7 @@ function cmd_fast_points_select_set(msg) {
     if (entry.type !== "fast_points") return;
     const ids = pyolqt_ids_from_msg(msg);
     const setStart = performance.now();
-    entry.selectedIds = new Set(ids);
+    entry.selectedIds = pyolqt_id_set_from_msg(msg);
     fgp_rebuild_selected_indices(entry);
     const setMs = performance.now() - setStart;
     const redrawStart = performance.now();
@@ -1857,7 +1876,7 @@ function cmd_fast_geopoints_set_selected_ellipses_visible(msg) {
 function cmd_fast_geopoints_select_set(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
-  entry.selectedIds = new Set(pyolqt_ids_from_msg(msg));
+  entry.selectedIds = pyolqt_id_set_from_msg(msg);
   fgp_rebuild_selected_indices(entry);
   fgp_redraw(entry, true);
   if (msg.emit !== false) fgp_emit_selection(entry);
