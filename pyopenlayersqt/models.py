@@ -495,6 +495,8 @@ class FastGeoPointsStyle:
     Notes:
       - ellipses_visible toggles drawing of unselected ellipses without hiding points.
       - selected_ellipses_visible toggles drawing of selected ellipses independently.
+      - max_selected_ellipses_per_render caps expensive selected ellipse overlay
+        strokes for very large selections; selected points remain visible.
       - fill_ellipses defaults to False for performance.
       - min_ellipse_px allows culling very small ellipses.
     """
@@ -534,6 +536,7 @@ class FastGeoPointsStyle:
     selected_ellipses_visible: bool = True
     min_ellipse_px: float = 0.0
     max_ellipses_per_path: int = 2000
+    max_selected_ellipses_per_render: int | None = 50000
     skip_ellipses_while_interacting: bool = True
 
     def to_js(self) -> dict:
@@ -595,5 +598,9 @@ class FastGeoPointsStyle:
             "selected_ellipses_visible": bool(self.selected_ellipses_visible),
             "min_ellipse_px": float(self.min_ellipse_px),
             "max_ellipses_per_path": int(self.max_ellipses_per_path),
+            "max_selected_ellipses_per_render": (
+                int(self.max_selected_ellipses_per_render)
+                if self.max_selected_ellipses_per_render is not None else None
+            ),
             "skip_ellipses_while_interacting": bool(self.skip_ellipses_while_interacting),
         }

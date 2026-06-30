@@ -1415,7 +1415,16 @@ function fgp_make_canvas_layer(entry) {
         const overlayEllipseStart = performance.now();
         const selectedEllipsesVisible = entry.selectedEllipsesVisible && st.selected_ellipses_visible !== false;
         const skipWhileInteracting = (st.skip_ellipses_while_interacting !== false);
-        if (selectedEllipsesVisible && !(skipWhileInteracting && state.viewInteracting)) {
+        const configuredMaxSelectedEllipses = (
+          st.max_selected_ellipses_per_render == null
+            ? 50000
+            : Number(st.max_selected_ellipses_per_render)
+        );
+        const maxSelectedEllipses = Number.isFinite(configuredMaxSelectedEllipses)
+          ? Math.max(0, configuredMaxSelectedEllipses)
+          : 50000;
+        const drawSelectedEllipses = selectedDrawIndices.length <= maxSelectedEllipses;
+        if (selectedEllipsesVisible && drawSelectedEllipses && !(skipWhileInteracting && state.viewInteracting)) {
           const minPx = Math.max(0.0, Number(st.min_ellipse_px || 0.0));
           const maxPerPath = Math.max(250, (st.max_ellipses_per_path | 0) || 2000);
           ctx.lineWidth = (Number(st.selected_ellipse_stroke_width || (st.ellipse_stroke_width || 1.5) * 1.8) * pixelRatio);
@@ -1456,7 +1465,12 @@ function fgp_make_canvas_layer(entry) {
           pointDrawCount++;
         }
         ctx.fill();
-        return { ellipse_ms: overlayEllipseMs, point_ms: performance.now() - overlayPointStart };
+        return {
+          ellipse_ms: overlayEllipseMs,
+          point_ms: performance.now() - overlayPointStart,
+          max_selected_ellipses_per_render: maxSelectedEllipses,
+          selected_ellipses_capped: selectedEllipsesVisible && !drawSelectedEllipses
+        };
       }
 
       const baseCacheHit = entry.baseRenderCache && entry.baseRenderCache.key === baseCacheKey;
@@ -1488,6 +1502,8 @@ function fgp_make_canvas_layer(entry) {
             selected_quadtree_draw_candidate_count: selectedDrawIndices.length,
             selected_fallback_count: selectedFallbackCount,
             selected_count: selectedSet.size,
+            selected_ellipses_capped: overlayTimes.selected_ellipses_capped,
+            max_selected_ellipses_per_render: overlayTimes.max_selected_ellipses_per_render,
             collapse_pixel_threshold: collapsePx.toFixed(2),
             ellipse_draw_count: ellipseDrawCount,
             point_draw_count: pointDrawCount,
