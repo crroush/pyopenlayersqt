@@ -113,6 +113,17 @@ class ContextMenuActionSpec:
     callback: ContextMenuCallback
     enabled_without_selection: bool = False
 
+
+def _default_sort_key(value: Any) -> Tuple[int, int, float, str]:
+    """Return a consistently comparable key for mixed table values."""
+    if value is None:
+        return (1, 0, 0.0, "")
+    try:
+        return (0, 0, float(value), "")
+    except (ValueError, TypeError):
+        return (0, 1, 0.0, str(value))
+
+
 class ConfigurableTableModel(QtCore.QAbstractTableModel):
     """A configurable table model for arbitrary row objects."""
 
@@ -422,15 +433,9 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
                 value = col_spec.getter(self._rows[source_row])
                 if col_spec.sort_key is not None:
                     return col_spec.sort_key(value)
-                if value is None:
-                    return (1, "")
-                try:
-                    return (0, float(value))
-                except (ValueError, TypeError):
-                    pass
-                return (0, str(value))
+                return _default_sort_key(value)
             except (AttributeError, KeyError, TypeError, IndexError):
-                return (1, "")
+                return _default_sort_key(None)
 
         source_rows = self._normalized_source_indices(indices)
         reverse = order == Qt.DescendingOrder
@@ -463,20 +468,10 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
                 # Use custom sort_key if provided
                 if col_spec.sort_key is not None:
                     return col_spec.sort_key(value)
-                # Handle None values - sort them to the end
-                if value is None:
-                    return (1, "")
-                # Try to convert to comparable types
-                # For numeric strings or actual numbers
-                try:
-                    return (0, float(value))
-                except (ValueError, TypeError):
-                    pass
-                # For strings (including ISO8601 timestamps)
-                return (0, str(value))
+                return _default_sort_key(value)
             except (AttributeError, KeyError, TypeError):
                 # If getter fails, sort to end
-                return (1, "")
+                return _default_sort_key(None)
 
         self.layoutAboutToBeChanged.emit()
 
