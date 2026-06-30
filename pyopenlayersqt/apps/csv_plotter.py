@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import fnmatch
 import os
+import re
 import sys
 import time
 from typing import Sequence
@@ -263,6 +265,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.feature_ids: list[str] | np.ndarray = []
         self._visible_mask: np.ndarray | None = None
         self._deleted_mask: np.ndarray | None = None
+        self._keyword_mask: np.ndarray | None = None
+        self._keyword_filter: tuple[str, str] | None = None
         self.current_selection_fids: list[str] = []
         self.table_widget: FeatureTableWidget | None = None
         self._map_selection_conn = None
@@ -270,6 +274,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._table_sort_column: int | None = None
         self._table_sort_order = QtCore.Qt.SortOrder.AscendingOrder
         self._pending_time_filter: tuple[float, float] | None = None
+        self._time_filter_range: tuple[float, float] | None = None
         self._time_filter_timer = QtCore.QTimer(self)
         self._time_filter_timer.setSingleShot(True)
         self._time_filter_timer.setInterval(50)
@@ -324,6 +329,27 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.color_cb.addItem("None (Uniform)")
         self.color_cb.currentTextChanged.connect(self.apply_color_by)
         toolbar.addWidget(self.color_cb)
+
+        toolbar.addSeparator()
+        toolbar.addWidget(QtWidgets.QLabel("  Filter Column: "))
+        self.keyword_column_cb = QtWidgets.QComboBox()
+        self.keyword_column_cb.setEnabled(False)
+        toolbar.addWidget(self.keyword_column_cb)
+
+        self.keyword_edit = QtWidgets.QLineEdit()
+        self.keyword_edit.setPlaceholderText("Keyword, wildcard, or A or B")
+        self.keyword_edit.setClearButtonEnabled(True)
+        self.keyword_edit.setEnabled(False)
+        self.keyword_edit.returnPressed.connect(self.apply_keyword_filter)
+        toolbar.addWidget(self.keyword_edit)
+
+        keyword_action = QtGui.QAction("Apply Filter", self)
+        keyword_action.triggered.connect(self.apply_keyword_filter)
+        toolbar.addAction(keyword_action)
+
+        clear_keyword_action = QtGui.QAction("Clear Filter", self)
+        clear_keyword_action.triggered.connect(self.clear_keyword_filter)
+        toolbar.addAction(clear_keyword_action)
 
         self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
         layout.addWidget(self.splitter, stretch=1)
@@ -424,6 +450,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         """Disable the time slider and disconnect stale range callbacks."""
         self._time_filter_timer.stop()
         self._pending_time_filter = None
+        self._time_filter_range = None
         if self._slider_range_conn:
             self.slider.rangeChanged.disconnect(self._slider_range_conn)
             self._slider_range_conn = None
@@ -437,6 +464,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.feature_ids = []
         self._visible_mask = None
         self._deleted_mask = None
+        self._keyword_mask = None
+        self._keyword_filter = None
         self.current_selection_fids = []
         self._table_sort_column = None
         self._table_sort_order = QtCore.Qt.SortOrder.AscendingOrder
@@ -444,7 +473,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._clear_time_slider()
 
     def _sync_table_visible_rows(self) -> None:
-        """Apply current time/deleted masks without compacting table row order."""
+        """Apply current filter masks without compacting table row order."""
         if self.table_widget is None or self.df is None:
             return
         visible = (
@@ -540,6 +569,14 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.color_cb.addItem("None (Uniform)")
         self.color_cb.addItems(base_columns)
         self.color_cb.blockSignals(False)
+
+        self.keyword_column_cb.blockSignals(True)
+        self.keyword_column_cb.clear()
+        self.keyword_column_cb.addItems(base_columns)
+        self.keyword_column_cb.setEnabled(bool(base_columns))
+        self.keyword_column_cb.blockSignals(False)
+        self.keyword_edit.clear()
+        self.keyword_edit.setEnabled(bool(base_columns))
 
         cli_time_valid = cli_time in (None, "", "None") or cli_time in base_columns
         if cli_lat in base_columns and cli_lon in base_columns and cli_time_valid:
@@ -750,6 +787,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.feature_ids = np.array(self.feature_ids)
         self._visible_mask = np.ones(len(self.df), dtype=bool)
         self._deleted_mask = np.zeros(len(self.df), dtype=bool)
+        self._keyword_mask = None
+        self._keyword_filter = None
         self.fast_layer.redraw()
         self._setup_slider_and_view()
         self._cleanup_load_ui()
@@ -860,16 +899,62 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._pending_time_filter = None
         self.filter_by_time(min_val, max_val)
 
-    def filter_by_time(self, min_val: float, max_val: float) -> None:
+    def _keyword_terms(self, pattern: str) -> list[str]:
+        """Split a keyword expression into case-insensitive OR terms."""
+        return [
+            term.strip()
+            for term in re.split(r"\s+or\s+", pattern)
+            if term.strip()
+        ]
+
+    def _build_keyword_mask(self, column_name: str, pattern: str) -> np.ndarray:
+        """Return rows whose selected column matches the keyword expression."""
+        if self.df is None:
+            return np.empty(0, dtype=bool)
+        if column_name not in self.df.columns:
+            return np.zeros(len(self.df), dtype=bool)
+        values = self.df[column_name].astype("string").fillna("").str.lower()
+        mask = np.zeros(len(values), dtype=bool)
+        for term in self._keyword_terms(pattern):
+            lowered = term.lower()
+            if any(char in lowered for char in "*?"):
+                regex = fnmatch.translate(lowered)
+                term_mask = values.str.match(regex, na=False).to_numpy(
+                    dtype=bool, copy=False
+                )
+            else:
+                term_mask = values.str.contains(
+                    re.escape(lowered), regex=True, na=False
+                ).to_numpy(dtype=bool, copy=False)
+            mask |= term_mask
+        return mask
+
+    def _combined_filter_mask(self) -> np.ndarray:
+        """Combine time, keyword, and deleted-row filters into one mask."""
+        if self.df is None:
+            return np.empty(0, dtype=bool)
+        mask = np.ones(len(self.df), dtype=bool)
+        if (
+            self._time_filter_range is not None
+            and self.mapped_epoch_col in self.df.columns
+        ):
+            min_val, max_val = self._time_filter_range
+            time_values = self.df[self.mapped_epoch_col].to_numpy(
+                dtype=float, copy=False
+            )
+            mask &= (time_values >= min_val) & (time_values <= max_val)
+        if self._keyword_mask is not None and len(self._keyword_mask) == len(mask):
+            mask &= self._keyword_mask
+        if self._deleted_mask is not None and len(self._deleted_mask) == len(mask):
+            mask &= ~self._deleted_mask
+        return mask
+
+    def _apply_visibility_mask(
+        self, new_visible: np.ndarray, perf_event: str, **perf_fields: object
+    ) -> None:
+        """Apply a combined visibility mask to map points and the table."""
         if self.df is None:
             return
-        time_values = self.df[self.mapped_epoch_col].to_numpy(dtype=float, copy=False)
-        new_visible = (time_values >= min_val) & (time_values <= max_val)
-        deleted_mask = self._deleted_mask
-        if deleted_mask is not None and len(deleted_mask) == len(new_visible):
-            new_visible = np.logical_and(
-                new_visible, np.logical_not(deleted_mask)
-            )
         if self._visible_mask is None or len(self._visible_mask) != len(new_visible):
             self._visible_mask = np.ones(len(new_visible), dtype=bool)
 
@@ -893,7 +978,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         )
         if all_rows_visible:
             # Restoring the full range is a common path after narrowing the
-            # time filter.  Sending millions of indices back to JavaScript is
+            # filters.  Sending millions of indices back to JavaScript is
             # much slower than one reset command, and the JS side can rebuild
             # quadtree visibility counts in a single pass.
             self.fast_layer.show_all_features()
@@ -916,14 +1001,62 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         self._sync_table_visible_rows()
         perf(
-            "filter_by_time",
+            perf_event,
             hide_count=int(hide_indices.size),
             show_count=int(show_indices.size),
             visible_count=int(visible_indices.size),
             show_only=used_show_only,
             range_rebuild=rebuild_from_ranges,
             range_count=int(len(visible_ranges)),
+            **perf_fields,
         )
+
+    def apply_keyword_filter(self) -> None:
+        """Filter visible rows by a selected column and keyword expression."""
+        if self.df is None:
+            return
+        column_name = self.keyword_column_cb.currentText()
+        pattern = self.keyword_edit.text().strip()
+        if not column_name or not pattern:
+            self.clear_keyword_filter()
+            return
+
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+        try:
+            self.statusBar().showMessage("Applying keyword filter...")
+            self._keyword_filter = (column_name, pattern)
+            self._keyword_mask = self._build_keyword_mask(column_name, pattern)
+            self._apply_visibility_mask(
+                self._combined_filter_mask(),
+                "filter_by_keyword",
+                column=column_name,
+                terms=len(self._keyword_terms(pattern)),
+            )
+            visible_count = int(np.count_nonzero(self._visible_mask))
+            self.statusBar().showMessage(
+                f"Keyword filter matched {visible_count:,} rows.", 5000
+            )
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+
+    def clear_keyword_filter(self) -> None:
+        """Clear the keyword filter while preserving other active filters."""
+        if self.df is None:
+            self.keyword_edit.clear()
+            return
+        self._keyword_filter = None
+        self._keyword_mask = None
+        self.keyword_edit.clear()
+        self._apply_visibility_mask(
+            self._combined_filter_mask(), "clear_keyword_filter"
+        )
+        self.statusBar().showMessage("Keyword filter cleared.", 5000)
+
+    def filter_by_time(self, min_val: float, max_val: float) -> None:
+        if self.df is None:
+            return
+        self._time_filter_range = (min_val, max_val)
+        self._apply_visibility_mask(self._combined_filter_mask(), "filter_by_time")
 
 
 def parse_args() -> argparse.Namespace:
