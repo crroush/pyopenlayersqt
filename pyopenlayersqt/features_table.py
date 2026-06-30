@@ -80,6 +80,39 @@ def _perf_print(payload: dict[str, Any]) -> None:
         print("PERF:", payload, flush=True)
 
 
+def _perf_selection_summary(selection: QtCore.QItemSelection) -> dict[str, Any]:
+    """Return cheap diagnostics for a Qt item selection payload."""
+    range_count = selection.count()
+    row_count = 0
+    index_count = 0
+    min_row: Optional[int] = None
+    max_row: Optional[int] = None
+    for selection_range in selection:
+        top = selection_range.top()
+        bottom = selection_range.bottom()
+        left = selection_range.left()
+        right = selection_range.right()
+        rows = max(0, bottom - top + 1)
+        columns = max(0, right - left + 1)
+        row_count += rows
+        index_count += rows * columns
+        min_row = top if min_row is None else min(min_row, top)
+        max_row = bottom if max_row is None else max(max_row, bottom)
+    return {
+        "range_count": range_count,
+        "row_count": row_count,
+        "index_count": index_count,
+        "min_row": min_row,
+        "max_row": max_row,
+    }
+
+
+def _selection_rows(selection: QtCore.QItemSelection) -> Iterable[int]:
+    """Yield row numbers covered by a Qt item selection payload."""
+    for selection_range in selection:
+        yield from range(selection_range.top(), selection_range.bottom() + 1)
+
+
 @dataclass(frozen=True)
 class ColumnSpec:
     """Defines one column in the table."""
@@ -546,7 +579,7 @@ class FeatureTableWidget(QWidget):
         *,
         columns: Optional[Sequence[ColumnSpec]] = None,
         key_fn: Optional[KeyFn] = None,
-        debounce_ms: int = 90,
+        debounce_ms: int = 25,
         sorting_enabled: bool = True,
     ) -> None:
         super().__init__(parent)
@@ -594,8 +627,11 @@ class FeatureTableWidget(QWidget):
 
         self._building_selection = False
         self._pending_emit = False
+        self._pending_emit_started_at: Optional[float] = None
+        self._selection_change_sequence = 0
         self._context_menu_actions: List[ContextMenuActionSpec] = []
         self._virtual_selected_keys: set[FeatureKey] = set()
+        self._virtual_selection_model_clean = False
         self._virtual_selection_range_threshold = 5000
 
         self._debounce_timer = QtCore.QTimer(self)
@@ -666,7 +702,8 @@ class FeatureTableWidget(QWidget):
         """Return currently selected keys."""
         perf_start = time.perf_counter()
         if self._virtual_selected_keys:
-            self._filter_virtual_selection_to_model()
+            if not self._virtual_selection_model_clean:
+                self._filter_virtual_selection_to_model()
             keys = list(self._virtual_selected_keys)
             _perf_print(
                 {
@@ -741,8 +778,10 @@ class FeatureTableWidget(QWidget):
             if self.model.row_for_key(key) is not None
         }
         if existing_keys == self._virtual_selected_keys:
+            self._virtual_selection_model_clean = True
             return
         self._virtual_selected_keys = existing_keys
+        self._virtual_selection_model_clean = True
         self.model.set_external_selection(existing_keys)
         self.table.viewport().update()
 
@@ -774,6 +813,7 @@ class FeatureTableWidget(QWidget):
 
     def clear_selection(self) -> None:
         self._virtual_selected_keys = set()
+        self._virtual_selection_model_clean = False
         self.model.set_external_selection(set())
         sm = self.table.selectionModel()
         if sm is None:
@@ -838,12 +878,14 @@ class FeatureTableWidget(QWidget):
                     for row in rows
                     if (key := self.model.key_for_row(row)) is not None
                 }
+                self._virtual_selection_model_clean = True
                 self.model.set_external_selection(self._virtual_selected_keys)
                 sm.clearSelection()
                 self.table.viewport().update()
             else:
                 had_virtual_selection = bool(self._virtual_selected_keys)
                 self._virtual_selected_keys = set()
+                self._virtual_selection_model_clean = False
                 self.model.set_external_selection(set())
                 if clear_first or had_virtual_selection:
                     sm.clearSelection()
@@ -912,21 +954,122 @@ class FeatureTableWidget(QWidget):
             build_start=build_start,
         )
 
-    def _on_selection_changed(self, *_args) -> None:
+    def _on_selection_changed(
+        self,
+        selected: QtCore.QItemSelection,
+        deselected: QtCore.QItemSelection,
+    ) -> None:
+        perf_start = time.perf_counter()
         if self._building_selection:
+            if _perf_enabled():
+                _perf_print(
+                    {
+                        "side": "python",
+                        "operation": "feature_table_selection_changed_ignored",
+                        "reason": "building_selection",
+                        "times": {
+                            "total_ms": round(
+                                (time.perf_counter() - perf_start) * 1000.0, 2
+                            ),
+                        },
+                    }
+                )
             return
+
+        self._selection_change_sequence += 1
+        selected_summary = _perf_selection_summary(selected)
+        deselected_summary = _perf_selection_summary(deselected)
+        cleared_virtual_count = 0
+        virtualized_table_selection = False
+        virtualize_start = time.perf_counter()
+        virtualize_ms = 0.0
+        clear_virtual_start = time.perf_counter()
         if self._virtual_selected_keys:
+            cleared_virtual_count = len(self._virtual_selected_keys)
             self._virtual_selected_keys = set()
+            self._virtual_selection_model_clean = False
             self.model.set_external_selection(set())
             self.table.viewport().update()
+        clear_virtual_ms = (time.perf_counter() - clear_virtual_start) * 1000.0
+
+        if selected_summary["row_count"] > self._virtual_selection_range_threshold:
+            virtualized_table_selection = True
+            self._virtual_selected_keys = {
+                key
+                for row in _selection_rows(selected)
+                if (key := self.model.key_for_row(row)) is not None
+            }
+            self._virtual_selection_model_clean = True
+            self.model.set_external_selection(self._virtual_selected_keys)
+            self._building_selection = True
+            self.table.setUpdatesEnabled(False)
+            try:
+                sm = self.table.selectionModel()
+                if sm is not None:
+                    sm.clearSelection()
+            finally:
+                self.table.setUpdatesEnabled(True)
+                self._building_selection = False
+            self.table.viewport().update()
+            virtualize_ms = (time.perf_counter() - virtualize_start) * 1000.0
+
         self._pending_emit = True
+        self._pending_emit_started_at = time.perf_counter()
         self._debounce_timer.start(self._debounce_ms)
+        if _perf_enabled():
+            _perf_print(
+                {
+                    "side": "python",
+                    "operation": "feature_table_selection_changed",
+                    "sequence": self._selection_change_sequence,
+                    "selected": selected_summary,
+                    "deselected": deselected_summary,
+                    "cleared_virtual_count": cleared_virtual_count,
+                    "virtualized_table_selection": virtualized_table_selection,
+                    "virtual_selection_count": len(self._virtual_selected_keys),
+                    "debounce_ms": self._debounce_ms,
+                    "times": {
+                        "clear_virtual_ms": round(clear_virtual_ms, 2),
+                        "virtualize_ms": round(virtualize_ms, 2),
+                        "handler_ms": round(
+                            (time.perf_counter() - perf_start) * 1000.0, 2
+                        ),
+                    },
+                }
+            )
 
     def _emit_selection_now(self) -> None:
         if not self._pending_emit:
             return
+        perf_start = time.perf_counter()
+        pending_age_ms = None
+        if self._pending_emit_started_at is not None:
+            pending_age_ms = (perf_start - self._pending_emit_started_at) * 1000.0
         self._pending_emit = False
-        self.selectionKeysChanged.emit(self.selected_keys())
+        self._pending_emit_started_at = None
+        selected_keys_start = time.perf_counter()
+        keys = self.selected_keys()
+        selected_keys_ms = (time.perf_counter() - selected_keys_start) * 1000.0
+        emit_start = time.perf_counter()
+        self.selectionKeysChanged.emit(keys)
+        _perf_print(
+            {
+                "side": "python",
+                "operation": "feature_table_emit_selection",
+                "sequence": self._selection_change_sequence,
+                "selection_count": len(keys),
+                "pending_age_ms": (
+                    round(pending_age_ms, 2) if pending_age_ms is not None else None
+                ),
+                "times": {
+                    "selected_keys_ms": round(selected_keys_ms, 2),
+                    "signal_emit_ms": round(
+                        (time.perf_counter() - emit_start) * 1000.0, 2
+                    ),
+                    "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                },
+            }
+        )
 
     def hide_rows_by_keys(self, keys: Sequence[FeatureKey]) -> None:
         """Hide rows by their keys (rows remain in model but are not displayed)."""

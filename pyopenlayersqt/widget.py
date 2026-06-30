@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import threading
 import time
@@ -157,6 +158,50 @@ class _StaticServer:
             except Exception:
                 pass
             self._httpd = None
+
+_ID_RANGE_RE = re.compile(r"^(.*?)(\d+)$")
+
+
+def _feature_id_ranges(feature_ids: list[str]) -> list[list[object]] | None:
+    """Return compact numeric suffix ranges when that is smaller than raw IDs."""
+    if len(feature_ids) < 1000:
+        return None
+
+    grouped: dict[tuple[str, int], list[int]] = {}
+    for fid in feature_ids:
+        text = str(fid)
+        match = _ID_RANGE_RE.match(text)
+        if match is None:
+            return None
+        prefix, digits = match.groups()
+        grouped.setdefault((prefix, len(digits)), []).append(int(digits))
+
+    ranges: list[list[object]] = []
+    for (prefix, width), values in grouped.items():
+        values = sorted(set(values))
+        if not values:
+            continue
+        start = previous = values[0]
+        for value in values[1:]:
+            if value == previous + 1:
+                previous = value
+                continue
+            ranges.append([prefix, start, previous, width])
+            start = previous = value
+        ranges.append([prefix, start, previous, width])
+
+    if not ranges:
+        return None
+    raw_size = sum(len(str(fid)) + 3 for fid in feature_ids)
+    range_size = sum(len(str(item)) + 1 for row in ranges for item in row)
+    return ranges if range_size < raw_size else None
+
+
+def _selection_payload(feature_ids: list[str]) -> dict:
+    ranges = _feature_id_ranges(feature_ids)
+    if ranges is not None:
+        return {"id_ranges": ranges, "count": len(feature_ids)}
+    return {"feature_ids": feature_ids}
 
 
 class OLMapWidget(QWebEngineView):
@@ -399,27 +444,29 @@ class OLMapWidget(QWebEngineView):
         self, layer_id: str, feature_ids: list[str], emit: bool = True
     ) -> None:
         """Set selection for a fast-points layer."""
-        self.send(
+        payload = _selection_payload(feature_ids)
+        payload.update(
             {
                 "type": "fast_points.select.set",
                 "layer_id": layer_id,
-                "feature_ids": feature_ids,
                 "emit": bool(emit),
             }
         )
+        self.send(payload)
 
     def set_fast_geopoints_selection(
         self, layer_id: str, feature_ids: list[str], emit: bool = True
     ) -> None:
         """Set selection for a fast-geo-points layer."""
-        self.send(
+        payload = _selection_payload(feature_ids)
+        payload.update(
             {
                 "type": "fast_geopoints.select.set",
                 "layer_id": layer_id,
-                "feature_ids": feature_ids,
                 "emit": bool(emit),
             }
         )
+        self.send(payload)
 
     def set_base_opacity(self, opacity: float) -> None:
         """Set opacity of the base OSM layer (0..1)."""
