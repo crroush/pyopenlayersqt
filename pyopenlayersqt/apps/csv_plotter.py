@@ -389,6 +389,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         load_action.triggered.connect(self.load_csv_from_menu)
         file_menu.addAction(load_action)
         file_menu.addAction(save_action)
+        file_menu.addSeparator()
+        quit_action = QtGui.QAction("Quit", self)
+        quit_action.setShortcut(QtGui.QKeySequence.StandardKey.Quit)
+        quit_action.triggered.connect(QtWidgets.QApplication.quit)
+        file_menu.addAction(quit_action)
 
         status_bar = QtWidgets.QStatusBar(self)
         self.setStatusBar(status_bar)
@@ -397,6 +402,14 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.progress_bar.setFixedWidth(300)
         self.progress_bar.setVisible(False)
         status_bar.addPermanentWidget(self.progress_bar)
+
+    def _resize_table_columns_to_contents(self) -> None:
+        """Resize CSV table columns to fit loaded headers and visible cell data."""
+        if self.table_widget is None:
+            return
+        table = self.table_widget.table
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setStretchLastSection(True)
 
     def _resize_combo_to_items(self, combo_box: QtWidgets.QComboBox) -> None:
         """Resize a combo box and popup to fit the loaded column names."""
@@ -812,6 +825,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.fast_layer.redraw()
         self._setup_slider_and_view()
         self._cleanup_load_ui()
+        QtCore.QTimer.singleShot(0, self._resize_table_columns_to_contents)
         if error_files:
             QtWidgets.QMessageBox.warning(
                 self,
