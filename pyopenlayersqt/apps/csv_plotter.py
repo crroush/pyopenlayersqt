@@ -398,6 +398,24 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.progress_bar.setVisible(False)
         status_bar.addPermanentWidget(self.progress_bar)
 
+    def _resize_combo_to_items(self, combo_box: QtWidgets.QComboBox) -> None:
+        """Resize a combo box and popup to fit the loaded column names."""
+        if combo_box.count() == 0:
+            return
+        metrics = combo_box.fontMetrics()
+        max_text_width = max(
+            metrics.horizontalAdvance(combo_box.itemText(i))
+            for i in range(combo_box.count())
+        )
+        # Include room for the drop-down arrow, frame, and item padding so long
+        # CSV column names are readable in both the closed control and popup.
+        width = max_text_width + 48
+        combo_box.setMinimumWidth(width)
+        combo_box.view().setMinimumWidth(width)
+        combo_box.setSizeAdjustPolicy(
+            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
+
     def _measurement_icon(self) -> QtGui.QIcon:
         """Build a small ruler icon for the measurement action."""
         pixmap = QtGui.QPixmap(24, 24)
@@ -568,12 +586,14 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.color_cb.clear()
         self.color_cb.addItem("None (Uniform)")
         self.color_cb.addItems(base_columns)
+        self._resize_combo_to_items(self.color_cb)
         self.color_cb.blockSignals(False)
 
         self.keyword_column_cb.blockSignals(True)
         self.keyword_column_cb.clear()
         self.keyword_column_cb.addItems(base_columns)
         self.keyword_column_cb.setEnabled(bool(base_columns))
+        self._resize_combo_to_items(self.keyword_column_cb)
         self.keyword_column_cb.blockSignals(False)
         self.keyword_edit.clear()
         self.keyword_edit.setEnabled(bool(base_columns))
