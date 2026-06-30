@@ -33,7 +33,6 @@ dependencies = [
 
 [project.scripts]
 csv_plotter = "pyopenlayersqt.apps.csv_plotter:main"
-cvs_plotter = "pyopenlayersqt.apps.csv_plotter:main"
 
 [project.urls]
 Homepage = "https://github.com/crroush/pyopenlayersqt"
