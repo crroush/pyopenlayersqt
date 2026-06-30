@@ -403,6 +403,24 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.progress_bar.setVisible(False)
         status_bar.addPermanentWidget(self.progress_bar)
 
+    def _configure_column_controls(self, columns: Sequence[str]) -> None:
+        """Populate column-based controls after a CSV load is accepted."""
+        self.color_cb.blockSignals(True)
+        self.color_cb.clear()
+        self.color_cb.addItem("None (Uniform)")
+        self.color_cb.addItems(columns)
+        self._resize_combo_to_items(self.color_cb)
+        self.color_cb.blockSignals(False)
+
+        self.keyword_column_cb.blockSignals(True)
+        self.keyword_column_cb.clear()
+        self.keyword_column_cb.addItems(columns)
+        self.keyword_column_cb.setEnabled(bool(columns))
+        self._resize_combo_to_items(self.keyword_column_cb)
+        self.keyword_column_cb.blockSignals(False)
+        self.keyword_edit.clear()
+        self.keyword_edit.setEnabled(bool(columns))
+
     def _resize_table_columns_to_contents(self) -> None:
         """Resize CSV table columns to fit loaded headers and visible cell data."""
         if self.table_widget is None:
@@ -595,22 +613,6 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         base_df = pd.read_csv(first_file, nrows=0)
         base_columns = list(base_df.columns)
 
-        self.color_cb.blockSignals(True)
-        self.color_cb.clear()
-        self.color_cb.addItem("None (Uniform)")
-        self.color_cb.addItems(base_columns)
-        self._resize_combo_to_items(self.color_cb)
-        self.color_cb.blockSignals(False)
-
-        self.keyword_column_cb.blockSignals(True)
-        self.keyword_column_cb.clear()
-        self.keyword_column_cb.addItems(base_columns)
-        self.keyword_column_cb.setEnabled(bool(base_columns))
-        self._resize_combo_to_items(self.keyword_column_cb)
-        self.keyword_column_cb.blockSignals(False)
-        self.keyword_edit.clear()
-        self.keyword_edit.setEnabled(bool(base_columns))
-
         cli_time_valid = cli_time in (None, "", "None") or cli_time in base_columns
         if cli_lat in base_columns and cli_lon in base_columns and cli_time_valid:
             lat_col, lon_col, time_col = cli_lat, cli_lon, cli_time
@@ -623,6 +625,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.current_lat_col = lat_col
         self.current_lon_col = lon_col
         self.current_time_col = time_col
+        self._configure_column_controls(base_columns)
 
         self.centralWidget().setEnabled(False)
         self.progress_bar.setValue(0)
@@ -979,8 +982,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             mask &= (time_values >= min_val) & (time_values <= max_val)
         if self._keyword_mask is not None and len(self._keyword_mask) == len(mask):
             mask &= self._keyword_mask
-        if self._deleted_mask is not None and len(self._deleted_mask) == len(mask):
-            mask &= ~self._deleted_mask
+        deleted_mask = self._deleted_mask
+        if deleted_mask is not None and len(deleted_mask) == len(mask):
+            mask &= np.logical_not(deleted_mask)
         return mask
 
     def _apply_visibility_mask(
