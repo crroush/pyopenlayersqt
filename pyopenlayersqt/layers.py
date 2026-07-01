@@ -19,6 +19,7 @@ from .models import (
     RasterStyle,
     WMSOptions,
     TileLayerOptions,
+    VectorVertexEditing,
 )
 
 
@@ -390,6 +391,94 @@ class VectorLayer(BaseLayer):
 
     _layer_type_prefix = "vector"
 
+    def set_movable(self, movable: bool) -> None:
+        """Enable or disable movement/editing for this vector layer.
+
+        When enabled, features whose own ``movable`` flag is not False can be
+        dragged as whole objects. Line/polygon vertex editing is controlled
+        separately by the layer or feature ``vertex_editing`` mode.
+        """
+        self._map_widget._send(
+            {
+                "type": "vector.set_movable",
+                "layer_id": self.id,
+                "movable": bool(movable),
+            }
+        )
+
+    @staticmethod
+    def _vertex_editing_value(mode: Optional[VectorVertexEditing]) -> Optional[str]:
+        if mode is None:
+            return None
+        if isinstance(mode, VectorVertexEditing):
+            return mode.value
+        raise TypeError(
+            "vertex_editing must be a VectorVertexEditing enum value "
+            "(VectorVertexEditing.NONE, MOVE, or MODIFY)"
+        )
+
+    def set_vertex_editing(self, mode: VectorVertexEditing) -> None:
+        """Set the default vertex-editing mode for this vector layer.
+
+        Modes are:
+        - ``VectorVertexEditing.NONE``: features can be translated but vertices
+          are not editable.
+        - ``VectorVertexEditing.MOVE``: existing line/polygon vertices can be
+          moved only.
+        - ``VectorVertexEditing.MODIFY``: existing vertices can be moved and new
+          vertices can be inserted/deleted using OpenLayers' default modify
+          behavior.
+
+        Circle and ellipse features ignore vertex-editing modes so they keep
+        their shape instead of being edited as arbitrary polygons.
+        """
+        self._map_widget._send(
+            {
+                "type": "vector.set_vertex_editing",
+                "layer_id": self.id,
+                "vertex_editing": self._vertex_editing_value(mode),
+            }
+        )
+
+    def set_features_vertex_editing(
+        self, feature_ids: Sequence[str], mode: VectorVertexEditing
+    ) -> None:
+        """Set vertex-editing mode for specific line/polygon features."""
+        self._map_widget._send(
+            {
+                "type": "vector.set_features_vertex_editing",
+                "layer_id": self.id,
+                "feature_ids": [str(x) for x in feature_ids],
+                "vertex_editing": self._vertex_editing_value(mode),
+            }
+        )
+
+    def set_features_movable(
+        self, feature_ids: Sequence[str], movable: bool
+    ) -> None:
+        """Set whether specific features can be translated or vertex-edited."""
+        self._map_widget._send(
+            {
+                "type": "vector.set_features_movable",
+                "layer_id": self.id,
+                "feature_ids": [str(x) for x in feature_ids],
+                "movable": bool(movable),
+            }
+        )
+
+    @staticmethod
+    def _movable_flags(
+        movable: Optional[Union[bool, Sequence[bool]]], count: int
+    ) -> Optional[Union[bool, List[bool]]]:
+        if movable is None:
+            return None
+        if isinstance(movable, bool):
+            return movable
+        flags = [bool(x) for x in movable]
+        if len(flags) != count:
+            raise ValueError("movable must be a bool or one value per feature")
+        return flags
+
     def remove_features(self, feature_ids: Sequence[str]) -> None:
         """Remove vector features by id."""
         self._map_widget._send(
@@ -437,6 +526,7 @@ class VectorLayer(BaseLayer):
         ids: Optional[Sequence[str]] = None,
         style: Optional[PointStyle | IconStyle] = None,
         properties: Optional[Sequence[Dict[str, Any]]] = None,
+        movable: Optional[Union[bool, Sequence[bool]]] = None,
     ) -> None:
         """Add point features to the layer.
 
@@ -445,6 +535,9 @@ class VectorLayer(BaseLayer):
             ids: Optional sequence of feature IDs. Auto-generated if not provided.
             style: Point or icon styling. Uses default PointStyle if not provided.
             properties: Optional properties dict for each point.
+            movable: Optional movement/editing flag. Pass one bool for all points
+                or a sequence with one bool per point. Defaults to movable when
+                the vector layer is movable.
         """
         style = style or PointStyle()
         ids = list(ids) if ids is not None else [f"pt{i}" for i in range(len(coords))]
@@ -462,6 +555,7 @@ class VectorLayer(BaseLayer):
                 "ids": list(ids),
                 "style": style.to_js(),
                 "properties": props,
+                "movable": self._movable_flags(movable, len(coords)),
             }
         )
 
@@ -480,6 +574,7 @@ class VectorLayer(BaseLayer):
         rotation_deg: float = 0.0,
         rotate_with_view: bool = False,
         cross_origin: Optional[str] = None,
+        movable: Optional[Union[bool, Sequence[bool]]] = None,
     ) -> None:
         """Add point features rendered with a custom icon.
 
@@ -504,6 +599,8 @@ class VectorLayer(BaseLayer):
                 map north if the view rotates.
             rotate_with_view: If True, icon rotates with the map view.
             cross_origin: Optional cross-origin setting for remote images.
+            movable: Optional movement/editing flag. Pass one bool for all icons
+                or a sequence with one bool per icon.
         """
         icon_style = style or IconStyle(
             scale=scale,
@@ -536,6 +633,7 @@ class VectorLayer(BaseLayer):
             ids=ids,
             style=icon_style,
             properties=properties,
+            movable=movable,
         )
 
     def add_polygon(
@@ -544,6 +642,8 @@ class VectorLayer(BaseLayer):
         feature_id: str = "poly0",
         style: Optional[PolygonStyle] = None,
         properties: Optional[Dict[str, Any]] = None,
+        movable: Optional[bool] = None,
+        vertex_editing: Optional[VectorVertexEditing] = None,
     ) -> None:
         """Add a polygon feature to the layer.
 
@@ -552,6 +652,9 @@ class VectorLayer(BaseLayer):
             feature_id: ID for this polygon feature.
             style: Polygon styling. Uses default if not provided.
             properties: Optional properties dict for this feature.
+            movable: Optional movement/editing flag for this feature. Defaults
+                to movable when the vector layer is movable.
+            vertex_editing: Optional ``VectorVertexEditing`` mode for this feature.
         """
         style = style or PolygonStyle()
         # Swap lat,lon (public API) to lon,lat (internal format)
@@ -563,6 +666,8 @@ class VectorLayer(BaseLayer):
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},
+                "movable": movable,
+                "vertex_editing": self._vertex_editing_value(vertex_editing),
             }
         )
 
@@ -574,6 +679,7 @@ class VectorLayer(BaseLayer):
         style: Optional[CircleStyle] = None,
         properties: Optional[Dict[str, Any]] = None,
         segments: int = 72,
+        movable: Optional[bool] = None,
     ) -> None:
         """Add a circle feature to the layer.
 
@@ -584,6 +690,8 @@ class VectorLayer(BaseLayer):
             style: Circle styling. Uses default if not provided.
             properties: Optional properties dict for this feature.
             segments: Number of segments to approximate the circle.
+            movable: Optional movement/editing flag for this feature. Circles can
+                be translated when movable, but are not edited as arbitrary polygons.
         """
         style = style or CircleStyle()
         # Swap lat,lon (public API) to lon,lat (internal format)
@@ -598,6 +706,7 @@ class VectorLayer(BaseLayer):
                 "style": style.to_js(),
                 "properties": properties or {},
                 "segments": int(segments),
+                "movable": movable,
             }
         )
 
@@ -607,6 +716,8 @@ class VectorLayer(BaseLayer):
         feature_id: str = "line0",
         style: Optional[PolygonStyle] = None,
         properties: Optional[Dict[str, Any]] = None,
+        movable: Optional[bool] = None,
+        vertex_editing: Optional[VectorVertexEditing] = None,
     ) -> None:
         """Add a polyline (non-closed) feature to this vector layer.
 
@@ -615,6 +726,8 @@ class VectorLayer(BaseLayer):
             feature_id: The feature ID to assign.
             style: A PolygonStyle (uses stroke_* attributes) or None for defaults.
             properties: Optional dict of properties to attach to the feature.
+            movable: Optional movement/editing flag for this feature.
+            vertex_editing: Optional ``VectorVertexEditing`` mode for this feature.
         """
         style = style or PolygonStyle()
         # Swap lat,lon (public API) to lon,lat (internal format)
@@ -626,6 +739,8 @@ class VectorLayer(BaseLayer):
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},
+                "movable": movable,
+                "vertex_editing": self._vertex_editing_value(vertex_editing),
             }
         )
 
@@ -642,6 +757,8 @@ class VectorLayer(BaseLayer):
         segment_colors: Optional[Sequence[Union[tuple[int, int, int, int], str, Any]]] = None,
         properties: Optional[Dict[str, Any]] = None,
         interpolate_steps: int = 64,
+        movable: Optional[bool] = None,
+        vertex_editing: Optional[VectorVertexEditing] = None,
     ) -> None:
         """Add a polyline rendered with per-segment colors (useful for speed tracks).
 
@@ -662,6 +779,8 @@ class VectorLayer(BaseLayer):
                 gradient rendering (applies to both per-segment and per-vertex values).
                 Higher values make smoother gradients; default is 64 for visibly
                 continuous ramps on typical routes.
+            movable: Optional movement/editing flag for this feature.
+            vertex_editing: Optional ``VectorVertexEditing`` mode for this feature.
         """
         if len(coords) < 2:
             raise ValueError("coords must contain at least 2 points")
@@ -705,6 +824,8 @@ class VectorLayer(BaseLayer):
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},
+                "movable": movable,
+                "vertex_editing": self._vertex_editing_value(vertex_editing),
             }
         )
 
@@ -718,6 +839,7 @@ class VectorLayer(BaseLayer):
         style: Optional[EllipseStyle] = None,
         properties: Optional[Dict[str, Any]] = None,
         segments: int = 96,
+        movable: Optional[bool] = None,
     ) -> None:
         """Add an ellipse feature to the layer.
 
@@ -730,6 +852,8 @@ class VectorLayer(BaseLayer):
             style: Ellipse styling. Uses default if not provided.
             properties: Optional properties dict for this feature.
             segments: Number of segments to approximate the ellipse.
+            movable: Optional movement/editing flag for this feature. Ellipses can
+                be translated when movable, but are not edited as arbitrary polygons.
         """
         style = style or EllipseStyle()
         # Swap lat,lon (public API) to lon,lat (internal format)
@@ -746,6 +870,7 @@ class VectorLayer(BaseLayer):
                 "style": style.to_js(),
                 "properties": properties or {},
                 "segments": int(segments),
+                "movable": movable,
             }
         )
 

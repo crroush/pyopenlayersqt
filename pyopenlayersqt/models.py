@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 # Color type: QColor objects, color names, "#RRGGBB", "rgba(...)", or tuples (deprecated)
@@ -8,6 +9,25 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 # Note: RGBA tuples are deprecated; prefer QColor objects or color name strings
 Color = Union[str, Tuple[int, int, int], Tuple[int, int, int, int], Any]
 LatLon = Tuple[float, float]  # (lat, lon) - Public API uses latitude first
+
+
+class VectorVertexEditing(str, Enum):
+    """Vertex-editing behavior for movable vector line/polygon features.
+
+    Attributes:
+        NONE: The feature can be translated, but vertices cannot be moved.
+        MOVE: Existing line/polygon vertices can be moved, but new vertices are
+            not inserted and existing vertices are not deleted.
+        MODIFY: Existing vertices can be moved and OpenLayers' default modify
+            behavior can insert/delete vertices.
+
+    Circle and ellipse features ignore vertex-editing modes so they keep their
+    shape instead of being edited as arbitrary polygons.
+    """
+
+    NONE = "none"
+    MOVE = "move"
+    MODIFY = "modify"
 
 
 @dataclass(frozen=True)
@@ -190,7 +210,6 @@ def _color_to_css(c: Union[Color, Any], alpha: Optional[float] = None) -> str:
     a = alpha if alpha is not None else (a0 / 255.0 if a0 > 1 else float(a0))
     return f"rgba({r},{g},{b},{a})"
 
-
 @dataclass(frozen=True)
 class PointStyle:
     """
@@ -222,7 +241,6 @@ class PointStyle:
             "stroke": _color_to_css(self.stroke_color, self.stroke_opacity),
             "stroke_width": float(self.stroke_width),
         }
-
 
 @dataclass(frozen=True)
 class IconStyle:
@@ -279,7 +297,6 @@ class IconStyle:
             "cross_origin": self.cross_origin,
         }
 
-
 @dataclass(frozen=True)
 class CircleStyle:
     """
@@ -312,7 +329,6 @@ class CircleStyle:
             ),
         }
 
-
 @dataclass(frozen=True)
 class PolygonStyle:
     """
@@ -342,7 +358,6 @@ class PolygonStyle:
                 if self.fill else "rgba(0,0,0,0)"
             ),
         }
-
 
 @dataclass(frozen=True)
 class EllipseStyle:
@@ -376,7 +391,6 @@ class EllipseStyle:
             ),
         }
 
-
 @dataclass(frozen=True)
 class RasterStyle:
     """
@@ -387,7 +401,6 @@ class RasterStyle:
 
     def to_js(self) -> Dict[str, Any]:
         return {"opacity": float(self.opacity)}
-
 
 @dataclass(frozen=True)
 class WMSOptions:
@@ -405,7 +418,6 @@ class WMSOptions:
     def to_js(self) -> Dict[str, Any]:
         return {"url": self.url, "params": dict(self.params), "opacity": float(self.opacity)}
 
-
 @dataclass(frozen=True)
 class TileLayerOptions:
     """Generic XYZ/OSM tile layer options."""
@@ -420,7 +432,6 @@ class TileLayerOptions:
             "attribution": self.attribution,
         }
 
-
 @dataclass
 class FeatureSelection:
     """
@@ -430,7 +441,6 @@ class FeatureSelection:
     feature_ids: List[str] = field(default_factory=list)
     count: int = 0
     raw: Dict[str, Any] = field(default_factory=dict)
-
 
 @dataclass(frozen=True)
 class FastPointsStyle:
@@ -472,7 +482,6 @@ class FastPointsStyle:
             "selected_radius": float(self.selected_radius),
             "selected_rgba": list(selected_rgba_final),
         }
-
 
 @dataclass(frozen=True)
 class FastGeoPointsStyle:
