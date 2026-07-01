@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
-import fnmatch
 import os
 import re
 import sys
@@ -34,6 +33,20 @@ def _sorted_indices_to_ranges(indices: np.ndarray) -> np.ndarray:
     starts = np.concatenate((sorted_indices[:1], sorted_indices[breaks]))
     ends = np.concatenate((sorted_indices[breaks - 1], sorted_indices[-1:]))
     return np.column_stack((starts, ends)).astype(np.uint32, copy=False)
+
+
+def _wildcard_term_to_regex(term: str) -> str:
+    """Translate a shell-style wildcard term into an Arrow-safe regex."""
+    regex_parts: list[str] = ["^"]
+    for char in term:
+        if char == "*":
+            regex_parts.append(".*")
+        elif char == "?":
+            regex_parts.append(".")
+        else:
+            regex_parts.append(re.escape(char))
+    regex_parts.append("$")
+    return "".join(regex_parts)
 
 
 def _datetime_series_to_epoch_seconds(values: pd.Series) -> np.ndarray:
@@ -955,7 +968,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         for term in self._keyword_terms(pattern):
             lowered = term.lower()
             if any(char in lowered for char in "*?"):
-                regex = fnmatch.translate(lowered)
+                regex = _wildcard_term_to_regex(lowered)
                 term_mask = values.str.match(regex, na=False).to_numpy(
                     dtype=bool, copy=False
                 )
