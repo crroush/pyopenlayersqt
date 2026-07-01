@@ -1084,15 +1084,16 @@ function cmd_fast_points_hide_ids(msg) {
   const raw = pyolqt_ids_from_msg(msg);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
+  let selectionChanged = false;
   for (const id of ids) {
     const i = entry.idIndex.get(id);
     if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
-    entry.selectedIds.delete(entry.ids[i]);
+    selectionChanged = entry.selectedIds.delete(entry.ids[i]) || selectionChanged;
     fp_qt_update_visibility(entry, i, -1);
   }
   fp_redraw(entry);
-  fp_emit_selection(entry);
+  if (selectionChanged) fp_emit_selection(entry);
 }
 
 function cmd_fast_points_show_ids(msg) {
@@ -1122,15 +1123,16 @@ function cmd_fast_points_hide_indices(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
   const indices = pyolqt_indices_from_msg(msg);
+  let selectionChanged = false;
   for (let k = 0; k < indices.length; k++) {
     const i = indices[k];
     if (i == null || i >= entry.hidden.length || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
-    entry.selectedIds.delete(entry.ids[i]);
+    selectionChanged = entry.selectedIds.delete(entry.ids[i]) || selectionChanged;
     fp_qt_update_visibility(entry, i, -1);
   }
   fp_redraw(entry);
-  fp_emit_selection(entry);
+  if (selectionChanged) fp_emit_selection(entry);
 }
 
 function cmd_fast_points_show_indices(msg) {
