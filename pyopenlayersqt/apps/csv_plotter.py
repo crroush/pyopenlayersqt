@@ -128,30 +128,36 @@ class CsvTable:
     """
 
     def __init__(self, columns: Sequence[str], data: np.ndarray):
-        self.columns = list(columns)
+        self._columns = list(columns)
         self._data = np.asarray(data)
         self._extra_columns: dict[str, np.ndarray] = {}
+
+    @property
+    def columns(self) -> list[str]:
+        return [*self._columns, *self._extra_columns]
 
     def __len__(self) -> int:
         return int(self._data.shape[0])
 
     def __contains__(self, column: str) -> bool:
-        return column in self.columns or column in self._extra_columns
+        return column in self._columns or column in self._extra_columns
 
     def __getitem__(self, column: str) -> np.ndarray:
         if column in self._extra_columns:
             return self._extra_columns[column]
-        return self._data[:, self.columns.index(column)]
+        return self._data[:, self._columns.index(column)]
 
     def __setitem__(self, column: str, values: Sequence[object] | np.ndarray) -> None:
         arr = np.asarray(values)
-        if column in self.columns:
-            self._data[:, self.columns.index(column)] = arr
+        if column in self._extra_columns:
+            self._extra_columns[column] = arr
+        elif column in self._columns:
+            self._data[:, self._columns.index(column)] = arr
         else:
             self._extra_columns[column] = arr
 
     def filtered(self, mask: np.ndarray) -> "CsvTable":
-        filtered = CsvTable(self.columns, self._data[mask].copy())
+        filtered = CsvTable(self._columns, self._data[mask].copy())
         filtered._extra_columns = {
             key: values[mask].copy() for key, values in self._extra_columns.items()
         }
@@ -161,7 +167,7 @@ class CsvTable:
     def concat(cls, chunks: Sequence["CsvTable"]) -> "CsvTable":
         if not chunks:
             return cls([], np.empty((0, 0), dtype=str))
-        table = cls(chunks[0].columns, np.vstack([chunk._data for chunk in chunks]))
+        table = cls(chunks[0]._columns, np.vstack([chunk._data for chunk in chunks]))
         extra_keys = set().union(*(chunk._extra_columns.keys() for chunk in chunks))
         table._extra_columns = {
             key: np.concatenate([chunk._extra_columns[key] for chunk in chunks])
@@ -171,12 +177,12 @@ class CsvTable:
 
     def write_csv(self, path: str, excluded_columns: set[str] | None = None) -> None:
         excluded_columns = excluded_columns or set()
-        columns = [column for column in self.columns if column not in excluded_columns]
+        columns = [column for column in self._columns if column not in excluded_columns]
         with open(path, "w", newline="", encoding="utf-8") as fh:
             writer = csv.writer(fh)
             writer.writerow(columns)
             writer.writerows(
-                self._data[:, [self.columns.index(col) for col in columns]]
+                self._data[:, [self._columns.index(col) for col in columns]]
             )
 
 
@@ -253,7 +259,7 @@ class CsvLoaderThread(QtCore.QThread):
                         )
                         continue
 
-                    with open(path, "r", newline="", encoding="utf-8-sig") as fh:
+                    with open(path, "rb") as fh:
                         fh.readline()
                         while True:
                             with warnings.catch_warnings():
@@ -265,6 +271,8 @@ class CsvLoaderThread(QtCore.QThread):
                                     max_rows=self.chunk_size,
                                     ndmin=2,
                                     quotechar='"',
+                                    comments=None,
+                                    encoding="utf-8-sig",
                                 )
                             if data.size == 0:
                                 break
