@@ -1714,13 +1714,16 @@ function cmd_fast_geopoints_hide_ids(msg) {
   const raw = pyolqt_ids_from_msg(msg);
   const ids = new Set(raw.map(x => String(x)));
   if (ids.size === 0) return;
+  let selectionChanged = false;
   for (const id of ids) {
     const i = entry.idIndex.get(id);
     if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
+    selectionChanged = entry.selectedIds.delete(entry.ids[i]) || selectionChanged;
     fp_qt_update_visibility(entry, i, -1);
   }
   fgp_redraw(entry);
+  if (selectionChanged) fgp_emit_selection(entry);
 }
 
 function cmd_fast_geopoints_show_ids(msg) {
