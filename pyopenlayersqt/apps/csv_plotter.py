@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 from datetime import datetime, timezone
 import os
 import re
@@ -122,14 +123,26 @@ def _factorize_values(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 class CsvTable:
     """Small column-oriented table for CSV data used by csv_plotter.
 
-    It intentionally implements only the operations this application needs,
-    keeping pandas out of the runtime dependency set while preserving numpy
-    arrays for map/filter/color operations.
+    Loaded chunks keep only derived columns (coordinates, ids, parsed time) in
+    memory. Original CSV cell values are read lazily from source file offsets
+    when the table view, keyword filtering, color-by, or export needs them.
     """
 
-    def __init__(self, columns: Sequence[str], data: np.ndarray):
+    def __init__(
+        self,
+        columns: Sequence[str],
+        data: np.ndarray | None = None,
+        source_paths: Sequence[str] | None = None,
+        source_offsets: np.ndarray | None = None,
+    ):
         self._columns = list(columns)
-        self._data = np.asarray(data)
+        self._data = None if data is None else np.asarray(data)
+        self._source_paths = list(source_paths or [])
+        self._source_offsets = (
+            np.asarray(source_offsets, dtype=np.uint64)
+            if source_offsets is not None
+            else np.empty(0, dtype=np.uint64)
+        )
         self._extra_columns: dict[str, np.ndarray] = {}
 
     @property
@@ -137,7 +150,11 @@ class CsvTable:
         return [*self._columns, *self._extra_columns]
 
     def __len__(self) -> int:
-        return int(self._data.shape[0])
+        if self._data is not None:
+            return int(self._data.shape[0])
+        if self._extra_columns:
+            return len(next(iter(self._extra_columns.values())))
+        return int(self._source_offsets.shape[0])
 
     def __contains__(self, column: str) -> bool:
         return column in self._columns or column in self._extra_columns
@@ -145,29 +162,72 @@ class CsvTable:
     def __getitem__(self, column: str) -> np.ndarray:
         if column in self._extra_columns:
             return self._extra_columns[column]
-        return self._data[:, self._columns.index(column)]
+        if self._data is not None:
+            return self._data[:, self._columns.index(column)]
+        return self._read_source_column(column)
 
     def __setitem__(self, column: str, values: Sequence[object] | np.ndarray) -> None:
         arr = np.asarray(values)
         if column in self._extra_columns:
             self._extra_columns[column] = arr
-        elif column in self._columns:
+        elif self._data is not None and column in self._columns:
             self._data[:, self._columns.index(column)] = arr
         else:
             self._extra_columns[column] = arr
 
+    def get_cell(self, row_index: int, column: str, default: object = None) -> object:
+        if column in self._extra_columns:
+            return self._extra_columns[column][row_index]
+        if self._data is not None:
+            return self._data[row_index, self._columns.index(column)]
+        try:
+            return self._read_source_row(row_index)[self._columns.index(column)]
+        except (IndexError, ValueError):
+            return default
+
     def filtered(self, mask: np.ndarray) -> "CsvTable":
-        filtered = CsvTable(self._columns, self._data[mask].copy())
+        filtered = CsvTable(
+            self._columns,
+            None if self._data is None else self._data[mask].copy(),
+            self._source_paths,
+            self._source_offsets[mask].copy(),
+        )
         filtered._extra_columns = {
             key: values[mask].copy() for key, values in self._extra_columns.items()
         }
         return filtered
 
     @classmethod
+    def from_source_rows(
+        cls, columns: Sequence[str], source_path: str, offsets: np.ndarray
+    ) -> "CsvTable":
+        return cls(columns, None, [source_path], offsets)
+
+    @classmethod
     def concat(cls, chunks: Sequence["CsvTable"]) -> "CsvTable":
         if not chunks:
             return cls([], np.empty((0, 0), dtype=str))
-        table = cls(chunks[0]._columns, np.vstack([chunk._data for chunk in chunks]))
+        if all(chunk._data is not None for chunk in chunks):
+            data = np.vstack([chunk._data for chunk in chunks])
+        else:
+            data = None
+        paths: list[str] = []
+        offsets: list[np.ndarray] = []
+        for chunk in chunks:
+            path_base = len(paths)
+            paths.extend(chunk._source_paths)
+            if chunk._source_offsets.size:
+                if len(chunk._source_paths) != 1:
+                    offsets.append(chunk._source_offsets)
+                else:
+                    file_ids = np.full(len(chunk), path_base, dtype=np.uint32)
+                    offsets.append(
+                        np.column_stack((file_ids, chunk._source_offsets)).astype(
+                            np.uint64, copy=False
+                        )
+                    )
+        source_offsets = np.vstack(offsets) if offsets else None
+        table = cls(chunks[0]._columns, data, paths, source_offsets)
         extra_keys = set().union(*(chunk._extra_columns.keys() for chunk in chunks))
         table._extra_columns = {
             key: np.concatenate([chunk._extra_columns[key] for chunk in chunks])
@@ -178,12 +238,44 @@ class CsvTable:
     def write_csv(self, path: str, excluded_columns: set[str] | None = None) -> None:
         excluded_columns = excluded_columns or set()
         columns = [column for column in self._columns if column not in excluded_columns]
+        column_indices = [self._columns.index(col) for col in columns]
         with open(path, "w", newline="", encoding="utf-8") as fh:
             writer = csv.writer(fh)
             writer.writerow(columns)
-            writer.writerows(
-                self._data[:, [self._columns.index(col) for col in columns]]
-            )
+            if self._data is not None:
+                writer.writerows(self._data[:, column_indices])
+            else:
+                for row_index in range(len(self)):
+                    row = self._read_source_row(row_index)
+                    writer.writerow(
+                        [
+                            row[index] if index < len(row) else ""
+                            for index in column_indices
+                        ]
+                    )
+
+    def _read_source_column(self, column: str) -> np.ndarray:
+        column_index = self._columns.index(column)
+        return np.asarray(
+            [
+                (row[column_index] if column_index < len(row) else "")
+                for row in (
+                    self._read_source_row(row_index) for row_index in range(len(self))
+                )
+            ]
+        )
+
+    def _read_source_row(self, row_index: int) -> list[str]:
+        if self._source_offsets.ndim == 2:
+            file_id = int(self._source_offsets[row_index, 0])
+            offset = int(self._source_offsets[row_index, 1])
+        else:
+            file_id = 0
+            offset = int(self._source_offsets[row_index])
+        with open(self._source_paths[file_id], "rb") as fh:
+            fh.seek(offset)
+            line = fh.readline().decode("utf-8-sig")
+        return next(csv.reader([line]))
 
 
 def perf_enabled() -> bool:
@@ -219,7 +311,7 @@ class CsvTableRow:
         if key == "_feature_id":
             return self._feature_id
         if key in self._table:
-            return self._table[key][self._row_index]
+            return self._table.get_cell(self._row_index, key, default)
         return default
 
 
@@ -262,23 +354,41 @@ class CsvLoaderThread(QtCore.QThread):
                     with open(path, "rb") as fh:
                         fh.readline()
                         while True:
+                            offsets: list[int] = []
+                            lines: list[bytes] = []
+                            for _ in range(self.chunk_size):
+                                offset = fh.tell()
+                                line = fh.readline()
+                                if not line:
+                                    break
+                                if not line.strip():
+                                    continue
+                                offsets.append(offset)
+                                lines.append(line)
+                            if not lines:
+                                break
                             with warnings.catch_warnings():
                                 warnings.simplefilter("ignore", UserWarning)
                                 data = np.loadtxt(
-                                    fh,
+                                    io.BytesIO(b"".join(lines)),
                                     delimiter=",",
                                     dtype=str,
-                                    max_rows=self.chunk_size,
                                     ndmin=2,
                                     quotechar='"',
                                     comments=None,
                                     encoding="utf-8-sig",
                                 )
                             if data.size == 0:
-                                break
+                                continue
                             if data.shape[1] != len(self.base_columns):
                                 raise ValueError("CSV row has unexpected column count")
-                            self.chunk_ready.emit(CsvTable(self.base_columns, data))
+                            chunk = CsvTable(
+                                self.base_columns,
+                                data,
+                                source_paths=[path],
+                                source_offsets=np.asarray(offsets, dtype=np.uint64),
+                            )
+                            self.chunk_ready.emit(chunk)
                             current_bytes = bytes_finished + fh.tell()
                             self.progress_update.emit(
                                 min(int((current_bytes / total_bytes) * 100), 100)
@@ -873,8 +983,16 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             )
             return
 
-        chunk_df[self.current_lat_col] = lats.astype(str)
-        chunk_df[self.current_lon_col] = lons.astype(str)
+        source_paths = chunk_df._source_paths
+        source_offsets = chunk_df._source_offsets
+        chunk_df = CsvTable(
+            chunk_df._columns,
+            data=None,
+            source_paths=source_paths,
+            source_offsets=source_offsets,
+        )
+        chunk_df[self.current_lat_col] = lats
+        chunk_df[self.current_lon_col] = lons
         start_idx = self.global_fid_counter
         chunk_fids = [f"pt_{i}" for i in range(start_idx, start_idx + num_rows)]
         chunk_df["_fid"] = chunk_fids
