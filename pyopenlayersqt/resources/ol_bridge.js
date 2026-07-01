@@ -600,6 +600,31 @@ function fp_pick_nearest(entry, coord3857, radius_m) {
   return best;
 }
 
+
+function fp_selection_visible_ids(entry, ids) {
+  const visible = [];
+  for (const id of ids || []) {
+    const fid = String(id);
+    const i = entry.idIndex.get(fid);
+    if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
+    visible.push(fid);
+  }
+  return visible;
+}
+
+function fp_prune_hidden_selection(entry) {
+  if (!entry.selectedIds || entry.selectedIds.size === 0) return false;
+  let changed = false;
+  for (const fid of Array.from(entry.selectedIds)) {
+    const i = entry.idIndex.get(String(fid));
+    if (i == null || entry.deleted[i] || entry.hidden[i]) {
+      entry.selectedIds.delete(fid);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function fp_emit_selection(entry) {
   const perfStart = performance.now();
   const featureIds = Array.from(entry.selectedIds);
@@ -1023,7 +1048,7 @@ function cmd_fast_points_select_set(msg) {
     const perfStart = performance.now();
     const entry = getLayerEntry(msg.layer_id);
     if (entry.type !== "fast_points") return;
-    const ids = msg.feature_ids || [];
+    const ids = fp_selection_visible_ids(entry, msg.feature_ids || []);
     const setStart = performance.now();
     entry.selectedIds = new Set(ids);
     const setMs = performance.now() - setStart;
@@ -1063,9 +1088,11 @@ function cmd_fast_points_hide_ids(msg) {
     const i = entry.idIndex.get(id);
     if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
+    entry.selectedIds.delete(entry.ids[i]);
     fp_qt_update_visibility(entry, i, -1);
   }
   fp_redraw(entry);
+  fp_emit_selection(entry);
 }
 
 function cmd_fast_points_show_ids(msg) {
@@ -1099,9 +1126,11 @@ function cmd_fast_points_hide_indices(msg) {
     const i = indices[k];
     if (i == null || i >= entry.hidden.length || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
+    entry.selectedIds.delete(entry.ids[i]);
     fp_qt_update_visibility(entry, i, -1);
   }
   fp_redraw(entry);
+  fp_emit_selection(entry);
 }
 
 function cmd_fast_points_show_indices(msg) {
@@ -1130,7 +1159,9 @@ function cmd_fast_points_show_only_indices(msg) {
     entry.hidden[i] = false;
     fp_qt_update_visibility(entry, i, 1);
   }
+  const selectionChanged = fp_prune_hidden_selection(entry);
   fp_redraw(entry);
+  if (selectionChanged) fp_emit_selection(entry);
 }
 
 function cmd_fast_points_show_only_index_ranges(msg) {
@@ -1146,7 +1177,9 @@ function cmd_fast_points_show_only_index_ranges(msg) {
     }
   }
   fp_qt_rebuild_visibility(entry);
+  const selectionChanged = fp_prune_hidden_selection(entry);
   fp_redraw(entry);
+  if (selectionChanged) fp_emit_selection(entry);
 }
 
 function cmd_fast_points_set_colors(msg) {
@@ -1668,7 +1701,7 @@ function cmd_fast_geopoints_set_selected_ellipses_visible(msg) {
 function cmd_fast_geopoints_select_set(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
-  entry.selectedIds = new Set(pyolqt_ids_from_msg(msg));
+  entry.selectedIds = new Set(fp_selection_visible_ids(entry, pyolqt_ids_from_msg(msg)));
   fgp_redraw(entry);
   if (msg.emit !== false) fgp_emit_selection(entry);
 }
@@ -1800,7 +1833,7 @@ function fp_install_interactions() {
       const next = new Set();
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
-        if (entry.deleted[i]) continue;
+        if (entry.deleted[i] || entry.hidden[i]) continue;
         const x = entry.x[i], y = entry.y[i];
         if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) next.add(entry.ids[i]);
       }
