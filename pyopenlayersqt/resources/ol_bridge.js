@@ -1401,6 +1401,25 @@ function fgp_make_canvas_layer(entry) {
 
       collectDrawIndices();
 
+      function pointRgbaForIndex(i, selected) {
+        if (selected) return st.selected_point_rgba || [0,255,255,255];
+        const u = entry.color_u32[i];
+        return u !== 0 ? rgba_from_u32(u) : (st.default_point_rgba || [255,51,51,204]);
+      }
+
+      function pointCssForIndex(i, selected) {
+        return rgba_to_css_with_opacity(pointRgbaForIndex(i, selected), entry.opacity);
+      }
+
+      function ellipseFillCssForIndex(i, selected) {
+        const rgba = pointRgbaForIndex(i, selected).slice();
+        const alphaSource = selected
+          ? (st.selected_ellipse_fill_rgba || st.ellipse_fill_rgba || [0,255,255,40])
+          : (st.ellipse_fill_rgba || [255,204,0,40]);
+        rgba[3] = alphaSource[3];
+        return rgba_to_css_with_opacity(rgba, entry.opacity);
+      }
+
       // ---- Ellipses (batched, quadtree-collapsed for unselected points) ----
       const unselectedEllipsesVisible = entry.ellipsesVisible && st.ellipses_visible !== false;
       const selectedEllipsesVisible = entry.selectedEllipsesVisible && st.selected_ellipses_visible !== false;
@@ -1425,57 +1444,65 @@ function fgp_make_canvas_layer(entry) {
           return true;
         }
 
-        if (unselectedEllipsesVisible) {
-          ctx.lineWidth = (Number(st.ellipse_stroke_width || 1.5) * pixelRatio);
-          ctx.strokeStyle = rgba_to_css_with_opacity(
-            st.ellipse_stroke_rgba || [255,204,0,180],
-            entry.opacity
-          );
-          const fillEll = !!st.fill_ellipses;
-          if (fillEll) {
-            ctx.fillStyle = rgba_to_css_with_opacity(
-              st.ellipse_fill_rgba || [255,204,0,40],
-              entry.opacity
-            );
+        function drawEllipseBatch(indices, selected, lineWidth) {
+          const fillEll = !!st.fill_ellipses && !selected;
+          const batches = new Map();
+          for (let k = 0; k < indices.length; k++) {
+            const i = indices[k];
+            const stroke = pointCssForIndex(i, selected);
+            const fill = fillEll ? ellipseFillCssForIndex(i, selected) : "";
+            const key = stroke + "|" + fill;
+            let batch = batches.get(key);
+            if (!batch) {
+              batch = { stroke, fill, indices: [] };
+              batches.set(key, batch);
+            }
+            batch.indices.push(i);
           }
-          let nInPath = 0;
-          ctx.beginPath();
-          for (let k = 0; k < drawIndices.length; k++) {
-            if (!addEllipsePath(drawIndices[k], false)) continue;
-            nInPath++;
-            if (nInPath >= maxPerPath) {
+
+          ctx.lineWidth = lineWidth;
+          for (const batch of batches.values()) {
+            ctx.strokeStyle = batch.stroke;
+            if (fillEll) ctx.fillStyle = batch.fill;
+            let nInPath = 0;
+            ctx.beginPath();
+            for (let k = 0; k < batch.indices.length; k++) {
+              if (!addEllipsePath(batch.indices[k], selected)) continue;
+              nInPath++;
+              if (nInPath >= maxPerPath) {
+                if (fillEll) ctx.fill();
+                ctx.stroke();
+                ctx.beginPath();
+                nInPath = 0;
+              }
+            }
+            if (nInPath > 0) {
               if (fillEll) ctx.fill();
               ctx.stroke();
-              ctx.beginPath();
-              nInPath = 0;
             }
-          }
-          if (nInPath > 0) {
-            if (fillEll) ctx.fill();
-            ctx.stroke();
           }
         }
 
-        if (selectedEllipsesVisible) {
-          ctx.lineWidth = (Number(st.selected_ellipse_stroke_width || (st.ellipse_stroke_width || 1.5) * 1.8) * pixelRatio);
-          ctx.strokeStyle = rgba_to_css_with_opacity(
-            st.selected_ellipse_stroke_rgba || [0,255,255,255],
-            entry.opacity
+        if (unselectedEllipsesVisible) {
+          drawEllipseBatch(
+            drawIndices,
+            false,
+            Number(st.ellipse_stroke_width || 1.5) * pixelRatio
           );
-          let nInPath = 0;
-          ctx.beginPath();
+        }
+
+        if (selectedEllipsesVisible) {
+          const selectedIndices = [];
           for (const fid of selectedSet) {
             const i = entry.idIndex.get(String(fid));
             if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
-            if (!addEllipsePath(i, true)) continue;
-            nInPath++;
-            if (nInPath >= maxPerPath) {
-              ctx.stroke();
-              ctx.beginPath();
-              nInPath = 0;
-            }
+            selectedIndices.push(i);
           }
-          if (nInPath > 0) ctx.stroke();
+          drawEllipseBatch(
+            selectedIndices,
+            true,
+            Number(st.selected_ellipse_stroke_width || (st.ellipse_stroke_width || 1.5) * 1.8) * pixelRatio
+          );
         }
       }
       const ellipseTime = performance.now() - ellipseStart;
@@ -1493,21 +1520,7 @@ function fgp_make_canvas_layer(entry) {
         const px = Math.round(x);
         const py = Math.round(y);
         const radius = (selected ? (st.selected_point_radius || 6.0) : (st.point_radius || 3.0)) * pixelRatio;
-        let colorKey;
-        if (selected) {
-          colorKey = rgba_to_css_with_opacity(
-            st.selected_point_rgba || [0,255,255,255],
-            entry.opacity
-          );
-        } else {
-          const u = entry.color_u32[i];
-          colorKey = u !== 0
-            ? rgba_to_css_with_opacity(rgba_from_u32(u), entry.opacity)
-            : rgba_to_css_with_opacity(
-              st.default_point_rgba || [255,51,51,204],
-              entry.opacity
-            );
-        }
+        const colorKey = pointCssForIndex(i, selected);
         const batchKey = colorKey + '|' + radius;
         let batch = batches.get(batchKey);
         if (!batch) {
