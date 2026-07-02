@@ -1670,27 +1670,37 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         """Split a keyword expression into case-insensitive OR terms."""
         return [term.strip() for term in re.split(r"\s+or\s+", pattern) if term.strip()]
 
+    def _match_keyword_values(self, values: np.ndarray, pattern: str) -> np.ndarray:
+        """Return which unique values match a keyword/wildcard expression."""
+        text_values = np.char.lower(values.astype(str, copy=False))
+        mask = np.zeros(len(text_values), dtype=bool)
+        for term in self._keyword_terms(pattern):
+            lowered = term.lower()
+            if any(char in lowered for char in "*?"):
+                regex = re.compile(_wildcard_term_to_regex(lowered))
+                term_mask = np.fromiter(
+                    (bool(regex.match(str(value))) for value in text_values),
+                    dtype=bool,
+                    count=len(text_values),
+                )
+            else:
+                term_mask = np.char.find(text_values, lowered) >= 0
+            mask |= term_mask
+        return mask
+
     def _build_keyword_mask(self, column_name: str, pattern: str) -> np.ndarray:
         """Return rows whose selected column matches the keyword expression."""
         if self.df is None:
             return np.empty(0, dtype=bool)
         if column_name not in self.df.columns:
             return np.zeros(len(self.df), dtype=bool)
-        values = np.char.lower(self.df[column_name].astype(str, copy=False))
-        mask = np.zeros(len(values), dtype=bool)
-        for term in self._keyword_terms(pattern):
-            lowered = term.lower()
-            if any(char in lowered for char in "*?"):
-                regex = re.compile(_wildcard_term_to_regex(lowered))
-                term_mask = np.fromiter(
-                    (bool(regex.match(value)) for value in values),
-                    dtype=bool,
-                    count=len(values),
-                )
-            else:
-                term_mask = np.char.find(values, lowered) >= 0
-            mask |= term_mask
-        return mask
+        codes, unique_values, _used_cached_index = self.df.factorized_column(
+            column_name
+        )
+        if len(codes) != len(self.df):
+            return np.zeros(len(self.df), dtype=bool)
+        unique_matches = self._match_keyword_values(unique_values, pattern)
+        return unique_matches[codes]
 
     def _combined_filter_mask(self) -> np.ndarray:
         """Combine time, keyword, and deleted-row filters into one mask."""
