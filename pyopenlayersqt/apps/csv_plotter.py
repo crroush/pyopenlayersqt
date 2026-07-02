@@ -1125,15 +1125,29 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
     def show_only_selected_features(self) -> None:
         indices = self._feature_ids_to_row_indices(self.current_selection_fids)
         if indices.size:
+            if self.df is not None:
+                self._visible_mask = np.zeros(len(self.df), dtype=bool)
+                self._visible_mask[indices] = True
             self.fast_layer.show_only_indices(indices)
+            self._sync_table_visible_rows()
 
     def hide_selected_features(self) -> None:
         indices = self._feature_ids_to_row_indices(self.current_selection_fids)
         if indices.size:
+            if self.df is not None:
+                if self._visible_mask is None or len(self._visible_mask) != len(
+                    self.df
+                ):
+                    self._visible_mask = np.ones(len(self.df), dtype=bool)
+                self._visible_mask[indices] = False
             self.fast_layer.hide_indices(indices)
+            self._sync_table_visible_rows()
 
     def show_all_features(self) -> None:
+        if self.df is not None:
+            self._visible_mask = np.ones(len(self.df), dtype=bool)
         self.fast_layer.show_all_features()
+        self._sync_table_visible_rows()
 
     def delete_selected_features(self) -> None:
         if not self.current_selection_fids:
