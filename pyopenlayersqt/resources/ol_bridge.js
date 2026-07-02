@@ -1438,12 +1438,21 @@ function fgp_make_canvas_layer(entry) {
         return rgba_to_css_with_opacity(rgba, entry.opacity);
       }
 
+      function selectedEllipseLimit() {
+        const limit = Number(st.max_selected_ellipses);
+        return Number.isFinite(limit) ? Math.max(0, limit) : 5000;
+      }
+
       // ---- Ellipses (batched, quadtree-collapsed for unselected points) ----
       const unselectedEllipsesVisible = entry.ellipsesVisible && st.ellipses_visible !== false;
       const selectedEllipsesVisible = entry.selectedEllipsesVisible && st.selected_ellipses_visible !== false;
       const skipWhileInteracting = (st.skip_ellipses_while_interacting !== false);
       const canDrawEllipses = (unselectedEllipsesVisible || selectedEllipsesVisible) && !(skipWhileInteracting && state.viewInteracting);
 
+      let selectedEllipseCandidateCount = 0;
+      let selectedEllipseLookupMs = 0;
+      const maxSelectedEllipses = selectedEllipseLimit();
+      const selectedEllipsesSkippedByLimit = selectedEllipsesVisible && selectedSet.size > maxSelectedEllipses;
       const ellipseStart = performance.now();
       if (canDrawEllipses) {
         const minPx = Math.max(0.0, Number(st.min_ellipse_px || 0.0));
@@ -1509,13 +1518,16 @@ function fgp_make_canvas_layer(entry) {
           );
         }
 
-        if (selectedEllipsesVisible) {
+        if (selectedEllipsesVisible && !selectedEllipsesSkippedByLimit) {
+          const selectedLookupStart = performance.now();
           const selectedIndices = [];
           for (const fid of selectedSet) {
             const i = entry.idIndex.get(String(fid));
             if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
             selectedIndices.push(i);
           }
+          selectedEllipseLookupMs = performance.now() - selectedLookupStart;
+          selectedEllipseCandidateCount = selectedIndices.length;
           drawEllipseBatch(
             selectedIndices,
             true,
@@ -1527,6 +1539,8 @@ function fgp_make_canvas_layer(entry) {
 
       // ---- Points (batched, quadtree-collapsed for unselected points) ----
       const pointStart = performance.now();
+      let selectedPointCandidateCount = 0;
+      let selectedPointLookupMs = 0;
       const batches = new Map();
 
       function addPointToBatch(i, selectedOverride) {
@@ -1550,11 +1564,14 @@ function fgp_make_canvas_layer(entry) {
       }
 
       for (let k = 0; k < drawIndices.length; k++) addPointToBatch(drawIndices[k], false);
+      const selectedPointLookupStart = performance.now();
       for (const fid of selectedSet) {
         const i = entry.idIndex.get(String(fid));
         if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
+        selectedPointCandidateCount++;
         addPointToBatch(i, true);
       }
+      selectedPointLookupMs = performance.now() - selectedPointLookupStart;
 
       for (const batch of batches.values()) {
         ctx.fillStyle = batch.color;
@@ -1582,12 +1599,19 @@ function fgp_make_canvas_layer(entry) {
           collapse_pixel_threshold: collapsePx.toFixed(2),
           ellipse_draw_count: ellipseDrawCount,
           point_draw_count: pointDrawCount,
+          selected_count: selectedSet.size,
+          selected_point_candidate_count: selectedPointCandidateCount,
+          selected_ellipse_candidate_count: selectedEllipseCandidateCount,
+          selected_ellipse_limit: maxSelectedEllipses,
+          selected_ellipses_skipped_by_limit: selectedEllipsesSkippedByLimit,
           skipped_duplicate_pixels: skippedDuplicatePixels,
           batch_count: batches.size,
           ellipses_visible: !!entry.ellipsesVisible,
           selected_ellipses_visible: !!entry.selectedEllipsesVisible,
           times: {
             query_ms: queryTime.toFixed(2),
+            selected_ellipse_lookup_ms: selectedEllipseLookupMs.toFixed(2),
+            selected_point_lookup_ms: selectedPointLookupMs.toFixed(2),
             ellipse_ms: ellipseTime.toFixed(2),
             point_ms: pointTime.toFixed(2),
             total_ms: totalTime.toFixed(2)
@@ -1958,12 +1982,13 @@ function fp_install_interactions() {
       else fp_redraw(entry);
       const redrawMs = performance.now() - redrawStart;
       const emitStart = performance.now();
-      fp_emit_selection(entry);
+      if (entry.type === "fast_geopoints") fgp_emit_selection(entry);
+      else fp_emit_selection(entry);
       const emitMs = performance.now() - emitStart;
       emitPerf({
         side: "javascript",
         layer_id: entry.layer_id,
-        operation: "fast_points_singleclick_selection",
+        operation: entry.type + "_singleclick_selection",
         selection_count: entry.selectedIds.size,
         times: {
           pick_ms: pickMs.toFixed(2),
@@ -2009,12 +2034,13 @@ function fp_install_interactions() {
         else fp_redraw(entry);
         const redrawMs = performance.now() - redrawStart;
         const emitStart = performance.now();
-        fp_emit_selection(entry);
+        if (entry.type === "fast_geopoints") fgp_emit_selection(entry);
+        else fp_emit_selection(entry);
         const emitMs = performance.now() - emitStart;
         emitPerf({
           side: "javascript",
           layer_id: entry.layer_id,
-          operation: "fast_points_dragbox_selection",
+          operation: entry.type + "_dragbox_selection",
           candidate_count: cand.length,
           selection_count: next.size,
           times: {

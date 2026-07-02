@@ -1187,11 +1187,12 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 return
             perf_start = time.perf_counter()
             self.current_selection_fids = selection.feature_ids
-            keys = [(selection.layer_id, fid) for fid in selection.feature_ids]
-            self.table_widget.select_keys(keys, clear_first=True)
+            self.table_widget.select_feature_ids(
+                selection.layer_id, selection.feature_ids, clear_first=True
+            )
             perf(
                 "map_to_table_selection",
-                selection_count=len(keys),
+                selection_count=len(selection.feature_ids),
                 elapsed_ms=round((time.perf_counter() - perf_start) * 1000.0, 2),
             )
 
