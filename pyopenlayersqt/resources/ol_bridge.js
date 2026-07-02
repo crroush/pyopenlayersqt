@@ -908,26 +908,37 @@ function cmd_fast_points_add_points(msg) {
   const perfStart = performance.now();
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
+  const decodeStart = performance.now();
   const pointData = pyolqt_points_from_msg(msg);
   const coords = pointData.coords || null;
   const coordsFlat = pointData.flat || null;
   const pointCount = pointData.count;
   const ids = msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.ids || null);
   const colors = msg.colors_b64 ? pyolqt_b64_to_uint32(msg.colors_b64) : (msg.colors || null);
+  const decodeMs = performance.now() - decodeStart;
   const startIndex = entry.x.length;
   let skippedInvalidCount = 0;
   const convertStart = performance.now();
+  const world = 20037508.342789244;
+  const xScale = world / 180.0;
+  const yScale = world / Math.PI;
   for (let i = 0; i < pointCount; i++) {
     const lon = coordsFlat ? coordsFlat[i * 2] : coords[i][0];
-    const lat = coordsFlat ? coordsFlat[i * 2 + 1] : coords[i][1];
-    const p = lonlat_to_3857(lon, lat);
-    if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) {
+    const rawLat = coordsFlat ? coordsFlat[i * 2 + 1] : coords[i][1];
+    if (!Number.isFinite(lon) || !Number.isFinite(rawLat)) {
+      skippedInvalidCount++;
+      continue;
+    }
+    const lat = Math.max(-85.05112878, Math.min(85.05112878, rawLat));
+    const x3857 = lon * xScale;
+    const y3857 = Math.log(Math.tan((90.0 + lat) * Math.PI / 360.0)) * yScale;
+    if (!Number.isFinite(x3857) || !Number.isFinite(y3857)) {
       skippedInvalidCount++;
       continue;
     }
     const idx = entry.x.length;
-    entry.x.push(p[0]);
-    entry.y.push(p[1]);
+    entry.x.push(x3857);
+    entry.y.push(y3857);
     const fid = (ids ? ids[i] : String(idx));
     entry.ids.push(fid);
     entry.idIndex.set(String(fid), idx);
@@ -942,17 +953,22 @@ function cmd_fast_points_add_points(msg) {
   const shouldRedraw = (msg.redraw !== false);
   if (shouldRedraw) fp_redraw(entry);
   const redrawMs = performance.now() - redrawStart;
+  const acceptedPointCount = pointCount - skippedInvalidCount;
   emitPerf({
     side: "javascript",
     layer_id: entry.layer_id,
     operation: "fast_points_add_points",
     point_count: pointCount,
-    accepted_point_count: pointCount - skippedInvalidCount,
+    accepted_point_count: acceptedPointCount,
     skipped_invalid_count: skippedInvalidCount,
     start_index: startIndex,
     total_points: entry.x.length,
     times: {
+      decode_ms: decodeMs.toFixed(2),
       convert_index_ms: convertIndexMs.toFixed(2),
+      accepted_point_us: acceptedPointCount
+        ? ((convertIndexMs * 1000.0) / acceptedPointCount).toFixed(2)
+        : "0.00",
       redraw_requested: shouldRedraw,
       redraw_request_ms: redrawMs.toFixed(2),
       total_ms: (performance.now() - perfStart).toFixed(2)

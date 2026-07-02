@@ -18,7 +18,7 @@ import time
 from typing import Sequence
 
 import numpy as np
-from matplotlib import colormaps
+from matplotlib.colors import hsv_to_rgb
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from pyopenlayersqt import FastPointsStyle, OLMapWidget, RangeSliderWidget
@@ -51,20 +51,32 @@ def _wildcard_term_to_regex(term: str) -> str:
 
 
 def _category_codes_to_packed_rgba(codes: np.ndarray) -> np.ndarray:
-    """Map integer category codes to bright Turbo-like packed RGBA colors."""
-    code_arr = np.asarray(codes, dtype=np.int64)
-    safe_codes = np.where(code_arr < 0, 0, code_arr).astype(np.float64, copy=False)
-    # Golden-ratio spacing keeps adjacent category codes visually distinct while
-    # preserving a compact integer-code representation for large data sets.
-    color_positions = np.mod(safe_codes * 0.6180339887498949, 1.0)
-    rgba = np.rint(colormaps["turbo"](color_positions) * 255).astype(np.uint32)
+    """Map integer category codes to deterministic high-cardinality RGBA colors."""
+    code_arr = np.asarray(codes)
+    missing_mask = code_arr.astype(np.int64, copy=False) < 0
+    code_u32 = np.where(missing_mask, 0, code_arr).astype(np.uint32, copy=False)
+
+    # Turbo is excellent for ordered scalar data, but categorical columns with
+    # thousands of values need a much larger apparent palette.  Mix the integer
+    # codes through multiplicative hashes, then use the mixed bits as HSV hue,
+    # saturation and value.  That spreads neighboring categories across the full
+    # 24-bit RGB space instead of walking a single gradient ramp.
+    hue_bits = code_u32 * np.uint32(2654435761)
+    sat_bits = code_u32 * np.uint32(2246822519)
+    val_bits = code_u32 * np.uint32(3266489917)
+    hsv = np.empty((len(code_u32), 3), dtype=np.float32)
+    hsv[:, 0] = hue_bits.astype(np.float32) / np.float32(2**32)
+    hsv[:, 1] = 0.62 + (((sat_bits >> np.uint32(29)) & np.uint32(7)) / 7.0) * 0.33
+    hsv[:, 2] = 0.74 + (((val_bits >> np.uint32(29)) & np.uint32(7)) / 7.0) * 0.23
+
+    rgb = np.rint(hsv_to_rgb(hsv) * 255).astype(np.uint32)
     packed = (
-        (rgba[:, 0] << np.uint32(24))
-        | (rgba[:, 1] << np.uint32(16))
-        | (rgba[:, 2] << np.uint32(8))
-        | rgba[:, 3]
+        (rgb[:, 0] << np.uint32(24))
+        | (rgb[:, 1] << np.uint32(16))
+        | (rgb[:, 2] << np.uint32(8))
+        | np.uint32(255)
     )
-    packed[code_arr < 0] = np.uint32(0x999999FF)
+    packed[missing_mask] = np.uint32(0x999999FF)
     return packed.astype(np.uint32, copy=False)
 
 
