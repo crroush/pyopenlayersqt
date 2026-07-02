@@ -144,6 +144,7 @@ class CsvTable:
             else np.empty(0, dtype=np.uint64)
         )
         self._extra_columns: dict[str, np.ndarray] = {}
+        self._layer_id = ""
 
     @property
     def columns(self) -> list[str]:
@@ -235,6 +236,39 @@ class CsvTable:
         }
         return table
 
+    def set_layer_id(self, layer_id: str) -> None:
+        self._layer_id = str(layer_id)
+
+    def row_count(self) -> int:
+        return len(self)
+
+    def data(self, source_row: int, column: int, column_spec: ColumnSpec) -> object:
+        return self.get_cell(source_row, column_spec.name, "")
+
+    def key(self, source_row: int) -> tuple[str, str]:
+        return (self._layer_id, f"pt_{source_row}")
+
+    def row_for_key(self, key: tuple[str, str]) -> int | None:
+        layer_id, feature_id = key
+        if self._layer_id and str(layer_id) != self._layer_id:
+            return None
+        if not str(feature_id).startswith("pt_"):
+            return None
+        try:
+            row = int(str(feature_id)[3:])
+        except ValueError:
+            return None
+        if 0 <= row < len(self):
+            return row
+        return None
+
+    def row_data(self, source_row: int) -> dict[str, object]:
+        row = {
+            column: self.get_cell(source_row, column, "") for column in self._columns
+        }
+        row.update({"_layer_id": self._layer_id, "_feature_id": f"pt_{source_row}"})
+        return row
+
     def write_csv(self, path: str, excluded_columns: set[str] | None = None) -> None:
         excluded_columns = excluded_columns or set()
         columns = [column for column in self._columns if column not in excluded_columns]
@@ -290,29 +324,6 @@ def perf(message: str, **fields: object) -> None:
         return
     suffix = " ".join(f"{key}={value}" for key, value in fields.items())
     print(f"PERF: app {message}" + (f" {suffix}" if suffix else ""), flush=True)
-
-
-class CsvTableRow:
-    """Lightweight table row backed by a chunk CsvTable."""
-
-    __slots__ = ("_table", "_row_index", "_layer_id", "_feature_id")
-
-    def __init__(
-        self, table: CsvTable, row_index: int, layer_id: str, feature_id: str
-    ) -> None:
-        self._table = table
-        self._row_index = row_index
-        self._layer_id = layer_id
-        self._feature_id = feature_id
-
-    def get(self, key: str, default: object = None) -> object:
-        if key == "_layer_id":
-            return self._layer_id
-        if key == "_feature_id":
-            return self._feature_id
-        if key in self._table:
-            return self._table.get_cell(self._row_index, key, default)
-        return default
 
 
 class CsvLoaderThread(QtCore.QThread):
@@ -985,6 +996,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         source_paths = chunk_df._source_paths
         source_offsets = chunk_df._source_offsets
+        epoch_values = (
+            chunk_df[self.mapped_epoch_col]
+            if self.mapped_epoch_col in chunk_df.columns
+            else None
+        )
         chunk_df = CsvTable(
             chunk_df._columns,
             data=None,
@@ -993,6 +1009,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         )
         chunk_df[self.current_lat_col] = lats
         chunk_df[self.current_lon_col] = lons
+        if epoch_values is not None:
+            chunk_df[self.mapped_epoch_col] = epoch_values
         start_idx = self.global_fid_counter
         chunk_fids = [f"pt_{i}" for i in range(start_idx, start_idx + num_rows)]
         chunk_df["_fid"] = chunk_fids
@@ -1003,16 +1021,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.fast_layer.add_points(coords=coords, ids=chunk_fids, redraw=False)
         map_ms = (time.perf_counter() - map_start) * 1000.0
 
-        table_start = time.perf_counter()
-        table_rows = (
-            CsvTableRow(chunk_df, row_index, self.fast_layer.id, fid)
-            for row_index, fid in enumerate(chunk_fids)
-        )
-        table_rows_ms = (time.perf_counter() - table_start) * 1000.0
-
-        append_start = time.perf_counter()
-        self.table_widget.append_rows(table_rows)
-        append_ms = (time.perf_counter() - append_start) * 1000.0
+        table_rows_ms = 0.0
+        append_ms = 0.0
 
         self.chunk_list.append(chunk_df)
         self.feature_ids.extend(chunk_fids)
@@ -1039,7 +1049,10 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             return
         self.statusBar().showMessage("Finalizing UI sync...")
         self.df = CsvTable.concat(self.chunk_list)
+        self.df.set_layer_id(self.fast_layer.id)
         self.feature_ids = np.array(self.feature_ids)
+        if self.table_widget is not None:
+            self.table_widget.set_row_provider(self.df)
         self._visible_mask = np.ones(len(self.df), dtype=bool)
         self._deleted_mask = np.zeros(len(self.df), dtype=bool)
         self._keyword_mask = None
