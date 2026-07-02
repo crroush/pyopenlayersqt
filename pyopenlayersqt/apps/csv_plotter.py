@@ -242,7 +242,7 @@ class CsvTable:
     def row_count(self) -> int:
         return len(self)
 
-    def data(self, source_row: int, column: int, column_spec: ColumnSpec) -> object:
+    def data(self, source_row: int, _column: int, column_spec: ColumnSpec) -> object:
         return self.get_cell(source_row, column_spec.name, "")
 
     def key(self, source_row: int) -> tuple[str, str]:

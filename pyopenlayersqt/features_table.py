@@ -145,23 +145,23 @@ class TableRowProvider(Protocol):
 
     def row_count(self) -> int:
         """Return the number of source rows available from this provider."""
-        ...
+        raise NotImplementedError
 
     def data(self, source_row: int, column: int, column_spec: ColumnSpec) -> Any:
         """Return display/edit data for a source row and table column."""
-        ...
+        raise NotImplementedError
 
     def key(self, source_row: int) -> FeatureKey:
         """Return the selection key for a source row."""
-        ...
+        raise NotImplementedError
 
     def row_for_key(self, key: FeatureKey) -> Optional[int]:
         """Return the source row for a selection key, if present."""
-        ...
+        raise NotImplementedError
 
     def row_data(self, source_row: int) -> Any:
         """Return an optional row object for context menus/legacy consumers."""
-        ...
+        raise NotImplementedError
 
 
 class ConfigurableTableModel(QtCore.QAbstractTableModel):

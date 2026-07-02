@@ -26,7 +26,7 @@ class ArrayBackedProvider:
     def row_count(self) -> int:
         return int(self.values.size)
 
-    def data(self, source_row: int, column: int, column_spec: ColumnSpec) -> object:
+    def data(self, source_row: int, _column: int, column_spec: ColumnSpec) -> object:
         if column_spec.name == "Feature ID":
             return f"pt_{source_row}"
         if column_spec.name == "Value":
