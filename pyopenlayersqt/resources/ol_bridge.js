@@ -1494,12 +1494,36 @@ function fgp_make_canvas_layer(entry) {
         return rgba_to_css_with_opacity(pointRgbaForIndex(i, selected), entry.opacity);
       }
 
+      function ellipseStrokeRgbaForIndex(i, selected) {
+        if (selected) {
+          return (
+            st.selected_ellipse_stroke_rgba ||
+            st.ellipse_stroke_rgba ||
+            pointRgbaForIndex(i, true)
+          );
+        }
+        if (entry.color_u32[i] !== 0) {
+          return pointRgbaForIndex(i, false);
+        }
+        return st.ellipse_stroke_rgba || pointRgbaForIndex(i, false);
+      }
+
+      function ellipseStrokeCssForIndex(i, selected) {
+        return rgba_to_css_with_opacity(
+          ellipseStrokeRgbaForIndex(i, selected),
+          entry.opacity
+        );
+      }
+
       function ellipseFillCssForIndex(i, selected) {
+        const configuredFill = selected
+          ? (st.selected_ellipse_fill_rgba || st.ellipse_fill_rgba)
+          : st.ellipse_fill_rgba;
+        if (configuredFill && (selected || entry.color_u32[i] === 0)) {
+          return rgba_to_css_with_opacity(configuredFill, entry.opacity);
+        }
         const rgba = pointRgbaForIndex(i, selected).slice();
-        const alphaSource = selected
-          ? (st.selected_ellipse_fill_rgba || st.ellipse_fill_rgba || [0,255,255,40])
-          : (st.ellipse_fill_rgba || [255,204,0,40]);
-        rgba[3] = alphaSource[3];
+        rgba[3] = (configuredFill || [255,204,0,40])[3];
         return rgba_to_css_with_opacity(rgba, entry.opacity);
       }
 
@@ -1531,7 +1555,7 @@ function fgp_make_canvas_layer(entry) {
           const batches = new Map();
           for (let k = 0; k < indices.length; k++) {
             const i = indices[k];
-            const stroke = pointCssForIndex(i, selected);
+            const stroke = ellipseStrokeCssForIndex(i, selected);
             const fill = fillEll ? ellipseFillCssForIndex(i, selected) : "";
             const key = stroke + "|" + fill;
             let batch = batches.get(key);

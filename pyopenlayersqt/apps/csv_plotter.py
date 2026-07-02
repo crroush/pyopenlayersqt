@@ -567,6 +567,15 @@ class CsvLoaderThread(QtCore.QThread):
                                 offset = line_iter.consume_record_start()
                                 if not row:
                                     continue
+                                if len(row) < len(self.base_columns):
+                                    row = [
+                                        *row,
+                                        *([""] * (len(self.base_columns) - len(row))),
+                                    ]
+                                elif len(row) > len(self.base_columns):
+                                    raise ValueError(
+                                        "CSV row has unexpected column count"
+                                    )
                                 offsets.append(offset)
                                 rows.append(row)
                             if not rows:
@@ -574,8 +583,6 @@ class CsvLoaderThread(QtCore.QThread):
                             data = np.asarray(rows, dtype=str)
                             if data.ndim == 1:
                                 data = data.reshape(1, -1)
-                            if data.shape[1] != len(self.base_columns):
-                                raise ValueError("CSV row has unexpected column count")
                             chunk = CsvTable(
                                 self.base_columns,
                                 data,
