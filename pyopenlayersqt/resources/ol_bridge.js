@@ -904,87 +904,153 @@ function cmd_fast_points_add_layer(msg) {
   });
 }
 
-function cmd_fast_points_add_points(msg) {
-  const perfStart = performance.now();
-  const entry = getLayerEntry(msg.layer_id);
-  if (entry.type !== "fast_points") return;
-  const decodeStart = performance.now();
-  const pointData = pyolqt_points_from_msg(msg);
-  const coords = pointData.coords || null;
-  const coordsFlat = pointData.flat || null;
-  const pointCount = pointData.count;
-  const ids = msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.ids || null);
-  const colors = msg.colors_b64 ? pyolqt_b64_to_uint32(msg.colors_b64) : (msg.colors || null);
-  const decodeMs = performance.now() - decodeStart;
-  const startIndex = entry.x.length;
-  let skippedInvalidCount = 0;
-  const convertStart = performance.now();
+const FP_ADD_SLICE_BUDGET_MS = 8.0;
+
+function fp_add_queue(entry) {
+  if (!entry.pendingAdds) entry.pendingAdds = [];
+  return entry.pendingAdds;
+}
+
+function fp_process_add_job(entry, job, budgetStart) {
   const world = 20037508.342789244;
   const xScale = world / 180.0;
   const yScale = world / Math.PI;
-  for (let i = 0; i < pointCount; i++) {
-    const lon = coordsFlat ? coordsFlat[i * 2] : coords[i][0];
-    const rawLat = coordsFlat ? coordsFlat[i * 2 + 1] : coords[i][1];
+  while (job.cursor < job.pointCount) {
+    if ((performance.now() - budgetStart) >= FP_ADD_SLICE_BUDGET_MS) return false;
+    const i = job.cursor++;
+    const lon = job.coordsFlat ? job.coordsFlat[i * 2] : job.coords[i][0];
+    const rawLat = job.coordsFlat ? job.coordsFlat[i * 2 + 1] : job.coords[i][1];
     if (!Number.isFinite(lon) || !Number.isFinite(rawLat)) {
-      skippedInvalidCount++;
+      job.skippedInvalidCount++;
       continue;
     }
     const lat = Math.max(-85.05112878, Math.min(85.05112878, rawLat));
     const x3857 = lon * xScale;
     const y3857 = Math.log(Math.tan((90.0 + lat) * Math.PI / 360.0)) * yScale;
     if (!Number.isFinite(x3857) || !Number.isFinite(y3857)) {
-      skippedInvalidCount++;
+      job.skippedInvalidCount++;
       continue;
     }
     const idx = entry.x.length;
     entry.x.push(x3857);
     entry.y.push(y3857);
-    const fid = (ids ? ids[i] : String(idx));
+    const fid = (job.ids ? job.ids[i] : String(idx));
     entry.ids.push(fid);
     entry.idIndex.set(String(fid), idx);
     entry.deleted.push(false);
     entry.hidden.push(false);
-    entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
+    entry.color_u32.push(job.colors ? (job.colors[i] >>> 0) : 0);
     fp_index_insert(entry, idx);
     fp_qt_insert(entry, idx);
   }
-  const convertIndexMs = performance.now() - convertStart;
+  return true;
+}
+
+function fp_finish_add_job(entry, job) {
+  const acceptedPointCount = job.pointCount - job.skippedInvalidCount;
   const redrawStart = performance.now();
-  const shouldRedraw = (msg.redraw !== false);
-  if (shouldRedraw) fp_redraw(entry);
+  if (job.shouldRedraw) fp_redraw(entry);
   const redrawMs = performance.now() - redrawStart;
-  const acceptedPointCount = pointCount - skippedInvalidCount;
   emitPerf({
     side: "javascript",
     layer_id: entry.layer_id,
     operation: "fast_points_add_points",
-    point_count: pointCount,
+    point_count: job.pointCount,
     accepted_point_count: acceptedPointCount,
-    skipped_invalid_count: skippedInvalidCount,
-    start_index: startIndex,
+    skipped_invalid_count: job.skippedInvalidCount,
+    start_index: job.startIndex,
     total_points: entry.x.length,
     times: {
-      decode_ms: decodeMs.toFixed(2),
-      convert_index_ms: convertIndexMs.toFixed(2),
+      decode_ms: job.decodeMs.toFixed(2),
+      queue_wait_ms: (job.processStart - job.enqueueTime).toFixed(2),
+      convert_index_ms: job.convertIndexMs.toFixed(2),
       accepted_point_us: acceptedPointCount
-        ? ((convertIndexMs * 1000.0) / acceptedPointCount).toFixed(2)
+        ? ((job.convertIndexMs * 1000.0) / acceptedPointCount).toFixed(2)
         : "0.00",
-      redraw_requested: shouldRedraw,
+      redraw_requested: job.shouldRedraw,
       redraw_request_ms: redrawMs.toFixed(2),
-      total_ms: (performance.now() - perfStart).toFixed(2)
+      total_ms: (performance.now() - job.perfStart).toFixed(2)
     }
   });
+}
+
+function fp_schedule_add_processing(entry) {
+  if (entry.processingAddQueue) return;
+  entry.processingAddQueue = true;
+  const process = () => {
+    const queue = fp_add_queue(entry);
+    const budgetStart = performance.now();
+    while (queue.length > 0) {
+      const job = queue[0];
+      if (job.processStart === null) job.processStart = performance.now();
+      const sliceStart = performance.now();
+      const complete = fp_process_add_job(entry, job, budgetStart);
+      job.convertIndexMs += performance.now() - sliceStart;
+      if (!complete) {
+        setTimeout(process, 0);
+        return;
+      }
+      queue.shift();
+      fp_finish_add_job(entry, job);
+      if ((performance.now() - budgetStart) >= FP_ADD_SLICE_BUDGET_MS) {
+        setTimeout(process, 0);
+        return;
+      }
+    }
+    entry.processingAddQueue = false;
+    if (entry.redrawAfterAddQueue) {
+      entry.redrawAfterAddQueue = false;
+      fp_redraw(entry);
+    }
+  };
+  setTimeout(process, 0);
+}
+
+function cmd_fast_points_add_points(msg) {
+  const perfStart = performance.now();
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== "fast_points") return;
+  const decodeStart = performance.now();
+  const pointData = pyolqt_points_from_msg(msg);
+  const ids = msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.ids || null);
+  const colors = msg.colors_b64 ? pyolqt_b64_to_uint32(msg.colors_b64) : (msg.colors || null);
+  const decodeMs = performance.now() - decodeStart;
+  const queue = fp_add_queue(entry);
+  queue.push({
+    perfStart,
+    enqueueTime: performance.now(),
+    processStart: null,
+    decodeMs,
+    coords: pointData.coords || null,
+    coordsFlat: pointData.flat || null,
+    pointCount: pointData.count,
+    ids,
+    colors,
+    cursor: 0,
+    skippedInvalidCount: 0,
+    startIndex: entry.x.length + queue.reduce((acc, job) => acc + job.pointCount - job.skippedInvalidCount, 0),
+    shouldRedraw: (msg.redraw !== false),
+    convertIndexMs: 0,
+  });
+  fp_schedule_add_processing(entry);
 }
 
 function cmd_fast_points_redraw(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
+  if (entry.processingAddQueue || (entry.pendingAdds && entry.pendingAdds.length)) {
+    entry.redrawAfterAddQueue = true;
+    return;
+  }
   fp_redraw(entry);
 }
 
 function cmd_fast_points_clear(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
+  entry.pendingAdds = [];
+  entry.processingAddQueue = false;
+  entry.redrawAfterAddQueue = false;
   entry.x = []; entry.y = []; entry.ids = []; entry.color_u32 = []; entry.deleted = []; entry.hidden = [];
   entry.grid = new Map();
   fp_qt_init(entry);
