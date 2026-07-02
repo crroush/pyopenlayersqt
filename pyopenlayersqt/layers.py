@@ -1281,6 +1281,54 @@ class FastGeoPointsLayer(BaseLayer):
             }
         )
 
+    def remove_points(self, feature_ids: Sequence[str]) -> None:
+        """Remove fast geopoints by id (FastPoints-compatible alias)."""
+        self.remove_ids(feature_ids)
+
+    def hide_indices(self, indices: Sequence[int] | np.ndarray) -> None:
+        """Hide features by JS-side row index."""
+        packed = np.asarray(indices, dtype=np.uint32)
+        self._map_widget._send(
+            {
+                "type": "fast_geopoints.hide_indices",
+                "layer_id": self.id,
+                "indices_b64": _array_to_base64(packed),
+            }
+        )
+
+    def show_indices(self, indices: Sequence[int] | np.ndarray) -> None:
+        """Show features by JS-side row index."""
+        packed = np.asarray(indices, dtype=np.uint32)
+        self._map_widget._send(
+            {
+                "type": "fast_geopoints.show_indices",
+                "layer_id": self.id,
+                "indices_b64": _array_to_base64(packed),
+            }
+        )
+
+    def show_only_indices(self, indices: Sequence[int] | np.ndarray) -> None:
+        """Show only the provided JS-side row indices."""
+        packed = np.asarray(indices, dtype=np.uint32)
+        self._map_widget._send(
+            {
+                "type": "fast_geopoints.show_only_indices",
+                "layer_id": self.id,
+                "indices_b64": _array_to_base64(packed),
+            }
+        )
+
+    def show_only_index_ranges(self, ranges: Sequence[int] | np.ndarray) -> None:
+        """Show only inclusive JS-side row index ranges."""
+        packed = np.asarray(ranges, dtype=np.uint32)
+        self._map_widget._send(
+            {
+                "type": "fast_geopoints.show_only_index_ranges",
+                "layer_id": self.id,
+                "ranges_b64": _array_to_base64(packed),
+            }
+        )
+
     def set_packed_colors(
         self, feature_ids: Sequence[str], packed_colors: Sequence[int] | np.ndarray
     ) -> None:
@@ -1297,6 +1345,28 @@ class FastGeoPointsLayer(BaseLayer):
                 "colors_b64": _array_to_base64(packed),
                 "colors_dtype": "uint32",
                 "count": len(feature_ids),
+            }
+        )
+
+    def set_all_packed_colors(self, packed_colors: Sequence[int] | np.ndarray) -> None:
+        """Update colors for every geopoint by JS-side row index."""
+        packed = np.asarray(packed_colors, dtype=np.uint32)
+        self._map_widget._send(
+            {
+                "type": "fast_geopoints.set_all_colors",
+                "layer_id": self.id,
+                "colors_b64": _array_to_base64(packed),
+                "colors_dtype": "uint32",
+                "count": int(packed.size),
+            }
+        )
+
+    def clear_colors(self) -> None:
+        """Clear custom per-feature colors and return to the default style color."""
+        self._map_widget._send(
+            {
+                "type": "fast_geopoints.clear_colors",
+                "layer_id": self.id,
             }
         )
 

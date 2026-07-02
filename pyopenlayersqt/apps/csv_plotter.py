@@ -21,7 +21,12 @@ import numpy as np
 from matplotlib.colors import hsv_to_rgb
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from pyopenlayersqt import FastPointsStyle, OLMapWidget, RangeSliderWidget
+from pyopenlayersqt import (
+    FastGeoPointsStyle,
+    FastPointsStyle,
+    OLMapWidget,
+    RangeSliderWidget,
+)
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
 
 
@@ -628,6 +633,10 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.current_lat_col: str | None = None
         self.current_lon_col: str | None = None
         self.current_time_col: str | None = None
+        self.current_sma_col: str | None = None
+        self.current_smi_col: str | None = None
+        self.current_tilt_col: str | None = None
+        self._using_ellipses = False
         self.mapped_epoch_col = "_slider_epoch_time"
         self.feature_ids: list[str] | np.ndarray = []
         self._visible_mask: np.ndarray | None = None
@@ -966,6 +975,49 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if paths:
             self.process_csv(paths)
 
+    def _auto_column(self, columns: Sequence[str], names: set[str]) -> str | None:
+        lower_to_column = {column.lower(): column for column in columns}
+        for name in names:
+            column = lower_to_column.get(name.lower())
+            if column is not None:
+                return column
+        return None
+
+    def _configure_point_layer(self, columns: Sequence[str]) -> None:
+        sma_col = self._auto_column(
+            columns, {"sma", "sma_m", "semi_major", "semimajor"}
+        )
+        smi_col = self._auto_column(
+            columns, {"smi", "smi_m", "semi_minor", "semiminor"}
+        )
+        tilt_col = self._auto_column(columns, {"tilt", "tilt_deg", "bearing", "angle"})
+        use_ellipses = bool(sma_col and smi_col and tilt_col)
+        if use_ellipses == self._using_ellipses:
+            self.current_sma_col = sma_col
+            self.current_smi_col = smi_col
+            self.current_tilt_col = tilt_col
+            return
+
+        self.fast_layer.remove()
+        if use_ellipses:
+            self.fast_layer = self.map_widget.add_fast_geopoints_layer(
+                name="Data Points",
+                selectable=True,
+                style=FastGeoPointsStyle(default_color="steelblue", point_radius=3),
+                cell_size_m=self.cli_args.cell_size_m,
+            )
+        else:
+            self.fast_layer = self.map_widget.add_fast_points_layer(
+                name="Data Points",
+                selectable=True,
+                style=FastPointsStyle(default_color="steelblue", radius=3),
+                cell_size_m=self.cli_args.cell_size_m,
+            )
+        self._using_ellipses = use_ellipses
+        self.current_sma_col = sma_col
+        self.current_smi_col = smi_col
+        self.current_tilt_col = tilt_col
+
     def process_csv(
         self,
         paths: str | Sequence[str],
@@ -993,6 +1045,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.current_lat_col = lat_col
         self.current_lon_col = lon_col
         self.current_time_col = time_col
+        self._configure_point_layer(base_columns)
         self._configure_column_controls(base_columns)
 
         self.centralWidget().setEnabled(False)
@@ -1122,10 +1175,20 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         lons = _to_float_array(chunk_df[self.current_lon_col])
         valid_coords = np.isfinite(lats) & np.isfinite(lons)
         skipped_invalid_coords = int(incoming_rows - np.count_nonzero(valid_coords))
+        ellipse_values = None
+        if self._using_ellipses:
+            sma_values = _to_float_array(chunk_df[self.current_sma_col])
+            smi_values = _to_float_array(chunk_df[self.current_smi_col])
+            tilt_values = _to_float_array(chunk_df[self.current_tilt_col])
+            ellipse_values = (sma_values, smi_values, tilt_values)
         if skipped_invalid_coords:
             chunk_df = chunk_df.filtered(valid_coords)
             lats = lats[valid_coords]
             lons = lons[valid_coords]
+            if ellipse_values is not None:
+                ellipse_values = tuple(
+                    values[valid_coords] for values in ellipse_values
+                )
         num_rows = len(chunk_df)
         if num_rows == 0:
             perf(
@@ -1164,7 +1227,18 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         coords_ms = (time.perf_counter() - coords_start) * 1000.0
 
         map_start = time.perf_counter()
-        self.fast_layer.add_points(coords=coords, ids=chunk_fids, redraw=False)
+        if ellipse_values is not None:
+            sma_values, smi_values, tilt_values = ellipse_values
+            self.fast_layer.add_points_with_ellipses(
+                coords=coords,
+                sma_m=sma_values,
+                smi_m=smi_values,
+                tilt_deg=tilt_values,
+                ids=chunk_fids,
+                redraw=False,
+            )
+        else:
+            self.fast_layer.add_points(coords=coords, ids=chunk_fids, redraw=False)
         map_ms = (time.perf_counter() - map_start) * 1000.0
 
         table_rows_ms = 0.0
