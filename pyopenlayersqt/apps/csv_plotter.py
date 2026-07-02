@@ -564,6 +564,9 @@ class CsvImportDialog(QtWidgets.QDialog):
         default_lat: str | None = None,
         default_lon: str | None = None,
         default_time: str | None = None,
+        default_sma: str | None = None,
+        default_smi: str | None = None,
+        default_tilt: str | None = None,
         parent: QtWidgets.QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -583,9 +586,27 @@ class CsvImportDialog(QtWidgets.QDialog):
         self.time_cb.addItems(columns)
         self._set_default(self.time_cb, default_time, ["time", "date", "timestamp"])
 
+        self.sma_cb = QtWidgets.QComboBox()
+        self.sma_cb.addItem("None")
+        self.sma_cb.addItems(columns)
+        self._set_default(self.sma_cb, default_sma, [])
+
+        self.smi_cb = QtWidgets.QComboBox()
+        self.smi_cb.addItem("None")
+        self.smi_cb.addItems(columns)
+        self._set_default(self.smi_cb, default_smi, [])
+
+        self.tilt_cb = QtWidgets.QComboBox()
+        self.tilt_cb.addItem("None")
+        self.tilt_cb.addItems(columns)
+        self._set_default(self.tilt_cb, default_tilt, [])
+
         layout.addRow("Latitude Column:", self.lat_cb)
         layout.addRow("Longitude Column:", self.lon_cb)
         layout.addRow("Time Column:", self.time_cb)
+        layout.addRow("SMA Column:", self.sma_cb)
+        layout.addRow("SMI Column:", self.smi_cb)
+        layout.addRow("Tilt Column:", self.tilt_cb)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
@@ -611,11 +632,14 @@ class CsvImportDialog(QtWidgets.QDialog):
                 combo_box.setCurrentIndex(i)
                 break
 
-    def get_selections(self) -> tuple[str, str, str]:
+    def get_selections(self) -> tuple[str, str, str, str, str, str]:
         return (
             self.lat_cb.currentText(),
             self.lon_cb.currentText(),
             self.time_cb.currentText(),
+            self.sma_cb.currentText(),
+            self.smi_cb.currentText(),
+            self.tilt_cb.currentText(),
         )
 
 
@@ -657,7 +681,16 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._time_filter_timer.setInterval(50)
         self._time_filter_timer.timeout.connect(self._apply_pending_time_filter)
         self._pending_cli_csv: (
-            tuple[Sequence[str] | str, str | None, str | None, str | None] | None
+            tuple[
+                Sequence[str] | str,
+                str | None,
+                str | None,
+                str | None,
+                str | None,
+                str | None,
+                str | None,
+            ]
+            | None
         ) = None
 
         self._setup_ui()
@@ -667,6 +700,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 self.cli_args.lat,
                 self.cli_args.lon,
                 self.cli_args.time,
+                self.cli_args.sma,
+                self.cli_args.smi,
+                self.cli_args.tilt,
             )
             self.map_widget.ready.connect(self._process_pending_cli_csv)
             QtCore.QTimer.singleShot(0, self._process_pending_cli_csv)
@@ -676,9 +712,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             return
         if not getattr(self.map_widget, "_js_ready", False):
             return
-        paths, lat_col, lon_col, time_col = self._pending_cli_csv
+        paths, lat_col, lon_col, time_col, sma_col, smi_col, tilt_col = (
+            self._pending_cli_csv
+        )
         self._pending_cli_csv = None
-        self.process_csv(paths, lat_col, lon_col, time_col)
+        self.process_csv(paths, lat_col, lon_col, time_col, sma_col, smi_col, tilt_col)
 
     def _setup_ui(self) -> None:
         central = QtWidgets.QWidget()
@@ -988,22 +1026,15 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if paths:
             self.process_csv(paths)
 
-    def _auto_column(self, columns: Sequence[str], names: set[str]) -> str | None:
-        lower_to_column = {column.lower(): column for column in columns}
-        for name in names:
-            column = lower_to_column.get(name.lower())
-            if column is not None:
-                return column
-        return None
-
-    def _configure_point_layer(self, columns: Sequence[str]) -> None:
-        sma_col = self._auto_column(
-            columns, {"sma", "sma_m", "semi_major", "semimajor"}
-        )
-        smi_col = self._auto_column(
-            columns, {"smi", "smi_m", "semi_minor", "semiminor"}
-        )
-        tilt_col = self._auto_column(columns, {"tilt", "tilt_deg", "bearing", "angle"})
+    def _configure_point_layer(
+        self,
+        sma_col: str | None,
+        smi_col: str | None,
+        tilt_col: str | None,
+    ) -> None:
+        sma_col = None if sma_col in (None, "", "None") else sma_col
+        smi_col = None if smi_col in (None, "", "None") else smi_col
+        tilt_col = None if tilt_col in (None, "", "None") else tilt_col
         use_ellipses = bool(sma_col and smi_col and tilt_col)
         if use_ellipses == self._using_ellipses:
             self.current_sma_col = sma_col
@@ -1037,6 +1068,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         cli_lat: str | None = None,
         cli_lon: str | None = None,
         cli_time: str | None = None,
+        cli_sma: str | None = None,
+        cli_smi: str | None = None,
+        cli_tilt: str | None = None,
     ) -> None:
         if isinstance(paths, str):
             paths = [paths]
@@ -1047,18 +1081,42 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         base_columns = _read_csv_header(first_file)
 
         cli_time_valid = cli_time in (None, "", "None") or cli_time in base_columns
-        if cli_lat in base_columns and cli_lon in base_columns and cli_time_valid:
+        cli_ellipse_values = (cli_sma, cli_smi, cli_tilt)
+        cli_ellipse_empty = all(
+            value in (None, "", "None") for value in cli_ellipse_values
+        )
+        cli_ellipse_valid = cli_ellipse_empty or all(
+            value in base_columns for value in cli_ellipse_values
+        )
+        if (
+            cli_lat in base_columns
+            and cli_lon in base_columns
+            and cli_time_valid
+            and cli_ellipse_valid
+        ):
             lat_col, lon_col, time_col = cli_lat, cli_lon, cli_time
+            sma_col, smi_col, tilt_col = cli_sma, cli_smi, cli_tilt
         else:
-            dialog = CsvImportDialog(base_columns, cli_lat, cli_lon, cli_time, self)
+            dialog = CsvImportDialog(
+                base_columns,
+                cli_lat,
+                cli_lon,
+                cli_time,
+                cli_sma,
+                cli_smi,
+                cli_tilt,
+                self,
+            )
             if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
                 return
-            lat_col, lon_col, time_col = dialog.get_selections()
+            lat_col, lon_col, time_col, sma_col, smi_col, tilt_col = (
+                dialog.get_selections()
+            )
 
         self.current_lat_col = lat_col
         self.current_lon_col = lon_col
         self.current_time_col = time_col
-        self._configure_point_layer(base_columns)
+        self._configure_point_layer(sma_col, smi_col, tilt_col)
         self._configure_column_controls(base_columns)
 
         self.centralWidget().setEnabled(False)
@@ -1596,6 +1654,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lat", type=str, default=None)
     parser.add_argument("--lon", type=str, default=None)
     parser.add_argument("--time", type=str, default=None)
+    parser.add_argument("--sma", type=str, default=None)
+    parser.add_argument("--smi", type=str, default=None)
+    parser.add_argument("--tilt", type=str, default=None)
     parser.add_argument("--chunk-size", type=int, default=50_000)
     parser.add_argument("--cell-size-m", type=float, default=50_000.0)
     parser.add_argument(
