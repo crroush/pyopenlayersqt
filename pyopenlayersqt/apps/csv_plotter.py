@@ -10,13 +10,11 @@ from __future__ import annotations
 
 import argparse
 import csv
-import io
 from datetime import datetime, timezone
 import os
 import re
 import sys
 import time
-import warnings
 from typing import Sequence
 
 import numpy as np
@@ -68,6 +66,33 @@ def _category_codes_to_packed_rgba(codes: np.ndarray) -> np.ndarray:
     )
     packed[code_arr < 0] = np.uint32(0x999999FF)
     return packed.astype(np.uint32, copy=False)
+
+
+class _OffsetLineIterator:
+    """Decode binary CSV lines while tracking each logical record start offset."""
+
+    def __init__(self, fh):
+        self._fh = fh
+        self.record_start: int | None = None
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> str:
+        offset = self._fh.tell()
+        line = self._fh.readline()
+        if not line:
+            raise StopIteration
+        if self.record_start is None:
+            self.record_start = offset
+        return line.decode("utf-8-sig")
+
+    def consume_record_start(self) -> int:
+        if self.record_start is None:
+            return self._fh.tell()
+        offset = self.record_start
+        self.record_start = None
+        return offset
 
 
 def _read_csv_header(path: str) -> list[str]:
@@ -308,8 +333,7 @@ class CsvTable:
             offset = int(self._source_offsets[row_index])
         with open(self._source_paths[file_id], "rb") as fh:
             fh.seek(offset)
-            line = fh.readline().decode("utf-8-sig")
-        return next(csv.reader([line]))
+            return next(csv.reader(_OffsetLineIterator(fh)))
 
 
 def perf_enabled() -> bool:
@@ -364,33 +388,26 @@ class CsvLoaderThread(QtCore.QThread):
 
                     with open(path, "rb") as fh:
                         fh.readline()
+                        line_iter = _OffsetLineIterator(fh)
+                        reader = csv.reader(line_iter)
                         while True:
                             offsets: list[int] = []
-                            lines: list[bytes] = []
+                            rows: list[list[str]] = []
                             for _ in range(self.chunk_size):
-                                offset = fh.tell()
-                                line = fh.readline()
-                                if not line:
+                                try:
+                                    row = next(reader)
+                                except StopIteration:
                                     break
-                                if not line.strip():
+                                offset = line_iter.consume_record_start()
+                                if not row:
                                     continue
                                 offsets.append(offset)
-                                lines.append(line)
-                            if not lines:
+                                rows.append(row)
+                            if not rows:
                                 break
-                            with warnings.catch_warnings():
-                                warnings.simplefilter("ignore", UserWarning)
-                                data = np.loadtxt(
-                                    io.BytesIO(b"".join(lines)),
-                                    delimiter=",",
-                                    dtype=str,
-                                    ndmin=2,
-                                    quotechar='"',
-                                    comments=None,
-                                    encoding="utf-8-sig",
-                                )
-                            if data.size == 0:
-                                continue
+                            data = np.asarray(rows, dtype=str)
+                            if data.ndim == 1:
+                                data = data.reshape(1, -1)
                             if data.shape[1] != len(self.base_columns):
                                 raise ValueError("CSV row has unexpected column count")
                             chunk = CsvTable(
@@ -971,10 +988,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if self.current_time_col and self.current_time_col != "None":
             raw_time_values = chunk_df[self.current_time_col]
             numeric_times = _to_float_array(raw_time_values)
-            if np.count_nonzero(np.isfinite(numeric_times)) == len(raw_time_values):
-                chunk_df[self.mapped_epoch_col] = numeric_times
-            else:
-                chunk_df[self.mapped_epoch_col] = _parse_datetime_array(raw_time_values)
+            invalid_numeric = ~np.isfinite(numeric_times)
+            if np.any(invalid_numeric):
+                parsed_times = _parse_datetime_array(raw_time_values)
+                numeric_times[invalid_numeric] = parsed_times[invalid_numeric]
+            chunk_df[self.mapped_epoch_col] = numeric_times
 
         coords_start = time.perf_counter()
         lats = _to_float_array(chunk_df[self.current_lat_col])
