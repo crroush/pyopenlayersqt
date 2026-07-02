@@ -3,7 +3,7 @@
 
 This console app mirrors the large-CSV workflow used while investigating
 FastPoints selection performance and prints PERF lines when
-PYOPENLAYERSQT_PERF=1 or PYOPENLAYERSQT_BENCH=1.
+PYOPENLAYERSQT_PERF=1.
 """
 
 from __future__ import annotations
@@ -350,10 +350,7 @@ class CsvTable:
 
 
 def perf_enabled() -> bool:
-    return (
-        os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
-        or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
-    )
+    return os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
 
 
 def perf(message: str, **fields: object) -> None:
@@ -1162,14 +1159,30 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 self.fast_layer.clear_colors()
                 return
 
-            codes, unique_values = _factorize_values(self.df[column_name])
+            stage_start = time.perf_counter()
+            column_values = self.df[column_name]
+            read_column_ms = (time.perf_counter() - stage_start) * 1000.0
+
+            stage_start = time.perf_counter()
+            codes, unique_values = _factorize_values(column_values)
+            factorize_ms = (time.perf_counter() - stage_start) * 1000.0
+
+            stage_start = time.perf_counter()
             packed_colors = _category_codes_to_packed_rgba(codes)
+            color_map_ms = (time.perf_counter() - stage_start) * 1000.0
+
+            stage_start = time.perf_counter()
             self.fast_layer.set_all_packed_colors(packed_colors)
+            send_ms = (time.perf_counter() - stage_start) * 1000.0
             perf(
                 "color_by",
                 column=column_name,
                 category_count=len(unique_values),
                 row_count=len(codes),
+                read_column_ms=round(read_column_ms, 2),
+                factorize_ms=round(factorize_ms, 2),
+                color_map_ms=round(color_map_ms, 2),
+                send_ms=round(send_ms, 2),
             )
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()

@@ -1203,14 +1203,30 @@ function cmd_fast_points_set_colors(msg) {
 }
 
 function cmd_fast_points_set_all_colors(msg) {
+  const perfStart = performance.now();
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
   const colors = msg.colors_b64 ? pyolqt_b64_to_uint32(msg.colors_b64) : (msg.colors || []);
   if (colors.length !== entry.color_u32.length) return;
+  const updateStart = performance.now();
   for (let i = 0; i < colors.length; i++) {
     entry.color_u32[i] = colors[i] >>> 0;
   }
+  const updateMs = performance.now() - updateStart;
+  const redrawStart = performance.now();
   fp_redraw(entry);
+  const redrawMs = performance.now() - redrawStart;
+  emitPerf({
+    side: "javascript",
+    operation: "fast_points_set_all_colors",
+    layer_id: entry.layer_id,
+    color_count: colors.length,
+    times: {
+      update_ms: updateMs.toFixed(2),
+      redraw_ms: redrawMs.toFixed(2),
+      total_ms: (performance.now() - perfStart).toFixed(2),
+    },
+  });
 }
 
 function cmd_fast_points_clear_colors(msg) {

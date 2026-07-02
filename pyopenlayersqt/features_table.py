@@ -79,10 +79,7 @@ ContextMenuCallback = Callable[["TableContextMenuEvent"], None]
 
 
 def _perf_enabled() -> bool:
-    return (
-        os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
-        or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
-    )
+    return os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
 
 
 def _perf_print(payload: dict[str, Any]) -> None:
