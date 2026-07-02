@@ -612,6 +612,20 @@ function fp_selection_visible_ids(entry, ids) {
   return visible;
 }
 
+function fp_selected_indices_from_ids(entry, ids) {
+  const indices = new Set();
+  for (const fid of ids || []) {
+    const i = entry.idIndex.get(String(fid));
+    if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
+    indices.add(i);
+  }
+  return indices;
+}
+
+function fp_rebuild_selected_indices(entry) {
+  entry.selectedIndices = fp_selected_indices_from_ids(entry, entry.selectedIds || []);
+}
+
 function fp_prune_hidden_selection(entry) {
   if (!entry.selectedIds || entry.selectedIds.size === 0) return false;
   let changed = false;
@@ -622,6 +636,7 @@ function fp_prune_hidden_selection(entry) {
       changed = true;
     }
   }
+  if (changed) fp_rebuild_selected_indices(entry);
   return changed;
 }
 
@@ -798,10 +813,10 @@ function fp_make_canvas_layer(entry) {
         }
       }
 
-      if (entry.selectedIds.size > 0) {
-        for (const fid of entry.selectedIds) {
-          const i = entry.idIndex.get(String(fid));
-          if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
+      const selectedIndices = entry.selectedIndices || new Set();
+      if (selectedIndices.size > 0) {
+        for (const i of selectedIndices) {
+          if (entry.deleted[i] || entry.hidden[i]) continue;
           const x = entry.x[i], y = entry.y[i];
           if (x < extent[0] || x > extent[2] || y < extent[1] || y > extent[3]) continue;
           addPointToBatch(i, true);
@@ -885,6 +900,7 @@ function cmd_fast_points_add_layer(msg) {
     qtRoot: null,
     cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
+    selectedIndices: new Set(),
     idIndex: new Map(),
     style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255] },
     source: null,
@@ -990,6 +1006,7 @@ function cmd_fast_points_clear(msg) {
   fp_qt_init(entry);
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
+  entry.selectedIndices = new Set();
   fp_redraw(entry);
   fp_emit_selection(entry);
 }
@@ -1006,6 +1023,7 @@ function cmd_fast_points_remove_ids(msg) {
     if (!entry.hidden[i]) fp_qt_update_visibility(entry, i, -1);
     entry.deleted[i] = true;
     entry.selectedIds.delete(entry.ids[i]);
+    entry.selectedIndices.delete(i);
   }
   fp_redraw(entry);
   fp_emit_selection(entry);
@@ -1067,6 +1085,7 @@ function cmd_fast_points_select_set(msg) {
     const ids = fp_selection_visible_ids(entry, msg.feature_ids || []);
     const setStart = performance.now();
     entry.selectedIds = new Set(ids);
+    entry.selectedIndices = fp_selected_indices_from_ids(entry, ids);
     const setMs = performance.now() - setStart;
     const redrawStart = performance.now();
     fp_redraw(entry);
@@ -1106,6 +1125,7 @@ function cmd_fast_points_hide_ids(msg) {
     if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
     selectionChanged = entry.selectedIds.delete(entry.ids[i]) || selectionChanged;
+    if (selectionChanged) entry.selectedIndices.delete(i);
     fp_qt_update_visibility(entry, i, -1);
   }
   fp_redraw(entry);
@@ -1145,6 +1165,7 @@ function cmd_fast_points_hide_indices(msg) {
     if (i == null || i >= entry.hidden.length || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
     selectionChanged = entry.selectedIds.delete(entry.ids[i]) || selectionChanged;
+    if (selectionChanged) entry.selectedIndices.delete(i);
     fp_qt_update_visibility(entry, i, -1);
   }
   if (entry.type === "fast_geopoints") fgp_redraw(entry); else fp_redraw(entry);
@@ -1342,6 +1363,7 @@ function fgp_make_canvas_layer(entry) {
       const TAU = Math.PI * 2;
       const st = entry.style || {};
       const selectedSet = entry.selectedIds || new Set();
+      const selectedIndexSet = entry.selectedIndices || new Set();
 
       const queryStart = performance.now();
       const root = entry.qtRoot;
@@ -1377,7 +1399,7 @@ function fgp_make_canvas_layer(entry) {
       const seenCenterPixels = new Set();
 
       function addUnselectedDrawIndex(i, fromCollapsedNode) {
-        if (entry.deleted[i] || entry.hidden[i] || selectedSet.has(entry.ids[i]) || !inExtent(i)) return;
+        if (entry.deleted[i] || entry.hidden[i] || selectedIndexSet.has(i) || !inExtent(i)) return;
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
         const pixelKey = Math.round(x) + ',' + Math.round(y);
@@ -1521,9 +1543,8 @@ function fgp_make_canvas_layer(entry) {
         if (selectedEllipsesVisible && !selectedEllipsesSkippedByLimit) {
           const selectedLookupStart = performance.now();
           const selectedIndices = [];
-          for (const fid of selectedSet) {
-            const i = entry.idIndex.get(String(fid));
-            if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
+          for (const i of selectedIndexSet) {
+            if (entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
             selectedIndices.push(i);
           }
           selectedEllipseLookupMs = performance.now() - selectedLookupStart;
@@ -1565,9 +1586,8 @@ function fgp_make_canvas_layer(entry) {
 
       for (let k = 0; k < drawIndices.length; k++) addPointToBatch(drawIndices[k], false);
       const selectedPointLookupStart = performance.now();
-      for (const fid of selectedSet) {
-        const i = entry.idIndex.get(String(fid));
-        if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
+      for (const i of selectedIndexSet) {
+        if (entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
         selectedPointCandidateCount++;
         addPointToBatch(i, true);
       }
@@ -1654,6 +1674,7 @@ function cmd_fast_geopoints_add_layer(msg) {
     qtRoot: null,
     cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
+    selectedIndices: new Set(),
     idIndex: new Map(),
     style,
     source: null,
@@ -1767,6 +1788,7 @@ function cmd_fast_geopoints_clear(msg) {
   fp_qt_init(entry);
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
+  entry.selectedIndices = new Set();
   fgp_redraw(entry);
   if (msg.emit !== false) fgp_emit_selection(entry);
 }
@@ -1783,6 +1805,7 @@ function cmd_fast_geopoints_remove_ids(msg) {
     if (!entry.hidden[i]) fp_qt_update_visibility(entry, i, -1);
     entry.deleted[i] = true;
     entry.selectedIds.delete(entry.ids[i]);
+    entry.selectedIndices.delete(i);
   }
   fgp_redraw(entry);
   fgp_emit_selection(entry);
@@ -1829,6 +1852,7 @@ function cmd_fast_geopoints_select_set(msg) {
     const ids = fp_selection_visible_ids(entry, pyolqt_ids_from_msg(msg));
     const setStart = performance.now();
     entry.selectedIds = new Set(ids);
+    entry.selectedIndices = fp_selected_indices_from_ids(entry, ids);
     const setMs = performance.now() - setStart;
     const redrawStart = performance.now();
     fgp_redraw(entry);
@@ -1868,6 +1892,7 @@ function cmd_fast_geopoints_hide_ids(msg) {
     if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
     selectionChanged = entry.selectedIds.delete(entry.ids[i]) || selectionChanged;
+    if (selectionChanged) entry.selectedIndices.delete(i);
     fp_qt_update_visibility(entry, i, -1);
   }
   fgp_redraw(entry);
@@ -1975,8 +2000,13 @@ function fp_install_interactions() {
       const pickMs = performance.now() - pickStart;
       if (idx < 0) continue;
       const fid = entry.ids[idx];
-      if (entry.selectedIds.has(fid)) entry.selectedIds.delete(fid);
-      else entry.selectedIds.add(fid);
+      if (entry.selectedIds.has(fid)) {
+        entry.selectedIds.delete(fid);
+        entry.selectedIndices.delete(idx);
+      } else {
+        entry.selectedIds.add(fid);
+        entry.selectedIndices.add(idx);
+      }
       const redrawStart = performance.now();
       if (entry.type === "fast_geopoints") fgp_redraw(entry);
       else fp_redraw(entry);
@@ -2019,16 +2049,21 @@ function fp_install_interactions() {
       const queryMs = performance.now() - queryStart;
       const buildStart = performance.now();
       const next = new Set();
+      const nextIndices = new Set();
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
         if (entry.deleted[i] || entry.hidden[i]) continue;
         const x = entry.x[i], y = entry.y[i];
-        if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) next.add(entry.ids[i]);
+        if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) {
+          next.add(entry.ids[i]);
+          nextIndices.add(i);
+        }
       }
       const buildMs = performance.now() - buildStart;
       // Only emit selection if something was selected in this layer or if clearing previous selection
       if (next.size > 0 || entry.selectedIds.size > 0) {
         entry.selectedIds = next;
+        entry.selectedIndices = nextIndices;
         const redrawStart = performance.now();
         if (entry.type === "fast_geopoints") fgp_redraw(entry);
         else fp_redraw(entry);
