@@ -26,6 +26,7 @@ from pyopenlayersqt import (
     FastPointsStyle,
     OLMapWidget,
     RangeSliderWidget,
+    WMSOptions,
 )
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
 
@@ -119,20 +120,42 @@ def _read_csv_header(path: str) -> list[str]:
 
 
 def _parse_datetime_array(values: np.ndarray) -> np.ndarray:
-    """Convert ISO-like datetime strings to Unix epoch seconds."""
+    """Convert mixed common datetime strings to Unix epoch seconds."""
+    fallback_formats = (
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y %H:%M",
+        "%m/%d/%y %H:%M:%S",
+        "%m/%d/%y %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%m/%d/%Y",
+        "%m/%d/%y",
+        "%Y/%m/%d",
+        "%Y-%m-%d",
+    )
     out = np.full(values.shape, np.nan, dtype=np.float64)
     for index, value in enumerate(values.astype(str, copy=False)):
         text = value.strip()
         if not text:
             continue
+        normalized = text.replace("Z", "+00:00")
+        dt: datetime | None = None
         try:
-            normalized = text.replace("Z", "+00:00")
             dt = datetime.fromisoformat(normalized)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            out[index] = dt.astimezone(timezone.utc).timestamp()
         except ValueError:
+            for fmt in fallback_formats:
+                try:
+                    dt = datetime.strptime(text, fmt)
+                    break
+                except ValueError:
+                    continue
+        if dt is None:
             continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        out[index] = dt.astimezone(timezone.utc).timestamp()
     return out
 
 
@@ -153,6 +176,18 @@ def _factorize_values(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         values.astype(str, copy=False), return_inverse=True
     )
     return codes.astype(np.int64, copy=False), unique_values
+
+
+def _numeric_aware_sort_values(values: np.ndarray) -> tuple[np.ndarray, bool]:
+    """Return sortable values, using numeric order when non-empty cells are numeric."""
+    text_values = values.astype(str, copy=False)
+    numeric_values = _to_float_array(text_values)
+    non_empty = np.char.strip(text_values) != ""
+    if np.all(np.isfinite(numeric_values[non_empty])):
+        sort_values = numeric_values.copy()
+        sort_values[~np.isfinite(sort_values)] = np.inf
+        return sort_values, True
+    return text_values, False
 
 
 class CsvColumnIndex:
@@ -198,7 +233,10 @@ class CsvColumnIndex:
         if self.codes is None:
             self.finalize()
         if self.unique_values.size:
-            sorted_codes = np.argsort(self.unique_values.astype(str), kind="stable")
+            unique_sort_values, _is_numeric = _numeric_aware_sort_values(
+                self.unique_values
+            )
+            sorted_codes = np.argsort(unique_sort_values, kind="stable")
             rank_by_code = np.empty_like(sorted_codes)
             rank_by_code[sorted_codes] = np.arange(
                 len(sorted_codes), dtype=sorted_codes.dtype
@@ -356,7 +394,10 @@ class CsvTable:
                 if indices is None
                 else np.asarray(indices, dtype=np.uint32)
             )
-            order = np.argsort(values[source_indices].astype(str), kind="stable")
+            sort_values, _is_numeric = _numeric_aware_sort_values(
+                values[source_indices]
+            )
+            order = np.argsort(sort_values, kind="stable")
             if descending:
                 order = order[::-1]
             return source_indices[order].astype(np.uint32, copy=False).tolist()
@@ -661,6 +702,13 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.current_smi_col: str | None = None
         self.current_tilt_col: str | None = None
         self._using_ellipses = False
+        self._ellipses_visible = True
+        self._osm_url = self.cli_args.osm_url
+        self._osm_opacity = float(self.cli_args.osm_opacity)
+        self._wms_url = self.cli_args.wms_url
+        self._wms_layers = self.cli_args.wms_layers
+        self._wms_opacity = float(self.cli_args.wms_opacity)
+        self.wms_layer = None
         self.mapped_epoch_col = "_slider_epoch_time"
         self.feature_ids: list[str] | np.ndarray = []
         self._visible_mask: np.ndarray | None = None
@@ -784,11 +832,13 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         map_layout = QtWidgets.QVBoxLayout(map_panel)
         map_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.map_widget = OLMapWidget(center=(0, 0), zoom=2)
+        self.map_widget = OLMapWidget(center=(0, 0), zoom=2, osm_url=self._osm_url)
+        self.map_widget.set_base_opacity(self._osm_opacity)
         self.map_widget.perfReceived.connect(
             lambda payload: perf("bridge_event", payload=payload)
         )
         map_layout.addWidget(self.map_widget, stretch=1)
+        self._apply_wms_settings(show_errors=False)
 
         self.slider = RangeSliderWidget(is_iso8601=True)
         self.slider.setEnabled(False)
@@ -820,6 +870,27 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         quit_action.setShortcut(QtGui.QKeySequence.StandardKey.Quit)
         quit_action.triggered.connect(QtWidgets.QApplication.quit)
         file_menu.addAction(quit_action)
+
+        map_menu = self.menuBar().addMenu("Map")
+        layer_settings_action = QtGui.QAction("Base/WMS Settings...", self)
+        layer_settings_action.triggered.connect(self.open_layer_settings_dialog)
+        map_menu.addAction(layer_settings_action)
+        self.ellipses_action = QtGui.QAction("Show Ellipses", self)
+        self.ellipses_action.setCheckable(True)
+        self.ellipses_action.setChecked(True)
+        self.ellipses_action.triggered.connect(self.toggle_ellipses)
+        map_menu.addAction(self.ellipses_action)
+
+        selection_menu = self.menuBar().addMenu("Selection")
+        show_only_selected_action = QtGui.QAction("Show Only Selected", self)
+        show_only_selected_action.triggered.connect(self.show_only_selected_features)
+        hide_selected_action = QtGui.QAction("Hide Selected", self)
+        hide_selected_action.triggered.connect(self.hide_selected_features)
+        show_all_action = QtGui.QAction("Show All", self)
+        show_all_action.triggered.connect(self.show_all_features)
+        selection_menu.addAction(show_only_selected_action)
+        selection_menu.addAction(hide_selected_action)
+        selection_menu.addAction(show_all_action)
 
         status_bar = QtWidgets.QStatusBar(self)
         self.setStatusBar(status_bar)
@@ -980,6 +1051,90 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             return
         self.table_widget.set_visible_row_indices(indices)
 
+    def _apply_wms_settings(self, show_errors: bool = True) -> None:
+        """Create/update/remove the optional WMS overlay from stored settings."""
+        url = (self._wms_url or "").strip()
+        layers = (self._wms_layers or "").strip()
+        if not url:
+            if self.wms_layer is not None:
+                self.wms_layer.remove()
+                self.wms_layer = None
+            return
+        if not layers:
+            if show_errors:
+                QtWidgets.QMessageBox.warning(
+                    self, "Missing WMS Layers", "Please provide WMS layer name(s)."
+                )
+            return
+        params = {"LAYERS": layers, "TILED": True}
+        if self.wms_layer is not None:
+            self.wms_layer.remove()
+        self.wms_layer = self.map_widget.add_wms(
+            WMSOptions(url=url, params=params, opacity=self._wms_opacity),
+            name="WMS Overlay",
+        )
+
+    def open_layer_settings_dialog(self) -> None:
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Base/WMS Settings")
+        form = QtWidgets.QFormLayout(dialog)
+
+        osm_url_edit = QtWidgets.QLineEdit(self._osm_url or "")
+        osm_opacity = QtWidgets.QDoubleSpinBox()
+        osm_opacity.setRange(0.0, 1.0)
+        osm_opacity.setSingleStep(0.05)
+        osm_opacity.setValue(self._osm_opacity)
+
+        wms_url_edit = QtWidgets.QLineEdit(self._wms_url or "")
+        wms_layers_edit = QtWidgets.QLineEdit(self._wms_layers or "")
+        wms_opacity = QtWidgets.QDoubleSpinBox()
+        wms_opacity.setRange(0.0, 1.0)
+        wms_opacity.setSingleStep(0.05)
+        wms_opacity.setValue(self._wms_opacity)
+
+        form.addRow("OSM/XYZ URL:", osm_url_edit)
+        form.addRow("OSM opacity:", osm_opacity)
+        form.addRow("WMS URL:", wms_url_edit)
+        form.addRow("WMS layer(s):", wms_layers_edit)
+        form.addRow("WMS opacity:", wms_opacity)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addWidget(buttons)
+
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        self._osm_url = osm_url_edit.text().strip() or None
+        self._osm_opacity = float(osm_opacity.value())
+        self._wms_url = wms_url_edit.text().strip() or None
+        self._wms_layers = wms_layers_edit.text().strip() or None
+        self._wms_opacity = float(wms_opacity.value())
+        self.map_widget.set_base_url(self._osm_url)
+        self.map_widget.set_base_opacity(self._osm_opacity)
+        self._apply_wms_settings()
+
+    def toggle_ellipses(self, checked: bool) -> None:
+        self._ellipses_visible = bool(checked)
+        if self._using_ellipses:
+            self.fast_layer.set_ellipses_visible(self._ellipses_visible)
+
+    def show_only_selected_features(self) -> None:
+        indices = self._feature_ids_to_row_indices(self.current_selection_fids)
+        if indices.size:
+            self.fast_layer.show_only_indices(indices)
+
+    def hide_selected_features(self) -> None:
+        indices = self._feature_ids_to_row_indices(self.current_selection_fids)
+        if indices.size:
+            self.fast_layer.hide_indices(indices)
+
+    def show_all_features(self) -> None:
+        self.fast_layer.show_all_features()
+
     def delete_selected_features(self) -> None:
         if not self.current_selection_fids:
             return
@@ -1049,6 +1204,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 selectable=True,
                 style=FastGeoPointsStyle(default_color="steelblue", point_radius=3),
                 cell_size_m=self.cli_args.cell_size_m,
+                show_ellipses=self._ellipses_visible,
             )
         else:
             self.fast_layer = self.map_widget.add_fast_points_layer(
@@ -1660,6 +1816,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sma", type=str, default=None)
     parser.add_argument("--smi", type=str, default=None)
     parser.add_argument("--tilt", type=str, default=None)
+    parser.add_argument("--osm-url", type=str, default=None)
+    parser.add_argument("--osm-opacity", type=float, default=1.0)
+    parser.add_argument("--wms-url", type=str, default=None)
+    parser.add_argument("--wms-layers", type=str, default=None)
+    parser.add_argument("--wms-opacity", type=float, default=1.0)
     parser.add_argument("--chunk-size", type=int, default=50_000)
     parser.add_argument("--cell-size-m", type=float, default=50_000.0)
     parser.add_argument(

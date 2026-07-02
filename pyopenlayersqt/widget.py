@@ -423,6 +423,11 @@ class OLMapWidget(QWebEngineView):
         """Set opacity of the base OSM layer (0..1)."""
         self.send({"type": "base.set_opacity", "opacity": clamp(opacity)})
 
+    def set_base_url(self, url: str | None) -> None:
+        """Set the base OSM/XYZ tile URL template."""
+        self._osm_url = str(url).strip() if url else None
+        self.send({"type": "base.set_url", "url": self._osm_url})
+
     def set_base_visible(self, visible: bool) -> None:
         """Show or hide the OSM base layer."""
         self._show_osm_layer = bool(visible)

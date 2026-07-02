@@ -1060,6 +1060,16 @@ function cmd_base_set_opacity(msg) {
 }
 
 
+function cmd_base_set_url(msg) {
+  if (!state.base_layer) return;
+  const url = typeof msg.url === "string" && msg.url.trim() ? msg.url.trim() : null;
+  const source = url
+    ? new ol.source.OSM({ transition: 0, url })
+    : new ol.source.OSM({ transition: 0 });
+  state.base_layer.setSource(source);
+}
+
+
 function cmd_base_set_visible(msg) {
   if (!state.base_layer) return;
   state.base_layer.setVisible(!!msg.visible);
@@ -3441,10 +3451,11 @@ function cmd_countries_set_visible(msg) {
     case "fast_points.set_colors": return cmd_fast_points_set_colors(msg);
     case "fast_points.set_all_colors": return cmd_fast_points_set_all_colors(msg);
     case "fast_points.clear_colors": return cmd_fast_points_clear_colors(msg);
-      case "base.set_opacity": return cmd_base_set_opacity(msg);
-      case "base.set_visible": return cmd_base_set_visible(msg);
-      case "vector.remove_features": return cmd_vector_remove_features(msg);
-      case "vector.update_styles": return cmd_vector_update_styles(msg);
+    case "base.set_opacity": return cmd_base_set_opacity(msg);
+    case "base.set_url": return cmd_base_set_url(msg);
+    case "base.set_visible": return cmd_base_set_visible(msg);
+    case "vector.remove_features": return cmd_vector_remove_features(msg);
+    case "vector.update_styles": return cmd_vector_update_styles(msg);
 
     // --- FastGeoPoints ---
     case "fast_geopoints.add_layer": return cmd_fast_geopoints_add_layer(msg);
