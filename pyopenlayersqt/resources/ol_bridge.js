@@ -1275,7 +1275,25 @@ function fgp_redraw(entry) {
   if (entry.source) entry.source.changed();
 }
 function fgp_emit_selection(entry) {
-  emitToPython('selection', { layer_id: entry.layer_id, feature_ids: Array.from(entry.selectedIds) });
+  const perfStart = performance.now();
+  const featureIds = Array.from(entry.selectedIds);
+  const arrayMs = performance.now() - perfStart;
+  emitToPython("selection", {
+    layer_id: entry.layer_id,
+    feature_ids: featureIds,
+  });
+  if (featureIds.length > 100 || window.PYOLQT_SELECTION_PERF) {
+    emitPerf({
+      side: "javascript",
+      layer_id: entry.layer_id,
+      operation: "fast_geopoints_emit_selection",
+      selection_count: featureIds.length,
+      times: {
+        array_ms: arrayMs.toFixed(2),
+        total_ms: (performance.now() - perfStart).toFixed(2)
+      }
+    });
+  }
 }
 
 function fgp_make_canvas_layer(entry) {
@@ -1781,11 +1799,37 @@ function cmd_fast_geopoints_set_selected_ellipses_visible(msg) {
 }
 
 function cmd_fast_geopoints_select_set(msg) {
-  const entry = getLayerEntry(msg.layer_id);
-  if (entry.type !== 'fast_geopoints') return;
-  entry.selectedIds = new Set(fp_selection_visible_ids(entry, pyolqt_ids_from_msg(msg)));
-  fgp_redraw(entry);
-  if (msg.emit !== false) fgp_emit_selection(entry);
+    const perfStart = performance.now();
+    const entry = getLayerEntry(msg.layer_id);
+    if (entry.type !== "fast_geopoints") return;
+    const ids = fp_selection_visible_ids(entry, pyolqt_ids_from_msg(msg));
+    const setStart = performance.now();
+    entry.selectedIds = new Set(ids);
+    const setMs = performance.now() - setStart;
+    const redrawStart = performance.now();
+    fgp_redraw(entry);
+    const redrawMs = performance.now() - redrawStart;
+    let emitMs = 0.0;
+    if (msg.emit !== false) {
+      const emitStart = performance.now();
+      fgp_emit_selection(entry);
+      emitMs = performance.now() - emitStart;
+    }
+    if (ids.length > 100 || window.PYOLQT_SELECTION_PERF) {
+      emitPerf({
+        side: "javascript",
+        layer_id: entry.layer_id,
+        operation: "fast_geopoints_select_set",
+        selection_count: ids.length,
+        emit_requested: msg.emit !== false,
+        times: {
+          set_ms: setMs.toFixed(2),
+          redraw_request_ms: redrawMs.toFixed(2),
+          emit_ms: emitMs.toFixed(2),
+          total_ms: (performance.now() - perfStart).toFixed(2)
+        }
+      });
+    }
 }
 
 function cmd_fast_geopoints_hide_ids(msg) {
