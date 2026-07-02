@@ -556,7 +556,6 @@ class FastGeoPointsStyle:
     selected_ellipses_visible: bool = True
     min_ellipse_px: float = 0.0
     max_ellipses_per_path: int = 2000
-    max_selected_ellipses: int = 5000
     skip_ellipses_while_interacting: bool = True
 
     def to_js(self) -> dict:
@@ -618,7 +617,6 @@ class FastGeoPointsStyle:
             "selected_ellipses_visible": bool(self.selected_ellipses_visible),
             "min_ellipse_px": float(self.min_ellipse_px),
             "max_ellipses_per_path": int(self.max_ellipses_per_path),
-            "max_selected_ellipses": int(self.max_selected_ellipses),
             "skip_ellipses_while_interacting": bool(
                 self.skip_ellipses_while_interacting
             ),

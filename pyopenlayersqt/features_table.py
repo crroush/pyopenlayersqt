@@ -917,22 +917,15 @@ class FeatureTableWidget(QWidget):
         if sm is None:
             return
 
-        merge_start = time.perf_counter()
-        current_count = 0
         if not clear_first:
             current_rows = self._current_selected_row_indices()
-            current_count = len(current_rows)
             if current_rows:
                 rows = sorted(set(rows).union(current_rows))
-        merge_ms = (time.perf_counter() - merge_start) * 1000.0
-        sort_start = time.perf_counter()
         rows.sort()
-        sort_ms = (time.perf_counter() - sort_start) * 1000.0
         matched_count = len(rows)
         selection = QtCore.QItemSelection()
         last_col = max(0, self.model.columnCount() - 1)
         range_count = 0
-        range_start_time = time.perf_counter()
         if rows:
             range_start = rows[0]
             previous = rows[0]
@@ -952,64 +945,32 @@ class FeatureTableWidget(QWidget):
                 self.model.index(previous, last_col),
             )
             range_count += 1
-        range_ms = (time.perf_counter() - range_start_time) * 1000.0
         build_ms = (time.perf_counter() - build_start) * 1000.0
 
         self._building_selection = True
         apply_start = time.perf_counter()
         virtualized = range_count > self._virtual_selection_range_threshold
-        virtual_key_ms = 0.0
-        model_selection_ms = 0.0
-        clear_selection_ms = 0.0
-        external_selection_ms = 0.0
-        viewport_update_ms = 0.0
         self.table.setUpdatesEnabled(False)
         try:
             if virtualized:
-                virtual_key_start = time.perf_counter()
                 self._virtual_selected_keys = {
                     key
                     for row in rows
                     if (key := self.model.key_for_row(row)) is not None
                 }
-                virtual_key_ms = (time.perf_counter() - virtual_key_start) * 1000.0
-                external_selection_start = time.perf_counter()
                 self.model.set_external_selection(self._virtual_selected_keys)
-                external_selection_ms = (
-                    time.perf_counter() - external_selection_start
-                ) * 1000.0
-                clear_selection_start = time.perf_counter()
                 sm.clearSelection()
-                clear_selection_ms = (
-                    time.perf_counter() - clear_selection_start
-                ) * 1000.0
-                viewport_update_start = time.perf_counter()
                 self.table.viewport().update()
-                viewport_update_ms = (
-                    time.perf_counter() - viewport_update_start
-                ) * 1000.0
             else:
                 had_virtual_selection = bool(self._virtual_selected_keys)
                 self._virtual_selected_keys = set()
-                external_selection_start = time.perf_counter()
                 self.model.set_external_selection(set())
-                external_selection_ms = (
-                    time.perf_counter() - external_selection_start
-                ) * 1000.0
                 if clear_first or had_virtual_selection:
-                    clear_selection_start = time.perf_counter()
                     sm.clearSelection()
-                    clear_selection_ms = (
-                        time.perf_counter() - clear_selection_start
-                    ) * 1000.0
-                model_selection_start = time.perf_counter()
                 sm.select(
                     selection,
                     QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows,
                 )
-                model_selection_ms = (
-                    time.perf_counter() - model_selection_start
-                ) * 1000.0
         finally:
             self.table.setUpdatesEnabled(True)
             self._building_selection = False
@@ -1022,17 +983,8 @@ class FeatureTableWidget(QWidget):
                 "range_count": range_count,
                 "virtualized": virtualized,
                 "clear_first": bool(clear_first),
-                "current_count": current_count,
                 "times": {
-                    "merge_ms": round(merge_ms, 2),
-                    "sort_ms": round(sort_ms, 2),
-                    "range_build_ms": round(range_ms, 2),
                     "build_selection_ms": round(build_ms, 2),
-                    "virtual_key_ms": round(virtual_key_ms, 2),
-                    "external_selection_ms": round(external_selection_ms, 2),
-                    "clear_selection_ms": round(clear_selection_ms, 2),
-                    "model_selection_ms": round(model_selection_ms, 2),
-                    "viewport_update_ms": round(viewport_update_ms, 2),
                     "apply_selection_ms": round(
                         (time.perf_counter() - apply_start) * 1000.0, 2
                     ),
