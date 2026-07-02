@@ -651,22 +651,34 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._table_sort_order = QtCore.Qt.SortOrder.AscendingOrder
         self._pending_time_filter: tuple[float, float] | None = None
         self._time_filter_range: tuple[float, float] | None = None
+        self._last_chunk_redraw_time = 0.0
         self._time_filter_timer = QtCore.QTimer(self)
         self._time_filter_timer.setSingleShot(True)
         self._time_filter_timer.setInterval(50)
         self._time_filter_timer.timeout.connect(self._apply_pending_time_filter)
+        self._pending_cli_csv: (
+            tuple[Sequence[str] | str, str | None, str | None, str | None] | None
+        ) = None
 
         self._setup_ui()
         if self.cli_args.csv:
-            QtCore.QTimer.singleShot(
-                100,
-                lambda: self.process_csv(
-                    self.cli_args.csv,
-                    self.cli_args.lat,
-                    self.cli_args.lon,
-                    self.cli_args.time,
-                ),
+            self._pending_cli_csv = (
+                self.cli_args.csv,
+                self.cli_args.lat,
+                self.cli_args.lon,
+                self.cli_args.time,
             )
+            self.map_widget.ready.connect(self._process_pending_cli_csv)
+            QtCore.QTimer.singleShot(0, self._process_pending_cli_csv)
+
+    def _process_pending_cli_csv(self) -> None:
+        if self._pending_cli_csv is None:
+            return
+        if not getattr(self.map_widget, "_js_ready", False):
+            return
+        paths, lat_col, lon_col, time_col = self._pending_cli_csv
+        self._pending_cli_csv = None
+        self.process_csv(paths, lat_col, lon_col, time_col)
 
     def _setup_ui(self) -> None:
         central = QtWidgets.QWidget()
@@ -893,6 +905,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._keyword_mask = None
         self._keyword_filter = None
         self.current_selection_fids = []
+        self._last_chunk_redraw_time = 0.0
         self._table_sort_column = None
         self._table_sort_order = QtCore.Qt.SortOrder.AscendingOrder
         self.global_fid_counter = 0
@@ -1055,6 +1068,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         self.fast_layer.clear()
         self._reset_loaded_data_state()
+        self._last_chunk_redraw_time = time.perf_counter()
         self._column_indexers = {column: CsvColumnIndex() for column in base_columns}
         self._initialize_empty_table(base_columns)
 
@@ -1239,6 +1253,12 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             )
         else:
             self.fast_layer.add_points(coords=coords, ids=chunk_fids, redraw=False)
+        now = time.perf_counter()
+        redraw_requested = False
+        if now - self._last_chunk_redraw_time >= 0.75:
+            self.fast_layer.redraw()
+            self._last_chunk_redraw_time = now
+            redraw_requested = True
         map_ms = (time.perf_counter() - map_start) * 1000.0
 
         table_rows_ms = 0.0
@@ -1255,6 +1275,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             index_ms=round(index_ms, 2),
             coords_ms=round(coords_ms, 2),
             map_add_ms=round(map_ms, 2),
+            redraw_requested=redraw_requested,
             table_rows_ms=round(table_rows_ms, 2),
             table_append_ms=round(append_ms, 2),
             total_ms=round((time.perf_counter() - perf_start) * 1000.0, 2),
