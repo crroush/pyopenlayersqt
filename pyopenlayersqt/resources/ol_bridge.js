@@ -1408,13 +1408,19 @@ function fgp_make_canvas_layer(entry) {
         Number(st.collapse_pixel_size || st.point_radius || 3.0) * pixelRatio
       );
       const drawIndices = [];
+      const selectedDrawIndices = [];
       const seenCenterPixels = new Set();
+      const seenSelectedCenterPixels = new Set();
+
+      function centerPixelKey(i) {
+        const x = (entry.x[i] - extent[0]) * scaleX;
+        const y = (extent[3] - entry.y[i]) * scaleY;
+        return Math.round(x) + ',' + Math.round(y);
+      }
 
       function addUnselectedDrawIndex(i, fromCollapsedNode) {
         if (entry.deleted[i] || entry.hidden[i] || selectedSet.has(entry.ids[i]) || !inExtent(i)) return;
-        const x = (entry.x[i] - extent[0]) * scaleX;
-        const y = (extent[3] - entry.y[i]) * scaleY;
-        const pixelKey = Math.round(x) + ',' + Math.round(y);
+        const pixelKey = centerPixelKey(i);
         if (seenCenterPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
           return;
@@ -1422,6 +1428,20 @@ function fgp_make_canvas_layer(entry) {
         seenCenterPixels.add(pixelKey);
         drawIndices.push(i);
         if (fromCollapsedNode) representativeCount++;
+      }
+
+      function collectSelectedDrawIndices() {
+        for (const fid of selectedSet) {
+          const i = entry.idIndex.get(String(fid));
+          if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
+          const pixelKey = centerPixelKey(i);
+          if (seenSelectedCenterPixels.has(pixelKey)) {
+            skippedDuplicatePixels++;
+            continue;
+          }
+          seenSelectedCenterPixels.add(pixelKey);
+          selectedDrawIndices.push(i);
+        }
       }
 
       function collectDrawIndices() {
@@ -1452,6 +1472,7 @@ function fgp_make_canvas_layer(entry) {
       }
 
       collectDrawIndices();
+      collectSelectedDrawIndices();
 
       function pointRgbaForIndex(i, selected) {
         if (selected) return st.selected_point_rgba || [0,255,255,255];
@@ -1543,14 +1564,8 @@ function fgp_make_canvas_layer(entry) {
         }
 
         if (selectedEllipsesVisible) {
-          const selectedIndices = [];
-          for (const fid of selectedSet) {
-            const i = entry.idIndex.get(String(fid));
-            if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
-            selectedIndices.push(i);
-          }
           drawEllipseBatch(
-            selectedIndices,
+            selectedDrawIndices,
             true,
             Number(st.selected_ellipse_stroke_width || (st.ellipse_stroke_width || 1.5) * 1.8) * pixelRatio
           );
@@ -1583,11 +1598,7 @@ function fgp_make_canvas_layer(entry) {
       }
 
       for (let k = 0; k < drawIndices.length; k++) addPointToBatch(drawIndices[k], false);
-      for (const fid of selectedSet) {
-        const i = entry.idIndex.get(String(fid));
-        if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
-        addPointToBatch(i, true);
-      }
+      for (let k = 0; k < selectedDrawIndices.length; k++) addPointToBatch(selectedDrawIndices[k], true);
 
       for (const batch of batches.values()) {
         ctx.fillStyle = batch.color;
@@ -1612,6 +1623,7 @@ function fgp_make_canvas_layer(entry) {
           scanned_leaf_point_count: scannedLeafPointCount,
           representative_count: representativeCount,
           quadtree_draw_candidate_count: drawIndices.length,
+          selected_draw_candidate_count: selectedDrawIndices.length,
           collapse_pixel_threshold: collapsePx.toFixed(2),
           ellipse_draw_count: ellipseDrawCount,
           point_draw_count: pointDrawCount,
