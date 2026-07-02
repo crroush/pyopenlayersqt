@@ -1164,7 +1164,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
             codes, unique_values = _factorize_values(self.df[column_name])
             packed_colors = _category_codes_to_packed_rgba(codes)
-            self.fast_layer.set_packed_colors(self.feature_ids, packed_colors)
+            self.fast_layer.set_all_packed_colors(packed_colors)
             perf(
                 "color_by",
                 column=column_name,

@@ -24,16 +24,17 @@ from .models import (
 
 def _qcolor_to_rgba(color: Any) -> tuple[int, int, int, int]:
     """Convert a QColor object to an RGBA tuple.
-    
+
     Args:
         color: QColor object from PySide6.QtGui
-        
+
     Returns:
         Tuple of (r, g, b, a) with values 0-255.
     """
     # Import here to avoid circular dependency and allow layers.py to work without Qt
     try:
         from PySide6.QtGui import QColor
+
         if isinstance(color, QColor):
             return (color.red(), color.green(), color.blue(), color.alpha())
     except ImportError:
@@ -42,7 +43,7 @@ def _qcolor_to_rgba(color: Any) -> tuple[int, int, int, int]:
 
 
 def _normalize_color(
-    color: Union[tuple[int, int, int, int], str, Any]
+    color: Union[tuple[int, int, int, int], str, Any],
 ) -> tuple[int, int, int, int]:
     """Normalize a color to RGBA tuple format.
 
@@ -50,13 +51,13 @@ def _normalize_color(
     - RGBA tuple: (r, g, b, a) with values 0-255
     - QColor object from PySide6.QtGui
     - Color name string (e.g., 'Green', 'Red', 'blue')
-    
+
     Args:
         color: RGBA tuple, QColor object, or color name string
-        
+
     Returns:
         Tuple of (r, g, b, a) with values 0-255.
-        
+
     Raises:
         TypeError: If color is not a recognized type.
         ValueError: If color name is invalid or PySide6 is not available.
@@ -68,6 +69,7 @@ def _normalize_color(
     # Try to convert from QColor
     try:
         from PySide6.QtGui import QColor
+
         if isinstance(color, QColor):
             return _qcolor_to_rgba(color)
     except ImportError:
@@ -77,6 +79,7 @@ def _normalize_color(
     if isinstance(color, str):
         try:
             from PySide6.QtGui import QColor
+
             qcolor = QColor(color)
             if qcolor.isValid():
                 return (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
@@ -96,8 +99,6 @@ def _normalize_color(
         f"Color must be an RGBA tuple (r, g, b, a), a QColor object, "
         f"or a color name string, got {type(color)}"
     )
-
-
 
 
 def _latlon_chunk_to_lonlat_array(coords: Sequence[LatLon]) -> np.ndarray:
@@ -139,7 +140,6 @@ def _perf_print(payload: dict[str, Any]) -> None:
         print("PERF:", payload, flush=True)
 
 
-
 def _resolve_colormap_rgba(
     values: Sequence[float],
     cmap: Union[str, Any] = "viridis",
@@ -176,18 +176,18 @@ def _resolve_colormap_rgba(
 
 
 def _pack_rgba_colors_array(
-    colors: Sequence[Union[tuple[int, int, int, int], str, Any]]
+    colors: Sequence[Union[tuple[int, int, int, int], str, Any]],
 ) -> np.ndarray:
     """Convert list of colors to packed 32-bit integers.
-    
+
     Accepts colors as:
     - RGBA tuples: (r, g, b, a) with values 0-255
     - QColor objects from PySide6.QtGui
     - Color name strings (e.g., 'Green', 'Red')
-    
+
     Args:
         colors: List of RGBA tuples, QColor objects, or color name strings.
-    
+
     Returns:
         List of packed 32-bit integers.
     """
@@ -201,7 +201,7 @@ def _pack_rgba_colors_array(
 
 
 def _pack_rgba_colors(
-    colors: Sequence[Union[tuple[int, int, int, int], str, Any]]
+    colors: Sequence[Union[tuple[int, int, int, int], str, Any]],
 ) -> List[int]:
     return _pack_rgba_colors_array(colors).tolist()
 
@@ -250,8 +250,7 @@ def _rendered_values_from_input(
 
     if interpolate_steps == 1:
         return [
-            0.5 * (vertex_values[i] + vertex_values[i + 1])
-            for i in range(seg_count)
+            0.5 * (vertex_values[i] + vertex_values[i + 1]) for i in range(seg_count)
         ]
 
     rendered_values: List[float] = []
@@ -376,10 +375,10 @@ class BaseLayer:
     def clear(self) -> None:
         """Clear all features from this layer."""
         if not self._layer_type_prefix:
-            raise NotImplementedError(
-                "clear requires _layer_type_prefix to be set"
-            )
-        self._map_widget._send({"type": f"{self._layer_type_prefix}.clear", "layer_id": self.id})
+            raise NotImplementedError("clear requires _layer_type_prefix to be set")
+        self._map_widget._send(
+            {"type": f"{self._layer_type_prefix}.clear", "layer_id": self.id}
+        )
 
 
 class VectorLayer(BaseLayer):
@@ -516,19 +515,20 @@ class VectorLayer(BaseLayer):
 
         icon_value = icon if icon is not None else icon_style.icon_src
         if not icon_value:
-            raise ValueError("icon must be a URL, local image path, data URI, or bytes-like value")
+            raise ValueError(
+                "icon must be a URL, local image path, data URI, or bytes-like value"
+            )
 
         selected_icon_value = (
-            selected_icon
-            if selected_icon is not None
-            else icon_style.selected_icon_src
+            selected_icon if selected_icon is not None else icon_style.selected_icon_src
         )
         icon_style = replace(
             icon_style,
             icon_src=self._map_widget._icon_to_src(icon_value),
             selected_icon_src=(
                 self._map_widget._icon_to_src(selected_icon_value)
-                if selected_icon_value else None
+                if selected_icon_value
+                else None
             ),
         )
         self.add_points(
@@ -639,7 +639,9 @@ class VectorLayer(BaseLayer):
         cmap: Union[str, Any] = "viridis",
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
-        segment_colors: Optional[Sequence[Union[tuple[int, int, int, int], str, Any]]] = None,
+        segment_colors: Optional[
+            Sequence[Union[tuple[int, int, int, int], str, Any]]
+        ] = None,
         properties: Optional[Dict[str, Any]] = None,
         interpolate_steps: int = 64,
     ) -> None:
@@ -809,7 +811,9 @@ class RasterLayer(BaseLayer):
         self.bounds = bounds  # [(lat, lon), (lat, lon)] - SW and NE corners
         self.style = style
 
-    def set_image(self, image: Union[str, bytes, bytearray], bounds: List[LatLon]) -> None:
+    def set_image(
+        self, image: Union[str, bytes, bytearray], bounds: List[LatLon]
+    ) -> None:
         """Update the raster image.
 
         Args:
@@ -987,7 +991,6 @@ class FastPointsLayer(BaseLayer):
             }
         )
 
-
     def hide_indices(self, indices: Sequence[int] | np.ndarray) -> None:
         """Hide points by JS-side row index using a compact uint32 payload."""
         idx = np.asarray(indices, dtype=np.uint32)
@@ -1100,6 +1103,24 @@ class FastPointsLayer(BaseLayer):
             }
         )
 
+    def set_all_packed_colors(self, packed_colors: Sequence[int] | np.ndarray) -> None:
+        """Update colors for every point by JS-side row index.
+
+        This avoids sending feature IDs when callers already have one color per
+        loaded point in row order. It is substantially faster for millions of
+        points than ID-based color updates.
+        """
+        packed = np.asarray(packed_colors, dtype=np.uint32)
+        self._map_widget._send(
+            {
+                "type": "fast_points.set_all_colors",
+                "layer_id": self.id,
+                "colors_b64": _array_to_base64(packed),
+                "colors_dtype": "uint32",
+                "count": int(packed.size),
+            }
+        )
+
     def clear_colors(self) -> None:
         """Clear custom per-feature colors and return to the default style color."""
         self._map_widget._send(
@@ -1124,7 +1145,9 @@ class FastGeoPointsLayer(BaseLayer):
 
     _layer_type_prefix = "fast_geopoints"
 
-    def __init__(self, map_widget: "OLMapWidget", layer_id: str, name: str = "") -> None:
+    def __init__(
+        self, map_widget: "OLMapWidget", layer_id: str, name: str = ""
+    ) -> None:
         super().__init__(map_widget, layer_id, name)
 
     def add_points_with_ellipses(
@@ -1197,7 +1220,6 @@ class FastGeoPointsLayer(BaseLayer):
                 )
                 msg["colors_dtype"] = "uint32"
             self._map_widget._send(msg)
-
 
     def redraw(self) -> None:
         """Request a redraw after one or more deferred FastGeoPoints updates."""
