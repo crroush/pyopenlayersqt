@@ -160,6 +160,15 @@ class TableRowProvider(Protocol):
         """Return an optional row object for context menus/legacy consumers."""
         raise NotImplementedError
 
+    def sorted_source_indices(
+        self,
+        column: str,
+        descending: bool = False,
+        indices: Optional[Sequence[int]] = None,
+    ) -> List[int]:
+        """Optionally return source rows sorted by a provider-native column."""
+        raise NotImplementedError
+
 
 class ConfigurableTableModel(QtCore.QAbstractTableModel):
     """A configurable table model for arbitrary row objects."""
@@ -511,17 +520,19 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         if not col_spec.sortable:
             return self._normalized_source_indices(indices)
 
-        provider_sort = getattr(self._row_provider, "sorted_source_indices", None)
-        if callable(provider_sort) and col_spec.sort_key is None:
-            return provider_sort(
-                col_spec.name,
-                order == Qt.DescendingOrder,
-                (
-                    self._normalized_source_indices(indices)
-                    if indices is not None
-                    else None
-                ),
-            )
+        if self._row_provider is not None and col_spec.sort_key is None:
+            try:
+                return self._row_provider.sorted_source_indices(
+                    col_spec.name,
+                    order == Qt.DescendingOrder,
+                    (
+                        self._normalized_source_indices(indices)
+                        if indices is not None
+                        else None
+                    ),
+                )
+            except (AttributeError, NotImplementedError):
+                pass
 
         def make_sort_key(source_row: int) -> Any:
             try:
