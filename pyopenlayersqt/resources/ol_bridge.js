@@ -911,6 +911,24 @@ function fp_add_queue(entry) {
   return entry.pendingAdds;
 }
 
+function fp_has_pending_adds(entry) {
+  return !!(entry && (entry.processingAddQueue || (entry.pendingAdds && entry.pendingAdds.length)));
+}
+
+function fp_defer_command_after_adds(entry, msg) {
+  if (!entry.deferredAfterAdds) entry.deferredAfterAdds = [];
+  entry.deferredAfterAdds.push(msg);
+}
+
+function fp_flush_deferred_after_adds(entry) {
+  const deferred = entry.deferredAfterAdds || [];
+  if (!deferred.length) return;
+  entry.deferredAfterAdds = [];
+  for (let i = 0; i < deferred.length; i++) {
+    dispatch(deferred[i]);
+  }
+}
+
 function fp_process_add_job(entry, job, budgetStart) {
   const world = 20037508.342789244;
   const xScale = world / 180.0;
@@ -998,6 +1016,7 @@ function fp_schedule_add_processing(entry) {
       }
     }
     entry.processingAddQueue = false;
+    fp_flush_deferred_after_adds(entry);
     if (entry.redrawAfterAddQueue) {
       entry.redrawAfterAddQueue = false;
       fp_redraw(entry);
@@ -1049,6 +1068,7 @@ function cmd_fast_points_clear(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
   entry.pendingAdds = [];
+  entry.deferredAfterAdds = [];
   entry.processingAddQueue = false;
   entry.redrawAfterAddQueue = false;
   entry.x = []; entry.y = []; entry.ids = []; entry.color_u32 = []; entry.deleted = []; entry.hidden = [];
@@ -3268,6 +3288,16 @@ function cmd_countries_set_visible(msg) {
     const perfStart = performance.now();
     const t = msg.type;
     try {
+    if (t && t.startsWith("fast_points.")
+        && t !== "fast_points.add_layer"
+        && t !== "fast_points.add_points"
+        && t !== "fast_points.clear") {
+      const entry = state.layers.get(msg.layer_id);
+      if (fp_has_pending_adds(entry)) {
+        fp_defer_command_after_adds(entry, msg);
+        return;
+      }
+    }
     switch (t) {
       case "perf.set_enabled": return cmd_perf_set_enabled(msg);
       case "layer.add_vector": return cmd_add_vector(msg);

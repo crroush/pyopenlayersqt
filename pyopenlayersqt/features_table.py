@@ -512,7 +512,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
             return self._normalized_source_indices(indices)
 
         provider_sort = getattr(self._row_provider, "sorted_source_indices", None)
-        if provider_sort is not None and col_spec.sort_key is None:
+        if callable(provider_sort) and col_spec.sort_key is None:
             return provider_sort(
                 col_spec.name,
                 order == Qt.DescendingOrder,
@@ -557,7 +557,9 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         if not col_spec.sortable:
             return
         if self._row_provider is not None:
-            sorted_indices = self.sorted_source_indices(column, order)
+            sorted_indices = self.sorted_source_indices(
+                column, order, self._visible_row_indices
+            )
             self.set_visible_row_indices(sorted_indices)
             return
 
