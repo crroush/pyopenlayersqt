@@ -131,18 +131,11 @@ def _to_float_array(values: np.ndarray) -> np.ndarray:
 
 
 def _factorize_values(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Return first-seen integer codes and unique values for arbitrary CSV values."""
-    codes = np.empty(len(values), dtype=np.int64)
-    code_by_value: dict[str, int] = {}
-    unique_values: list[str] = []
-    for index, value in enumerate(values.astype(str, copy=False)):
-        code = code_by_value.get(value)
-        if code is None:
-            code = len(unique_values)
-            code_by_value[value] = code
-            unique_values.append(value)
-        codes[index] = code
-    return codes, np.asarray(unique_values)
+    """Return integer category codes and unique values for arbitrary CSV values."""
+    unique_values, codes = np.unique(
+        values.astype(str, copy=False), return_inverse=True
+    )
+    return codes.astype(np.int64, copy=False), unique_values
 
 
 class CsvTable:
@@ -314,15 +307,35 @@ class CsvTable:
                     )
 
     def _read_source_column(self, column: str) -> np.ndarray:
+        """Read one CSV column in source-row order without reopening per row."""
         column_index = self._columns.index(column)
-        return np.asarray(
-            [
-                (row[column_index] if column_index < len(row) else "")
-                for row in (
-                    self._read_source_row(row_index) for row_index in range(len(self))
-                )
-            ]
-        )
+        values = np.empty(len(self), dtype=object)
+        current_file_id: int | None = None
+        fh = None
+        try:
+            for row_index in range(len(self)):
+                if self._source_offsets.ndim == 2:
+                    file_id = int(self._source_offsets[row_index, 0])
+                    offset = int(self._source_offsets[row_index, 1])
+                else:
+                    file_id = 0
+                    offset = int(self._source_offsets[row_index])
+
+                if fh is None or file_id != current_file_id:
+                    if fh is not None:
+                        fh.close()
+                    fh = open(self._source_paths[file_id], "rb")
+                    current_file_id = file_id
+
+                fh.seek(offset)
+                row = next(csv.reader(_OffsetLineIterator(fh)))
+                values[row_index] = row[column_index] if column_index < len(row) else ""
+                if row_index and row_index % 50_000 == 0:
+                    QtWidgets.QApplication.processEvents()
+        finally:
+            if fh is not None:
+                fh.close()
+        return values
 
     def _read_source_row(self, row_index: int) -> list[str]:
         if self._source_offsets.ndim == 2:
