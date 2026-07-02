@@ -544,6 +544,39 @@ function fp_qt_pick_representative(entry, node, skipSelected, extent) {
   return -1;
 }
 
+function fp_qt_query_extent(entry, extent) {
+  const out = [];
+  const stats = {
+    visitedNodeCount: 0,
+    skippedNodeCount: 0,
+    scannedLeafPointCount: 0,
+  };
+  const root = entry.qtRoot || null;
+  if (!root) {
+    return { indices: out, stats };
+  }
+  const stack = [root];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) {
+      stats.skippedNodeCount++;
+      continue;
+    }
+    stats.visitedNodeCount++;
+    if (node.children) {
+      for (let c = 0; c < 4; c++) stack.push(node.children[c]);
+      continue;
+    }
+    for (let k = 0; k < node.items.length; k++) {
+      const i = node.items[k];
+      stats.scannedLeafPointCount++;
+      if (entry.deleted[i] || entry.hidden[i]) continue;
+      if (fp_qt_point_in_extent(entry, i, extent)) out.push(i);
+    }
+  }
+  return { indices: out, stats };
+}
+
 function fp_query_extent(entry, extent) {
   const cs = entry.cellSize;
   const min_ix = Math.floor(extent[0] / cs);
@@ -586,7 +619,8 @@ function fp_query_extent(entry, extent) {
 function fp_pick_nearest(entry, coord3857, radius_m) {
   const r = radius_m;
   const ext = [coord3857[0]-r, coord3857[1]-r, coord3857[0]+r, coord3857[1]+r];
-  const cand = fp_query_extent(entry, ext);
+  const query = fp_qt_query_extent(entry, ext);
+  const cand = query.indices;
   let best = -1;
   let bestd2 = r*r;
   for (let k = 0; k < cand.length; k++) {
@@ -1986,10 +2020,12 @@ function fp_install_interactions() {
   dragBox.on("boxend", function() {
     const perfStart = performance.now();
     const extent = dragBox.getGeometry().getExtent();
+    let handledLayerCount = 0;
     for (const [layer_id, entry] of state.layers.entries()) {
       if ((entry.type !== "fast_points" && entry.type !== "fast_geopoints") || !entry.selectable) continue;
       const queryStart = performance.now();
-      const cand = fp_query_extent(entry, extent);
+      const query = fp_qt_query_extent(entry, extent);
+      const cand = query.indices;
       const queryMs = performance.now() - queryStart;
       const buildStart = performance.now();
       const next = new Set();
@@ -2014,8 +2050,13 @@ function fp_install_interactions() {
           side: "javascript",
           layer_id: entry.layer_id,
           operation: "fast_points_dragbox_selection",
+          layer_type: entry.type,
+          query_index: "quadtree",
           candidate_count: cand.length,
           selection_count: next.size,
+          visited_node_count: query.stats.visitedNodeCount,
+          skipped_node_count: query.stats.skippedNodeCount,
+          scanned_leaf_point_count: query.stats.scannedLeafPointCount,
           times: {
             query_ms: queryMs.toFixed(2),
             build_ms: buildMs.toFixed(2),
@@ -2025,7 +2066,14 @@ function fp_install_interactions() {
           }
         });
       }
+      handledLayerCount++;
     }
+    emitPerf({
+      side: "javascript",
+      operation: "fast_layer_dragbox_selection_exit",
+      handled_layer_count: handledLayerCount,
+      elapsed_ms: (performance.now() - perfStart).toFixed(2)
+    });
   });
 }
 function lonlat_to_3857(lon, lat) { return ol.proj.fromLonLat([lon, lat]); }
