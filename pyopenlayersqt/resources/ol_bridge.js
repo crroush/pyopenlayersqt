@@ -1202,6 +1202,33 @@ function cmd_fast_points_set_colors(msg) {
   fp_redraw(entry);
 }
 
+function cmd_fast_points_set_all_colors(msg) {
+  const perfStart = performance.now();
+  const entry = getLayerEntry(msg.layer_id);
+  if (entry.type !== "fast_points") return;
+  const colors = msg.colors_b64 ? pyolqt_b64_to_uint32(msg.colors_b64) : (msg.colors || []);
+  if (colors.length !== entry.color_u32.length) return;
+  const updateStart = performance.now();
+  for (let i = 0; i < colors.length; i++) {
+    entry.color_u32[i] = colors[i] >>> 0;
+  }
+  const updateMs = performance.now() - updateStart;
+  const redrawStart = performance.now();
+  fp_redraw(entry);
+  const redrawMs = performance.now() - redrawStart;
+  emitPerf({
+    side: "javascript",
+    operation: "fast_points_set_all_colors",
+    layer_id: entry.layer_id,
+    color_count: colors.length,
+    times: {
+      update_ms: updateMs.toFixed(2),
+      redraw_ms: redrawMs.toFixed(2),
+      total_ms: (performance.now() - perfStart).toFixed(2),
+    },
+  });
+}
+
 function cmd_fast_points_clear_colors(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
@@ -3222,6 +3249,7 @@ function cmd_countries_set_visible(msg) {
     case "fast_points.show_only_index_ranges": return cmd_fast_points_show_only_index_ranges(msg);
     case "fast_points.show_all": return cmd_fast_points_show_all(msg);
     case "fast_points.set_colors": return cmd_fast_points_set_colors(msg);
+    case "fast_points.set_all_colors": return cmd_fast_points_set_all_colors(msg);
     case "fast_points.clear_colors": return cmd_fast_points_clear_colors(msg);
       case "base.set_opacity": return cmd_base_set_opacity(msg);
       case "base.set_visible": return cmd_base_set_visible(msg);

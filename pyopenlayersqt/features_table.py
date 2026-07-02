@@ -44,7 +44,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import time
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Protocol,
+    Sequence,
+    Tuple,
+)
 
 from PySide6 import QtCore
 from PySide6.QtCore import Qt
@@ -69,10 +79,7 @@ ContextMenuCallback = Callable[["TableContextMenuEvent"], None]
 
 
 def _perf_enabled() -> bool:
-    return (
-        os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
-        or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
-    )
+    return os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
 
 
 def _perf_print(payload: dict[str, Any]) -> None:
@@ -124,6 +131,36 @@ def _default_sort_key(value: Any) -> Tuple[int, int, float, str]:
         return (0, 1, 0.0, str(value))
 
 
+class TableRowProvider(Protocol):
+    """Virtual/lazy backing store for FeatureTableWidget rows.
+
+    Providers let the table display and select very large datasets without
+    materializing one Python row object per source row. Row indices passed to
+    provider methods are immutable source-row indices; the table model handles
+    optional visible-row mappings on top.
+    """
+
+    def row_count(self) -> int:
+        """Return the number of source rows available from this provider."""
+        raise NotImplementedError
+
+    def data(self, source_row: int, column: int, column_spec: ColumnSpec) -> Any:
+        """Return display/edit data for a source row and table column."""
+        raise NotImplementedError
+
+    def key(self, source_row: int) -> FeatureKey:
+        """Return the selection key for a source row."""
+        raise NotImplementedError
+
+    def row_for_key(self, key: FeatureKey) -> Optional[int]:
+        """Return the source row for a selection key, if present."""
+        raise NotImplementedError
+
+    def row_data(self, source_row: int) -> Any:
+        """Return an optional row object for context menus/legacy consumers."""
+        raise NotImplementedError
+
+
 class ConfigurableTableModel(QtCore.QAbstractTableModel):
     """A configurable table model for arbitrary row objects."""
 
@@ -144,6 +181,25 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._external_selected_keys: set[FeatureKey] = set()
         self._visible_row_indices: Optional[List[int]] = None
         self._visible_row_by_source: Dict[int, int] = {}
+        self._row_provider: Optional[TableRowProvider] = None
+
+    def _source_row_count(self) -> int:
+        if self._row_provider is not None:
+            return int(self._row_provider.row_count())
+        return len(self._rows)
+
+    def _source_key(self, source_row: int) -> Optional[FeatureKey]:
+        if source_row < 0 or source_row >= self._source_row_count():
+            return None
+        if self._row_provider is not None:
+            return self._row_provider.key(source_row)
+        return self._key_fn(self._rows[source_row])
+
+    def _source_value(self, source_row: int, column_index: int) -> Any:
+        col = self._columns[column_index]
+        if self._row_provider is not None:
+            return self._row_provider.data(source_row, column_index, col)
+        return col.getter(self._rows[source_row])
 
     def _source_row(self, row_index: int) -> int:
         if self._visible_row_indices is None:
@@ -159,7 +215,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
             return 0
         if self._visible_row_indices is not None:
             return len(self._visible_row_indices)
-        return len(self._rows)
+        return self._source_row_count()
 
     def columnCount(
         self, parent: QtCore.QModelIndex = QtCore.QModelIndex()
@@ -191,18 +247,16 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         column_index = index.column()
         if (
             source_row < 0
-            or source_row >= len(self._rows)
+            or source_row >= self._source_row_count()
             or column_index < 0
             or column_index >= len(self._columns)
         ):
             return result
 
-        row = self._rows[source_row]
         col = self._columns[column_index]
-
         if role in (Qt.DisplayRole, Qt.EditRole):
             try:
-                value = col.getter(row)
+                value = self._source_value(source_row, column_index)
                 if col.fmt is not None:
                     try:
                         result = col.fmt(value)
@@ -214,12 +268,14 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
                 result = ""
         elif role == Qt.ToolTipRole and col.tooltip is not None:
             try:
+                row = self.row_data(row_index)
                 result = col.tooltip(row)
             except Exception:
                 result = None
         elif role == Qt.BackgroundRole and self._external_selected_keys:
             try:
-                if self._key_fn(row) in self._external_selected_keys:
+                key = self._source_key(source_row)
+                if key in self._external_selected_keys:
                     result = QColor(0, 120, 215, 80)
             except Exception:
                 result = None
@@ -239,6 +295,8 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
             source_row = self._source_row(index.row())
             if source_row < 0:
                 return False
+            if self._row_provider is not None:
+                return False
             row = self._rows[source_row]
             col = self._columns[index.column()]
             if col.setter is None:
@@ -254,6 +312,17 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
     def rows(self) -> Sequence[Any]:
         return self._rows
 
+    def set_row_provider(self, provider: Optional[TableRowProvider]) -> None:
+        """Use a virtual/lazy row provider instead of stored row objects."""
+        self.beginResetModel()
+        self._row_provider = provider
+        self._rows = []
+        self._row_by_key = {}
+        self._external_selected_keys = set()
+        self._visible_row_indices = None
+        self._visible_row_by_source = {}
+        self.endResetModel()
+
     def set_schema(
         self, columns: Sequence[ColumnSpec], key_fn: Optional[KeyFn] = None
     ) -> None:
@@ -262,7 +331,11 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._columns = list(columns)
         if key_fn is not None:
             self._key_fn = key_fn
-        self._row_by_key = {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        self._row_by_key = (
+            {}
+            if self._row_provider is not None
+            else {self._key_fn(r): i for i, r in enumerate(self._rows)}
+        )
         self._visible_row_indices = None
         self._visible_row_by_source = {}
         self.endResetModel()
@@ -271,6 +344,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         """Remove all rows."""
         self.beginResetModel()
         self._rows = []
+        self._row_provider = None
         self._row_by_key = {}
         self._external_selected_keys = set()
         self._visible_row_indices = None
@@ -283,6 +357,12 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         incoming_rows = list(rows)
         if not incoming_rows:
             return
+        if self._row_provider is not None:
+            self.beginResetModel()
+            self._row_provider = None
+            self._visible_row_indices = None
+            self._visible_row_by_source = {}
+            self.endResetModel()
 
         # Filter out duplicate keys first so beginInsertRows uses the exact range.
         filter_start = time.perf_counter()
@@ -327,7 +407,9 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
                 "total_rows": len(self._rows),
                 "times": {
                     "filter_ms": round(filter_ms, 2),
-                    "insert_ms": round((time.perf_counter() - insert_start) * 1000.0, 2),
+                    "insert_ms": round(
+                        (time.perf_counter() - insert_start) * 1000.0, 2
+                    ),
                     "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
                 },
             }
@@ -377,18 +459,20 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
             self._visible_row_indices = None
             self._visible_row_by_source = {}
         else:
-            max_row = len(self._rows)
+            max_row = self._source_row_count()
             visible = [int(i) for i in indices if 0 <= int(i) < max_row]
             self._visible_row_indices = visible
             self._visible_row_by_source = {
-                source_row: view_row
-                for view_row, source_row in enumerate(visible)
+                source_row: view_row for view_row, source_row in enumerate(visible)
             }
         self.endResetModel()
 
     def row_for_key(self, key: FeatureKey) -> Optional[int]:
         """Return row index for a key, if present."""
-        source_row = self._row_by_key.get(key)
+        if self._row_provider is not None:
+            source_row = self._row_provider.row_for_key(key)
+        else:
+            source_row = self._row_by_key.get(key)
         if source_row is None:
             return None
         if self._visible_row_indices is None:
@@ -402,17 +486,16 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
     def key_for_row(self, row_index: int) -> Optional[FeatureKey]:
         """Return the key for a given row index."""
         source_row = self._source_row(row_index)
-        if source_row < 0 or source_row >= len(self._rows):
-            return None
-        return self._key_fn(self._rows[source_row])
+        return self._source_key(source_row)
 
     def _normalized_source_indices(
         self, indices: Optional[Sequence[int]] = None
     ) -> List[int]:
         """Return valid source row indices, or all rows when no filter is given."""
+        row_count = self._source_row_count()
         if indices is None:
-            return list(range(len(self._rows)))
-        return [int(i) for i in indices if 0 <= int(i) < len(self._rows)]
+            return list(range(row_count))
+        return [int(i) for i in indices if 0 <= int(i) < row_count]
 
     def sorted_source_indices(
         self,
@@ -430,7 +513,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
 
         def make_sort_key(source_row: int) -> Any:
             try:
-                value = col_spec.getter(self._rows[source_row])
+                value = self._source_value(source_row, column)
                 if col_spec.sort_key is not None:
                     return col_spec.sort_key(value)
                 return _default_sort_key(value)
@@ -445,17 +528,25 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
     def row_data(self, row_index: int) -> Optional[Any]:
         """Return the underlying row object for a given row index."""
         source_row = self._source_row(row_index)
-        if source_row < 0 or source_row >= len(self._rows):
+        if source_row < 0 or source_row >= self._source_row_count():
             return None
+        if self._row_provider is not None:
+            return self._row_provider.row_data(source_row)
         return self._rows[source_row]
 
-    def sort(self, column: int, order: Qt.SortOrder = Qt.AscendingOrder) -> None:  # noqa: N802
+    def sort(
+        self, column: int, order: Qt.SortOrder = Qt.AscendingOrder
+    ) -> None:  # noqa: N802
         """Sort the table by the given column."""
         if column < 0 or column >= len(self._columns):
             return
 
         col_spec = self._columns[column]
         if not col_spec.sortable:
+            return
+        if self._row_provider is not None:
+            sorted_indices = self.sorted_source_indices(column, order)
+            self.set_visible_row_indices(sorted_indices)
             return
 
         self._sort_column = column
@@ -624,6 +715,11 @@ class FeatureTableWidget(QWidget):
         """Update table schema."""
         self.model.set_schema(columns=columns, key_fn=key_fn)
 
+    def set_row_provider(self, provider: Optional[TableRowProvider]) -> None:
+        """Use a virtual/lazy row provider instead of appended row objects."""
+        self.model.set_row_provider(provider)
+        self.clear_selection()
+
     def set_sorting_enabled(self, enabled: bool) -> None:
         """Enable or disable sorting on the table."""
         self.table.setSortingEnabled(enabled)
@@ -672,7 +768,9 @@ class FeatureTableWidget(QWidget):
                     "times": {
                         "selected_rows_ms": 0.0,
                         "build_keys_ms": 0.0,
-                        "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                        "total_ms": round(
+                            (time.perf_counter() - perf_start) * 1000.0, 2
+                        ),
                     },
                 }
             )
@@ -687,7 +785,7 @@ class FeatureTableWidget(QWidget):
         keys: List[FeatureKey] = []
         for idx in selected_rows:
             r = idx.row()
-            if r < 0 or r >= len(self.model.rows):
+            if r < 0 or r >= self.model.rowCount():
                 continue
             key = self.model.key_for_row(r)
             if key is not None:
@@ -699,7 +797,9 @@ class FeatureTableWidget(QWidget):
                 "selection_count": len(keys),
                 "times": {
                     "selected_rows_ms": round(selected_rows_ms, 2),
-                    "build_keys_ms": round((time.perf_counter() - build_start) * 1000.0, 2),
+                    "build_keys_ms": round(
+                        (time.perf_counter() - build_start) * 1000.0, 2
+                    ),
                     "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
                 },
             }
@@ -722,7 +822,7 @@ class FeatureTableWidget(QWidget):
         if sm is not None:
             for idx in sm.selectedRows(0):
                 row = idx.row()
-                if 0 <= row < len(self.model.rows):
+                if 0 <= row < self.model.rowCount():
                     row_indices.add(row)
         return sorted(row_indices)
 
@@ -872,11 +972,7 @@ class FeatureTableWidget(QWidget):
         """Programmatically select rows by keys."""
         perf_start = time.perf_counter()
         build_start = time.perf_counter()
-        rows = [
-            row
-            for key in keys
-            if (row := self.model.row_for_key(key)) is not None
-        ]
+        rows = [row for key in keys if (row := self.model.row_for_key(key)) is not None]
         self._select_row_indices(
             rows,
             requested_count=len(keys),
@@ -941,7 +1037,7 @@ class FeatureTableWidget(QWidget):
 
     def show_all_rows(self) -> None:
         """Show all hidden rows (reset any filtering)."""
-        for i in range(len(self.model.rows)):
+        for i in range(self.model.rowCount()):
             self.table.setRowHidden(i, False)
         self.model._hidden_keys.clear()
 

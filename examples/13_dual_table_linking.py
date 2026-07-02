@@ -52,10 +52,7 @@ class DualTableLinkingExample(QtWidgets.QMainWindow):
 
         self.region_ids: list[str] = []
         self.region_by_site: dict[str, str] = {}
-        self._benchmark = (
-            os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
-            or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
-        )
+        self._benchmark = os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
 
         self.link = MultiSelectLink(
             map_widget=self.map_widget,

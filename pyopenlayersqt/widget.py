@@ -67,6 +67,7 @@ def _guess_image_suffix(data: bytes, fallback: str = ".png") -> str:
         return ".svg"
     return fallback
 
+
 def _default_overlays_dir(app_name: str = "pyopenlayersqt") -> Path:
     """
     Writable per-user directory.
@@ -230,10 +231,7 @@ class OLMapWidget(QWebEngineView):
         if self._osm_url == "":
             self._osm_url = None
         self._map_background_color = str(map_background_color)
-        self._perf_logging_enabled = (
-            os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
-            or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
-        )
+        self._perf_logging_enabled = os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
 
         # writable overlays
         self._overlays_dir = _default_overlays_dir()

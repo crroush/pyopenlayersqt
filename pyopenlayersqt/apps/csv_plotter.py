@@ -3,12 +3,13 @@
 
 This console app mirrors the large-CSV workflow used while investigating
 FastPoints selection performance and prints PERF lines when
-PYOPENLAYERSQT_PERF=1 or PYOPENLAYERSQT_BENCH=1.
+PYOPENLAYERSQT_PERF=1.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 from datetime import datetime, timezone
 import os
 import re
@@ -17,7 +18,7 @@ import time
 from typing import Sequence
 
 import numpy as np
-import pandas as pd
+from matplotlib import colormaps
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from pyopenlayersqt import FastPointsStyle, OLMapWidget, RangeSliderWidget
@@ -49,40 +50,6 @@ def _wildcard_term_to_regex(term: str) -> str:
     return "".join(regex_parts)
 
 
-def _datetime_series_to_epoch_seconds(values: pd.Series) -> np.ndarray:
-    """Convert a parsed pandas datetime Series to Unix epoch seconds.
-
-    Use pandas' timedelta conversion from a fixed UTC epoch instead of guessing
-    units from value magnitude.  AIS values like ``2022-03-31T00:00:01`` and
-    near-epoch values like ``1970-01-01T00:00:01Z`` both convert correctly.
-    """
-    valid = values.notna().to_numpy(dtype=bool, copy=False)
-    epoch = pd.Timestamp("1970-01-01T00:00:00Z")
-    seconds = (values - epoch).dt.total_seconds()
-    out = seconds.to_numpy(dtype=np.float64, copy=True)
-    out[~valid] = np.nan
-    return out
-
-
-def _turbo_rgb(values: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Approximate Google's Turbo color map for values in [0, 1]."""
-    x = np.clip(values.astype(np.float64, copy=False), 0.0, 1.0)
-    red = 34.61 + x * (
-        1172.33 + x * (-10793.56 + x * (33300.12 + x * (-38394.49 + x * 14825.05)))
-    )
-    green = 23.31 + x * (
-        557.33 + x * (1225.33 + x * (-3574.96 + x * (1073.77 + x * 707.56)))
-    )
-    blue = 27.20 + x * (
-        3211.10 + x * (-15327.97 + x * (27814.00 + x * (-22569.18 + x * 6838.66)))
-    )
-    return (
-        np.clip(np.rint(red), 0, 255).astype(np.uint32),
-        np.clip(np.rint(green), 0, 255).astype(np.uint32),
-        np.clip(np.rint(blue), 0, 255).astype(np.uint32),
-    )
-
-
 def _category_codes_to_packed_rgba(codes: np.ndarray) -> np.ndarray:
     """Map integer category codes to bright Turbo-like packed RGBA colors."""
     code_arr = np.asarray(codes, dtype=np.int64)
@@ -90,23 +57,300 @@ def _category_codes_to_packed_rgba(codes: np.ndarray) -> np.ndarray:
     # Golden-ratio spacing keeps adjacent category codes visually distinct while
     # preserving a compact integer-code representation for large data sets.
     color_positions = np.mod(safe_codes * 0.6180339887498949, 1.0)
-    red, green, blue = _turbo_rgb(color_positions)
-    alpha = np.full(code_arr.shape, 255, dtype=np.uint32)
+    rgba = np.rint(colormaps["turbo"](color_positions) * 255).astype(np.uint32)
     packed = (
-        (red << np.uint32(24))
-        | (green << np.uint32(16))
-        | (blue << np.uint32(8))
-        | alpha
+        (rgba[:, 0] << np.uint32(24))
+        | (rgba[:, 1] << np.uint32(16))
+        | (rgba[:, 2] << np.uint32(8))
+        | rgba[:, 3]
     )
     packed[code_arr < 0] = np.uint32(0x999999FF)
     return packed.astype(np.uint32, copy=False)
 
 
-def perf_enabled() -> bool:
-    return (
-        os.environ.get("PYOPENLAYERSQT_BENCH", "") == "1"
-        or os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
+class _OffsetLineIterator:
+    """Decode binary CSV lines while tracking each logical record start offset."""
+
+    def __init__(self, fh):
+        self._fh = fh
+        self.record_start: int | None = None
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> str:
+        offset = self._fh.tell()
+        line = self._fh.readline()
+        if not line:
+            raise StopIteration
+        if self.record_start is None:
+            self.record_start = offset
+        return line.decode("utf-8-sig")
+
+    def consume_record_start(self) -> int:
+        if self.record_start is None:
+            return self._fh.tell()
+        offset = self.record_start
+        self.record_start = None
+        return offset
+
+
+def _read_csv_header(path: str) -> list[str]:
+    """Read the first CSV row without pulling in a dataframe dependency."""
+    with open(path, newline="", encoding="utf-8-sig") as fh:
+        return next(csv.reader(fh))
+
+
+def _parse_datetime_array(values: np.ndarray) -> np.ndarray:
+    """Convert ISO-like datetime strings to Unix epoch seconds."""
+    out = np.full(values.shape, np.nan, dtype=np.float64)
+    for index, value in enumerate(values.astype(str, copy=False)):
+        text = value.strip()
+        if not text:
+            continue
+        try:
+            normalized = text.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            out[index] = dt.astimezone(timezone.utc).timestamp()
+        except ValueError:
+            continue
+    return out
+
+
+def _to_float_array(values: np.ndarray) -> np.ndarray:
+    """Convert a string/object array to float, coercing invalid values to NaN."""
+    out = np.empty(values.shape, dtype=np.float64)
+    for index, value in enumerate(values):
+        try:
+            out[index] = float(value)
+        except (TypeError, ValueError):
+            out[index] = np.nan
+    return out
+
+
+def _factorize_values(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return integer category codes and unique values for arbitrary CSV values."""
+    unique_values, codes = np.unique(
+        values.astype(str, copy=False), return_inverse=True
     )
+    return codes.astype(np.int64, copy=False), unique_values
+
+
+class CsvTable:
+    """Small column-oriented table for CSV data used by csv_plotter.
+
+    Loaded chunks keep only derived columns (coordinates, ids, parsed time) in
+    memory. Original CSV cell values are read lazily from source file offsets
+    when the table view, keyword filtering, color-by, or export needs them.
+    """
+
+    def __init__(
+        self,
+        columns: Sequence[str],
+        data: np.ndarray | None = None,
+        source_paths: Sequence[str] | None = None,
+        source_offsets: np.ndarray | None = None,
+    ):
+        self._columns = list(columns)
+        self._data = None if data is None else np.asarray(data)
+        self._source_paths = list(source_paths or [])
+        self._source_offsets = (
+            np.asarray(source_offsets, dtype=np.uint64)
+            if source_offsets is not None
+            else np.empty(0, dtype=np.uint64)
+        )
+        self._extra_columns: dict[str, np.ndarray] = {}
+        self._layer_id = ""
+
+    @property
+    def columns(self) -> list[str]:
+        return [*self._columns, *self._extra_columns]
+
+    def __len__(self) -> int:
+        if self._data is not None:
+            return int(self._data.shape[0])
+        if self._extra_columns:
+            return len(next(iter(self._extra_columns.values())))
+        return int(self._source_offsets.shape[0])
+
+    def __contains__(self, column: str) -> bool:
+        return column in self._columns or column in self._extra_columns
+
+    def __getitem__(self, column: str) -> np.ndarray:
+        if column in self._extra_columns:
+            return self._extra_columns[column]
+        if self._data is not None:
+            return self._data[:, self._columns.index(column)]
+        return self._read_source_column(column)
+
+    def __setitem__(self, column: str, values: Sequence[object] | np.ndarray) -> None:
+        arr = np.asarray(values)
+        if column in self._extra_columns:
+            self._extra_columns[column] = arr
+        elif self._data is not None and column in self._columns:
+            self._data[:, self._columns.index(column)] = arr
+        else:
+            self._extra_columns[column] = arr
+
+    def get_cell(self, row_index: int, column: str, default: object = None) -> object:
+        if column in self._extra_columns:
+            return self._extra_columns[column][row_index]
+        if self._data is not None:
+            return self._data[row_index, self._columns.index(column)]
+        try:
+            return self._read_source_row(row_index)[self._columns.index(column)]
+        except (IndexError, ValueError):
+            return default
+
+    def filtered(self, mask: np.ndarray) -> "CsvTable":
+        filtered = CsvTable(
+            self._columns,
+            None if self._data is None else self._data[mask].copy(),
+            self._source_paths,
+            self._source_offsets[mask].copy(),
+        )
+        filtered._extra_columns = {
+            key: values[mask].copy() for key, values in self._extra_columns.items()
+        }
+        return filtered
+
+    @classmethod
+    def from_source_rows(
+        cls, columns: Sequence[str], source_path: str, offsets: np.ndarray
+    ) -> "CsvTable":
+        return cls(columns, None, [source_path], offsets)
+
+    @classmethod
+    def concat(cls, chunks: Sequence["CsvTable"]) -> "CsvTable":
+        if not chunks:
+            return cls([], np.empty((0, 0), dtype=str))
+        if all(chunk._data is not None for chunk in chunks):
+            data = np.vstack([chunk._data for chunk in chunks])
+        else:
+            data = None
+        paths: list[str] = []
+        offsets: list[np.ndarray] = []
+        for chunk in chunks:
+            path_base = len(paths)
+            paths.extend(chunk._source_paths)
+            if chunk._source_offsets.size:
+                if len(chunk._source_paths) != 1:
+                    offsets.append(chunk._source_offsets)
+                else:
+                    file_ids = np.full(len(chunk), path_base, dtype=np.uint32)
+                    offsets.append(
+                        np.column_stack((file_ids, chunk._source_offsets)).astype(
+                            np.uint64, copy=False
+                        )
+                    )
+        source_offsets = np.vstack(offsets) if offsets else None
+        table = cls(chunks[0]._columns, data, paths, source_offsets)
+        extra_keys = set().union(*(chunk._extra_columns.keys() for chunk in chunks))
+        table._extra_columns = {
+            key: np.concatenate([chunk._extra_columns[key] for chunk in chunks])
+            for key in extra_keys
+        }
+        return table
+
+    def set_layer_id(self, layer_id: str) -> None:
+        self._layer_id = str(layer_id)
+
+    def row_count(self) -> int:
+        return len(self)
+
+    def data(self, source_row: int, _column: int, column_spec: ColumnSpec) -> object:
+        return self.get_cell(source_row, column_spec.name, "")
+
+    def key(self, source_row: int) -> tuple[str, str]:
+        return (self._layer_id, f"pt_{source_row}")
+
+    def row_for_key(self, key: tuple[str, str]) -> int | None:
+        layer_id, feature_id = key
+        if self._layer_id and str(layer_id) != self._layer_id:
+            return None
+        if not str(feature_id).startswith("pt_"):
+            return None
+        try:
+            row = int(str(feature_id)[3:])
+        except ValueError:
+            return None
+        if 0 <= row < len(self):
+            return row
+        return None
+
+    def row_data(self, source_row: int) -> dict[str, object]:
+        row = {
+            column: self.get_cell(source_row, column, "") for column in self._columns
+        }
+        row.update({"_layer_id": self._layer_id, "_feature_id": f"pt_{source_row}"})
+        return row
+
+    def write_csv(self, path: str, excluded_columns: set[str] | None = None) -> None:
+        excluded_columns = excluded_columns or set()
+        columns = [column for column in self._columns if column not in excluded_columns]
+        column_indices = [self._columns.index(col) for col in columns]
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(columns)
+            if self._data is not None:
+                writer.writerows(self._data[:, column_indices])
+            else:
+                for row_index in range(len(self)):
+                    row = self._read_source_row(row_index)
+                    writer.writerow(
+                        [
+                            row[index] if index < len(row) else ""
+                            for index in column_indices
+                        ]
+                    )
+
+    def _read_source_column(self, column: str) -> np.ndarray:
+        """Read one CSV column in source-row order without reopening per row."""
+        column_index = self._columns.index(column)
+        values = np.empty(len(self), dtype=object)
+        current_file_id: int | None = None
+        fh = None
+        try:
+            for row_index in range(len(self)):
+                if self._source_offsets.ndim == 2:
+                    file_id = int(self._source_offsets[row_index, 0])
+                    offset = int(self._source_offsets[row_index, 1])
+                else:
+                    file_id = 0
+                    offset = int(self._source_offsets[row_index])
+
+                if fh is None or file_id != current_file_id:
+                    if fh is not None:
+                        fh.close()
+                    fh = open(self._source_paths[file_id], "rb")
+                    current_file_id = file_id
+
+                fh.seek(offset)
+                row = next(csv.reader(_OffsetLineIterator(fh)))
+                values[row_index] = row[column_index] if column_index < len(row) else ""
+                if row_index and row_index % 50_000 == 0:
+                    QtWidgets.QApplication.processEvents()
+        finally:
+            if fh is not None:
+                fh.close()
+        return values
+
+    def _read_source_row(self, row_index: int) -> list[str]:
+        if self._source_offsets.ndim == 2:
+            file_id = int(self._source_offsets[row_index, 0])
+            offset = int(self._source_offsets[row_index, 1])
+        else:
+            file_id = 0
+            offset = int(self._source_offsets[row_index])
+        with open(self._source_paths[file_id], "rb") as fh:
+            fh.seek(offset)
+            return next(csv.reader(_OffsetLineIterator(fh)))
+
+
+def perf_enabled() -> bool:
+    return os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
 
 
 def perf(message: str, **fields: object) -> None:
@@ -114,34 +358,6 @@ def perf(message: str, **fields: object) -> None:
         return
     suffix = " ".join(f"{key}={value}" for key, value in fields.items())
     print(f"PERF: app {message}" + (f" {suffix}" if suffix else ""), flush=True)
-
-
-class DataFrameTableRow:
-    """Lightweight table row backed by a chunk DataFrame.
-
-    This avoids converting every CSV row into a Python dict during load. The
-    table model only needs a mapping-like ``get`` method for visible cells and
-    key extraction, so values can be fetched lazily from the retained chunk.
-    """
-
-    __slots__ = ("_df", "_row_index", "_layer_id", "_feature_id")
-
-    def __init__(
-        self, df: pd.DataFrame, row_index: int, layer_id: str, feature_id: str
-    ) -> None:
-        self._df = df
-        self._row_index = row_index
-        self._layer_id = layer_id
-        self._feature_id = feature_id
-
-    def get(self, key: str, default: object = None) -> object:
-        if key == "_layer_id":
-            return self._layer_id
-        if key == "_feature_id":
-            return self._feature_id
-        if key in self._df.columns:
-            return self._df[key].iat[self._row_index]
-        return default
 
 
 class CsvLoaderThread(QtCore.QThread):
@@ -172,8 +388,7 @@ class CsvLoaderThread(QtCore.QThread):
                 file_size = file_sizes.get(path, 0)
                 self.status_update.emit(f"Streaming chunks from {file_name}...")
                 try:
-                    temp_schema = pd.read_csv(path, nrows=0)
-                    if list(temp_schema.columns) != self.base_columns:
+                    if _read_csv_header(path) != self.base_columns:
                         error_files.append(file_name)
                         bytes_finished += file_size
                         self.progress_update.emit(
@@ -182,12 +397,37 @@ class CsvLoaderThread(QtCore.QThread):
                         continue
 
                     with open(path, "rb") as fh:
-                        for chunk in pd.read_csv(fh, chunksize=self.chunk_size):
+                        fh.readline()
+                        line_iter = _OffsetLineIterator(fh)
+                        reader = csv.reader(line_iter)
+                        while True:
+                            offsets: list[int] = []
+                            rows: list[list[str]] = []
+                            for _ in range(self.chunk_size):
+                                try:
+                                    row = next(reader)
+                                except StopIteration:
+                                    break
+                                offset = line_iter.consume_record_start()
+                                if not row:
+                                    continue
+                                offsets.append(offset)
+                                rows.append(row)
+                            if not rows:
+                                break
+                            data = np.asarray(rows, dtype=str)
+                            if data.ndim == 1:
+                                data = data.reshape(1, -1)
+                            if data.shape[1] != len(self.base_columns):
+                                raise ValueError("CSV row has unexpected column count")
+                            chunk = CsvTable(
+                                self.base_columns,
+                                data,
+                                source_paths=[path],
+                                source_offsets=np.asarray(offsets, dtype=np.uint64),
+                            )
                             self.chunk_ready.emit(chunk)
-                            try:
-                                current_bytes = bytes_finished + fh.tell()
-                            except Exception:
-                                current_bytes = bytes_finished
+                            current_bytes = bytes_finished + fh.tell()
                             self.progress_update.emit(
                                 min(int((current_bytes / total_bytes) * 100), 100)
                             )
@@ -241,7 +481,10 @@ class CsvImportDialog(QtWidgets.QDialog):
         layout.addWidget(buttons)
 
     def _set_default(
-        self, combo_box: QtWidgets.QComboBox, explicit_default: str | None, auto_matches: list[str]
+        self,
+        combo_box: QtWidgets.QComboBox,
+        explicit_default: str | None,
+        auto_matches: list[str],
     ) -> None:
         if explicit_default and explicit_default in [
             combo_box.itemText(i) for i in range(combo_box.count())
@@ -268,8 +511,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.resize(1200, 800)
         self.cli_args = cli_args
 
-        self.df: pd.DataFrame | None = None
-        self.chunk_list: list[pd.DataFrame] = []
+        self.df: CsvTable | None = None
+        self.chunk_list: list[CsvTable] = []
         self.global_fid_counter = 0
         self.current_lat_col: str | None = None
         self.current_lon_col: str | None = None
@@ -584,7 +827,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
     def save_selected_csv(self) -> None:
         if not self.current_selection_fids or self.df is None:
             QtWidgets.QMessageBox.information(
-                self, "No Selection", "Please select points on the map or in the table first."
+                self,
+                "No Selection",
+                "Please select points on the map or in the table first.",
             )
             return
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
@@ -592,15 +837,14 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         )
         if not path:
             return
-        mask = self.df["_fid"].isin(self.current_selection_fids)
-        export_df = self.df[mask].copy()
-        cols_to_drop = ["_fid"]
-        if self.mapped_epoch_col in export_df.columns:
-            cols_to_drop.append(self.mapped_epoch_col)
-        export_df.drop(columns=cols_to_drop, inplace=True, errors="ignore")
-        export_df.to_csv(path, index=False)
+        selected = set(self.current_selection_fids)
+        mask = np.fromiter((fid in selected for fid in self.df["_fid"]), dtype=bool)
+        export_table = self.df.filtered(mask)
+        export_table.write_csv(path, excluded_columns={"_fid", self.mapped_epoch_col})
         QtWidgets.QMessageBox.information(
-            self, "Success", f"Successfully saved {len(export_df)} records to:\n{path}"
+            self,
+            "Success",
+            f"Successfully saved {len(export_table)} records to:\n{path}",
         )
 
     def load_csv_from_menu(self) -> None:
@@ -623,8 +867,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             return
 
         first_file = paths[0]
-        base_df = pd.read_csv(first_file, nrows=0)
-        base_columns = list(base_df.columns)
+        base_columns = _read_csv_header(first_file)
 
         cli_time_valid = cli_time in (None, "", "None") or cli_time in base_columns
         if cli_lat in base_columns and cli_lon in base_columns and cli_time_valid:
@@ -649,7 +892,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._reset_loaded_data_state()
         self._initialize_empty_table(base_columns)
 
-        self.loader_thread = CsvLoaderThread(paths, base_columns, self.cli_args.chunk_size)
+        self.loader_thread = CsvLoaderThread(
+            paths, base_columns, self.cli_args.chunk_size
+        )
         self.loader_thread.chunk_ready.connect(self._on_chunk_ready)
         self.loader_thread.progress_update.connect(self.progress_bar.setValue)
         self.loader_thread.status_update.connect(self.statusBar().showMessage)
@@ -709,8 +954,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 elapsed_ms=round((time.perf_counter() - perf_start) * 1000.0, 2),
             )
 
-        self._map_selection_conn = self.map_widget.selectionChanged.connect(on_map_selection)
-
+        self._map_selection_conn = self.map_widget.selectionChanged.connect(
+            on_map_selection
+        )
 
     def _install_table_sorting(self) -> None:
         if self.table_widget is None:
@@ -726,7 +972,10 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         header = self.table_widget.table.horizontalHeader()
         current_section = header.sortIndicatorSection()
         current_order = header.sortIndicatorOrder()
-        if current_section == column and current_order == QtCore.Qt.SortOrder.AscendingOrder:
+        if (
+            current_section == column
+            and current_order == QtCore.Qt.SortOrder.AscendingOrder
+        ):
             order = QtCore.Qt.SortOrder.DescendingOrder
         else:
             order = QtCore.Qt.SortOrder.AscendingOrder
@@ -742,40 +991,26 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
 
-    def _on_chunk_ready(self, chunk_df: pd.DataFrame) -> None:
+    def _on_chunk_ready(self, chunk_df: CsvTable) -> None:
         perf_start = time.perf_counter()
         incoming_rows = len(chunk_df)
-        chunk_df = chunk_df.copy()
 
         if self.current_time_col and self.current_time_col != "None":
-            if pd.api.types.is_numeric_dtype(chunk_df[self.current_time_col]):
-                chunk_df[self.mapped_epoch_col] = chunk_df[
-                    self.current_time_col
-                ].astype(float)
-            else:
-                parsed_dates = pd.to_datetime(
-                    chunk_df[self.current_time_col],
-                    format="mixed",
-                    errors="coerce",
-                    utc=True,
-                )
-                chunk_df[self.mapped_epoch_col] = _datetime_series_to_epoch_seconds(
-                    parsed_dates
-                )
+            raw_time_values = chunk_df[self.current_time_col]
+            numeric_times = _to_float_array(raw_time_values)
+            invalid_numeric = ~np.isfinite(numeric_times)
+            if np.any(invalid_numeric):
+                parsed_times = _parse_datetime_array(raw_time_values)
+                numeric_times[invalid_numeric] = parsed_times[invalid_numeric]
+            chunk_df[self.mapped_epoch_col] = numeric_times
 
         coords_start = time.perf_counter()
-        lats = pd.to_numeric(
-            chunk_df[self.current_lat_col],
-            errors="coerce",
-        ).to_numpy(dtype=np.float64, copy=False)
-        lons = pd.to_numeric(
-            chunk_df[self.current_lon_col],
-            errors="coerce",
-        ).to_numpy(dtype=np.float64, copy=False)
+        lats = _to_float_array(chunk_df[self.current_lat_col])
+        lons = _to_float_array(chunk_df[self.current_lon_col])
         valid_coords = np.isfinite(lats) & np.isfinite(lons)
         skipped_invalid_coords = int(incoming_rows - np.count_nonzero(valid_coords))
         if skipped_invalid_coords:
-            chunk_df = chunk_df.loc[valid_coords].copy()
+            chunk_df = chunk_df.filtered(valid_coords)
             lats = lats[valid_coords]
             lons = lons[valid_coords]
         num_rows = len(chunk_df)
@@ -787,8 +1022,23 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             )
             return
 
+        source_paths = chunk_df._source_paths
+        source_offsets = chunk_df._source_offsets
+        epoch_values = (
+            chunk_df[self.mapped_epoch_col]
+            if self.mapped_epoch_col in chunk_df.columns
+            else None
+        )
+        chunk_df = CsvTable(
+            chunk_df._columns,
+            data=None,
+            source_paths=source_paths,
+            source_offsets=source_offsets,
+        )
         chunk_df[self.current_lat_col] = lats
         chunk_df[self.current_lon_col] = lons
+        if epoch_values is not None:
+            chunk_df[self.mapped_epoch_col] = epoch_values
         start_idx = self.global_fid_counter
         chunk_fids = [f"pt_{i}" for i in range(start_idx, start_idx + num_rows)]
         chunk_df["_fid"] = chunk_fids
@@ -799,16 +1049,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.fast_layer.add_points(coords=coords, ids=chunk_fids, redraw=False)
         map_ms = (time.perf_counter() - map_start) * 1000.0
 
-        table_start = time.perf_counter()
-        table_rows = (
-            DataFrameTableRow(chunk_df, row_index, self.fast_layer.id, fid)
-            for row_index, fid in enumerate(chunk_fids)
-        )
-        table_rows_ms = (time.perf_counter() - table_start) * 1000.0
-
-        append_start = time.perf_counter()
-        self.table_widget.append_rows(table_rows)
-        append_ms = (time.perf_counter() - append_start) * 1000.0
+        table_rows_ms = 0.0
+        append_ms = 0.0
 
         self.chunk_list.append(chunk_df)
         self.feature_ids.extend(chunk_fids)
@@ -829,11 +1071,16 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if not self.chunk_list:
             self._reset_loaded_data_state()
             self._cleanup_load_ui()
-            QtWidgets.QMessageBox.warning(self, "No Data", "No valid data could be loaded.")
+            QtWidgets.QMessageBox.warning(
+                self, "No Data", "No valid data could be loaded."
+            )
             return
         self.statusBar().showMessage("Finalizing UI sync...")
-        self.df = pd.concat(self.chunk_list, ignore_index=True)
+        self.df = CsvTable.concat(self.chunk_list)
+        self.df.set_layer_id(self.fast_layer.id)
         self.feature_ids = np.array(self.feature_ids)
+        if self.table_widget is not None:
+            self.table_widget.set_row_provider(self.df)
         self._visible_mask = np.ones(len(self.df), dtype=bool)
         self._deleted_mask = np.zeros(len(self.df), dtype=bool)
         self._keyword_mask = None
@@ -848,11 +1095,12 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 "Schema Mismatch",
                 (
                     "The following files had structural differences or read errors "
-                    "and were skipped:\n\n"
-                    + "\n".join(error_files)
+                    "and were skipped:\n\n" + "\n".join(error_files)
                 ),
             )
-        self.statusBar().showMessage(f"Successfully loaded {len(self.df):,} points.", 10000)
+        self.statusBar().showMessage(
+            f"Successfully loaded {len(self.df):,} points.", 10000
+        )
 
     def _on_load_error(self, error_msg: str) -> None:
         self._reset_loaded_data_state()
@@ -869,8 +1117,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if self.df is None:
             return
         if self.current_time_col != "None" and self.mapped_epoch_col in self.df.columns:
-            valid_times = self.df[self.mapped_epoch_col].dropna()
-            if valid_times.empty:
+            time_values = self.df[self.mapped_epoch_col]
+            valid_times = time_values[np.isfinite(time_values)]
+            if valid_times.size == 0:
                 self.slider.setEnabled(False)
                 return
             t_min = float(valid_times.min())
@@ -894,8 +1143,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             self.slider.set_value_formatter(None)
             self.slider.setEnabled(False)
 
-        lats = self.df[self.current_lat_col].values
-        lons = self.df[self.current_lon_col].values
+        lats = _to_float_array(self.df[self.current_lat_col])
+        lons = _to_float_array(self.df[self.current_lon_col])
         valid_lats = lats[~np.isnan(lats)]
         valid_lons = lons[~np.isnan(lons)]
         if len(valid_lats) > 0:
@@ -910,14 +1159,30 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 self.fast_layer.clear_colors()
                 return
 
-            codes, unique_values = pd.factorize(self.df[column_name], sort=False)
+            stage_start = time.perf_counter()
+            column_values = self.df[column_name]
+            read_column_ms = (time.perf_counter() - stage_start) * 1000.0
+
+            stage_start = time.perf_counter()
+            codes, unique_values = _factorize_values(column_values)
+            factorize_ms = (time.perf_counter() - stage_start) * 1000.0
+
+            stage_start = time.perf_counter()
             packed_colors = _category_codes_to_packed_rgba(codes)
-            self.fast_layer.set_packed_colors(self.feature_ids, packed_colors)
+            color_map_ms = (time.perf_counter() - stage_start) * 1000.0
+
+            stage_start = time.perf_counter()
+            self.fast_layer.set_all_packed_colors(packed_colors)
+            send_ms = (time.perf_counter() - stage_start) * 1000.0
             perf(
                 "color_by",
                 column=column_name,
                 category_count=len(unique_values),
                 row_count=len(codes),
+                read_column_ms=round(read_column_ms, 2),
+                factorize_ms=round(factorize_ms, 2),
+                color_map_ms=round(color_map_ms, 2),
+                send_ms=round(send_ms, 2),
             )
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
@@ -951,11 +1216,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
     def _keyword_terms(self, pattern: str) -> list[str]:
         """Split a keyword expression into case-insensitive OR terms."""
-        return [
-            term.strip()
-            for term in re.split(r"\s+or\s+", pattern)
-            if term.strip()
-        ]
+        return [term.strip() for term in re.split(r"\s+or\s+", pattern) if term.strip()]
 
     def _build_keyword_mask(self, column_name: str, pattern: str) -> np.ndarray:
         """Return rows whose selected column matches the keyword expression."""
@@ -963,19 +1224,19 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             return np.empty(0, dtype=bool)
         if column_name not in self.df.columns:
             return np.zeros(len(self.df), dtype=bool)
-        values = self.df[column_name].astype("string").fillna("").str.lower()
+        values = np.char.lower(self.df[column_name].astype(str, copy=False))
         mask = np.zeros(len(values), dtype=bool)
         for term in self._keyword_terms(pattern):
             lowered = term.lower()
             if any(char in lowered for char in "*?"):
-                regex = _wildcard_term_to_regex(lowered)
-                term_mask = values.str.match(regex, na=False).to_numpy(
-                    dtype=bool, copy=False
+                regex = re.compile(_wildcard_term_to_regex(lowered))
+                term_mask = np.fromiter(
+                    (bool(regex.match(value)) for value in values),
+                    dtype=bool,
+                    count=len(values),
                 )
             else:
-                term_mask = values.str.contains(
-                    re.escape(lowered), regex=True, na=False
-                ).to_numpy(dtype=bool, copy=False)
+                term_mask = np.char.find(values, lowered) >= 0
             mask |= term_mask
         return mask
 
@@ -989,9 +1250,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             and self.mapped_epoch_col in self.df.columns
         ):
             min_val, max_val = self._time_filter_range
-            time_values = self.df[self.mapped_epoch_col].to_numpy(
-                dtype=float, copy=False
-            )
+            time_values = self.df[self.mapped_epoch_col].astype(float, copy=False)
             mask &= (time_values >= min_val) & (time_values <= max_val)
         if self._keyword_mask is not None and len(self._keyword_mask) == len(mask):
             mask &= self._keyword_mask
