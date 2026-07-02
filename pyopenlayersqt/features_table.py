@@ -511,6 +511,18 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         if not col_spec.sortable:
             return self._normalized_source_indices(indices)
 
+        provider_sort = getattr(self._row_provider, "sorted_source_indices", None)
+        if provider_sort is not None and col_spec.sort_key is None:
+            return provider_sort(
+                col_spec.name,
+                order == Qt.DescendingOrder,
+                (
+                    self._normalized_source_indices(indices)
+                    if indices is not None
+                    else None
+                ),
+            )
+
         def make_sort_key(source_row: int) -> Any:
             try:
                 value = self._source_value(source_row, column)

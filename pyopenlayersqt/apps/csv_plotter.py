@@ -138,6 +138,64 @@ def _factorize_values(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return codes.astype(np.int64, copy=False), unique_values
 
 
+class CsvColumnIndex:
+    """Compact categorical index for one CSV column."""
+
+    def __init__(self) -> None:
+        self._code_by_value: dict[str, int] = {}
+        self._unique_values: list[str] = []
+        self._code_chunks: list[np.ndarray] = []
+        self.codes: np.ndarray | None = None
+        self.unique_values: np.ndarray = np.empty(0, dtype=str)
+        self._sort_cache: dict[bool, np.ndarray] = {}
+
+    def add_values(self, values: np.ndarray) -> None:
+        chunk_uniques, inverse = np.unique(
+            values.astype(str, copy=False), return_inverse=True
+        )
+        mapped_codes = np.empty(len(chunk_uniques), dtype=np.uint32)
+        for unique_index, value in enumerate(chunk_uniques):
+            text = str(value)
+            code = self._code_by_value.get(text)
+            if code is None:
+                code = len(self._unique_values)
+                self._code_by_value[text] = code
+                self._unique_values.append(text)
+            mapped_codes[unique_index] = code
+        self._code_chunks.append(mapped_codes[inverse].astype(np.uint32, copy=False))
+
+    def finalize(self) -> None:
+        self.codes = (
+            np.concatenate(self._code_chunks).astype(np.uint32, copy=False)
+            if self._code_chunks
+            else np.empty(0, dtype=np.uint32)
+        )
+        self.unique_values = np.asarray(self._unique_values, dtype=str)
+        self._code_chunks = []
+        self._code_by_value = {}
+
+    def sorted_indices(self, descending: bool = False) -> np.ndarray:
+        cached = self._sort_cache.get(descending)
+        if cached is not None:
+            return cached
+        if self.codes is None:
+            self.finalize()
+        if self.unique_values.size:
+            sorted_codes = np.argsort(self.unique_values.astype(str), kind="stable")
+            rank_by_code = np.empty_like(sorted_codes)
+            rank_by_code[sorted_codes] = np.arange(
+                len(sorted_codes), dtype=sorted_codes.dtype
+            )
+            sort_values = rank_by_code[self.codes]
+        else:
+            sort_values = self.codes
+        indices = np.argsort(sort_values, kind="stable").astype(np.uint32, copy=False)
+        if descending:
+            indices = indices[::-1].copy()
+        self._sort_cache[descending] = indices
+        return indices
+
+
 class CsvTable:
     """Small column-oriented table for CSV data used by csv_plotter.
 
@@ -162,6 +220,7 @@ class CsvTable:
             else np.empty(0, dtype=np.uint64)
         )
         self._extra_columns: dict[str, np.ndarray] = {}
+        self._column_indexes: dict[str, CsvColumnIndex] = {}
         self._layer_id = ""
 
     @property
@@ -254,6 +313,44 @@ class CsvTable:
         }
         return table
 
+    def set_column_indexes(self, indexes: dict[str, CsvColumnIndex]) -> None:
+        self._column_indexes = indexes
+
+    def factorized_column(self, column: str) -> tuple[np.ndarray, np.ndarray, bool]:
+        index = self._column_indexes.get(column)
+        if index is not None:
+            if index.codes is None:
+                index.finalize()
+            return index.codes, index.unique_values, True
+        codes, unique_values = _factorize_values(self[column])
+        return codes, unique_values, False
+
+    def sorted_source_indices(
+        self,
+        column: str,
+        descending: bool = False,
+        indices: Sequence[int] | np.ndarray | None = None,
+    ) -> list[int]:
+        index = self._column_indexes.get(column)
+        if index is None:
+            values = self[column]
+            source_indices = (
+                np.arange(len(self), dtype=np.uint32)
+                if indices is None
+                else np.asarray(indices, dtype=np.uint32)
+            )
+            order = np.argsort(values[source_indices].astype(str), kind="stable")
+            if descending:
+                order = order[::-1]
+            return source_indices[order].astype(np.uint32, copy=False).tolist()
+
+        sorted_indices = index.sorted_indices(descending)
+        if indices is not None:
+            visible = np.zeros(len(self), dtype=bool)
+            visible[np.asarray(indices, dtype=np.uint32)] = True
+            sorted_indices = sorted_indices[visible[sorted_indices]]
+        return sorted_indices.astype(np.uint32, copy=False).tolist()
+
     def set_layer_id(self, layer_id: str) -> None:
         self._layer_id = str(layer_id)
 
@@ -310,31 +407,32 @@ class CsvTable:
         """Read one CSV column in source-row order without reopening per row."""
         column_index = self._columns.index(column)
         values = np.empty(len(self), dtype=object)
-        current_file_id: int | None = None
-        fh = None
-        try:
-            for row_index in range(len(self)):
-                if self._source_offsets.ndim == 2:
-                    file_id = int(self._source_offsets[row_index, 0])
-                    offset = int(self._source_offsets[row_index, 1])
-                else:
-                    file_id = 0
-                    offset = int(self._source_offsets[row_index])
+        row_index = 0
+        while row_index < len(self):
+            if self._source_offsets.ndim == 2:
+                file_id = int(self._source_offsets[row_index, 0])
+            else:
+                file_id = 0
 
-                if fh is None or file_id != current_file_id:
-                    if fh is not None:
-                        fh.close()
-                    fh = open(self._source_paths[file_id], "rb")
-                    current_file_id = file_id
+            with open(self._source_paths[file_id], "rb") as fh:
+                while row_index < len(self):
+                    if self._source_offsets.ndim == 2:
+                        next_file_id = int(self._source_offsets[row_index, 0])
+                        offset = int(self._source_offsets[row_index, 1])
+                    else:
+                        next_file_id = 0
+                        offset = int(self._source_offsets[row_index])
+                    if next_file_id != file_id:
+                        break
 
-                fh.seek(offset)
-                row = next(csv.reader(_OffsetLineIterator(fh)))
-                values[row_index] = row[column_index] if column_index < len(row) else ""
-                if row_index and row_index % 50_000 == 0:
-                    QtWidgets.QApplication.processEvents()
-        finally:
-            if fh is not None:
-                fh.close()
+                    fh.seek(offset)
+                    row = next(csv.reader(_OffsetLineIterator(fh)))
+                    values[row_index] = (
+                        row[column_index] if column_index < len(row) else ""
+                    )
+                    row_index += 1
+                    if row_index and row_index % 50_000 == 0:
+                        QtWidgets.QApplication.processEvents()
         return values
 
     def _read_source_row(self, row_index: int) -> list[str]:
@@ -513,6 +611,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         self.df: CsvTable | None = None
         self.chunk_list: list[CsvTable] = []
+        self._column_indexers: dict[str, CsvColumnIndex] = {}
         self.global_fid_counter = 0
         self.current_lat_col: str | None = None
         self.current_lon_col: str | None = None
@@ -766,6 +865,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         """Clear loaded CSV state before starting or after failing a load."""
         self.df = None
         self.chunk_list = []
+        self._column_indexers = {}
         self.feature_ids = []
         self._visible_mask = None
         self._deleted_mask = None
@@ -890,6 +990,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         self.fast_layer.clear()
         self._reset_loaded_data_state()
+        self._column_indexers = {column: CsvColumnIndex() for column in base_columns}
         self._initialize_empty_table(base_columns)
 
         self.loader_thread = CsvLoaderThread(
@@ -1022,6 +1123,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             )
             return
 
+        index_start = time.perf_counter()
+        for column, indexer in self._column_indexers.items():
+            indexer.add_values(chunk_df[column])
+        index_ms = (time.perf_counter() - index_start) * 1000.0
+
         source_paths = chunk_df._source_paths
         source_offsets = chunk_df._source_offsets
         epoch_values = (
@@ -1060,6 +1166,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             rows=num_rows,
             incoming_rows=incoming_rows,
             skipped_invalid_coords=skipped_invalid_coords,
+            index_ms=round(index_ms, 2),
             coords_ms=round(coords_ms, 2),
             map_add_ms=round(map_ms, 2),
             table_rows_ms=round(table_rows_ms, 2),
@@ -1077,6 +1184,15 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             return
         self.statusBar().showMessage("Finalizing UI sync...")
         self.df = CsvTable.concat(self.chunk_list)
+        index_start = time.perf_counter()
+        for indexer in self._column_indexers.values():
+            indexer.finalize()
+        self.df.set_column_indexes(self._column_indexers)
+        perf(
+            "column_indexes_finalized",
+            column_count=len(self._column_indexers),
+            elapsed_ms=round((time.perf_counter() - index_start) * 1000.0, 2),
+        )
         self.df.set_layer_id(self.fast_layer.id)
         self.feature_ids = np.array(self.feature_ids)
         if self.table_widget is not None:
@@ -1160,11 +1276,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 return
 
             stage_start = time.perf_counter()
-            column_values = self.df[column_name]
-            read_column_ms = (time.perf_counter() - stage_start) * 1000.0
-
-            stage_start = time.perf_counter()
-            codes, unique_values = _factorize_values(column_values)
+            codes, unique_values, used_cached_index = self.df.factorized_column(
+                column_name
+            )
             factorize_ms = (time.perf_counter() - stage_start) * 1000.0
 
             stage_start = time.perf_counter()
@@ -1179,7 +1293,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 column=column_name,
                 category_count=len(unique_values),
                 row_count=len(codes),
-                read_column_ms=round(read_column_ms, 2),
+                cached_index=used_cached_index,
                 factorize_ms=round(factorize_ms, 2),
                 color_map_ms=round(color_map_ms, 2),
                 send_ms=round(send_ms, 2),
