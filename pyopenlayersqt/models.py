@@ -531,8 +531,9 @@ class FastGeoPointsStyle:
     default_color: Optional[Union[str, Any]] = None
     selected_color: Optional[Union[str, Any]] = None
 
-    # ellipse style
-    ellipse_stroke_rgba: tuple[int, int, int, int] = (255, 204, 0, 180)
+    # ellipse style.  If no ellipse stroke color is provided, the renderer uses
+    # the point color so default FastGeoPoints do not draw mismatched ellipses.
+    ellipse_stroke_rgba: tuple[int, int, int, int] | None = None
     ellipse_stroke_width: float = 1.5
 
     # Optional QColor or color name alternative for ellipse stroke
@@ -571,7 +572,8 @@ class FastGeoPointsStyle:
             else self.selected_point_rgba
         )
 
-        # Use ellipse_stroke_color if provided, else ellipse_stroke_rgba
+        # Use ellipse_stroke_color if provided, else ellipse_stroke_rgba.  When
+        # both are None, JavaScript falls back to the row's point color.
         ellipse_stroke_rgba_final = (
             _normalize_color_to_rgba(self.ellipse_stroke_color)
             if self.ellipse_stroke_color is not None
@@ -599,7 +601,11 @@ class FastGeoPointsStyle:
             "default_point_rgba": list(default_point_rgba_final),
             "selected_point_radius": float(self.selected_point_radius),
             "selected_point_rgba": list(selected_point_rgba_final),
-            "ellipse_stroke_rgba": list(ellipse_stroke_rgba_final),
+            "ellipse_stroke_rgba": (
+                list(ellipse_stroke_rgba_final)
+                if ellipse_stroke_rgba_final is not None
+                else None
+            ),
             "ellipse_stroke_width": float(self.ellipse_stroke_width),
             "selected_ellipse_stroke_rgba": (
                 list(selected_ellipse_stroke_rgba_final)
