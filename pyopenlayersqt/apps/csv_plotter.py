@@ -787,7 +787,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._wms_layers = self.cli_args.wms_layers
         self._wms_opacity = float(self.cli_args.wms_opacity)
         self._wms_visible = bool(self._wms_url)
-        self._countries_visible = False
+        self._map_background_color = "#0f172a"
+        self._countries_visible = True
         self._country_stroke_color = "#334155"
         self.wms_layer = None
         self.mapped_epoch_col = "_slider_epoch_time"
@@ -918,10 +919,12 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             zoom=2,
             show_osm_layer=self._osm_visible,
             osm_url=self._osm_url,
+            map_background_color=self._map_background_color,
             show_country_boundaries=self._countries_visible,
             country_boundaries_stroke_color=self._country_stroke_color,
         )
         self.map_widget.set_base_opacity(self._osm_opacity)
+        self.map_widget.set_map_background_color(self._map_background_color)
         self.map_widget.set_base_visible(self._osm_visible)
         self.map_widget.set_country_boundaries_visible(
             self._countries_visible, self._country_stroke_color
@@ -990,6 +993,10 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         country_color_action = QtGui.QAction("Country Stroke Color...", self)
         country_color_action.triggered.connect(self.choose_country_stroke_color)
         map_menu.addAction(country_color_action)
+
+        background_color_action = QtGui.QAction("Background Color...", self)
+        background_color_action.triggered.connect(self.choose_background_color)
+        map_menu.addAction(background_color_action)
         map_menu.addSeparator()
 
         self.ellipses_action = QtGui.QAction("Show Ellipses", self)
@@ -1213,6 +1220,24 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         wms_opacity.setSingleStep(0.05)
         wms_opacity.setValue(self._wms_opacity)
 
+        background_edit = QtWidgets.QLineEdit(self._map_background_color)
+        background_button = QtWidgets.QPushButton("Pick...")
+
+        def pick_background_color() -> None:
+            current = QtGui.QColor(background_edit.text().strip() or "#0f172a")
+            picked = QtWidgets.QColorDialog.getColor(
+                current, dialog, "Map background color"
+            )
+            if picked.isValid():
+                background_edit.setText(picked.name())
+
+        background_button.clicked.connect(pick_background_color)
+        background_row = QtWidgets.QWidget()
+        background_layout = QtWidgets.QHBoxLayout(background_row)
+        background_layout.setContentsMargins(0, 0, 0, 0)
+        background_layout.addWidget(background_edit)
+        background_layout.addWidget(background_button)
+
         countries_visible = QtWidgets.QCheckBox("Show country boundaries")
         countries_visible.setChecked(self._countries_visible)
         country_stroke_edit = QtWidgets.QLineEdit(self._country_stroke_color)
@@ -1240,6 +1265,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         form.addRow("WMS URL:", wms_url_edit)
         form.addRow("WMS layer(s):", wms_layers_edit)
         form.addRow("WMS opacity:", wms_opacity)
+        form.addRow("Map background color:", background_row)
         form.addRow(countries_visible)
         form.addRow("Country stroke color:", country_stroke_row)
 
@@ -1260,11 +1286,13 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._wms_url = wms_url_edit.text().strip() or None
         self._wms_layers = wms_layers_edit.text().strip() or None
         self._wms_opacity = float(wms_opacity.value())
+        self._map_background_color = background_edit.text().strip() or "#0f172a"
         self._countries_visible = countries_visible.isChecked()
         self._country_stroke_color = country_stroke_edit.text().strip() or "#334155"
         self.map_widget.set_base_url(self._osm_url)
         self.map_widget.set_base_visible(self._osm_visible)
         self.map_widget.set_base_opacity(self._osm_opacity)
+        self.map_widget.set_map_background_color(self._map_background_color)
         self._apply_wms_settings()
         if self._wms_visible and (not self._wms_url or not self._wms_layers):
             self._wms_visible = False
@@ -1312,6 +1340,15 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             self.map_widget.set_country_boundaries_visible(
                 True, self._country_stroke_color
             )
+
+    def choose_background_color(self) -> None:
+        """Pick and apply the overall map background color from the Map menu."""
+        current = QtGui.QColor(self._map_background_color or "#0f172a")
+        picked = QtWidgets.QColorDialog.getColor(current, self, "Map background color")
+        if not picked.isValid():
+            return
+        self._map_background_color = picked.name()
+        self.map_widget.set_map_background_color(self._map_background_color)
 
     def toggle_ellipses(self, checked: bool) -> None:
         self._ellipses_visible = bool(checked)
