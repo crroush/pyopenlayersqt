@@ -13,7 +13,7 @@ from .features_table import FeatureTableWidget
 from .layers import BaseLayer, FastGeoPointsLayer, FastPointsLayer, VectorLayer
 from .widget import OLMapWidget
 
-SetSel = Callable[[str, List[str]], None]
+SetSel = Callable[[str, List[str], bool], None]
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,9 @@ class TableLink:
             return str(self.key_layer_id)
         if self.layer is not None:
             return self.layer.id
-        raise ValueError("TableLink requires either layer or key_layer_id for table keys")
+        raise ValueError(
+            "TableLink requires either layer or key_layer_id for table keys"
+        )
 
     def keys(self, ids: Sequence[str]) -> List[Tuple[str, str]]:
         lid = self.table_lid
@@ -67,7 +69,8 @@ class MultiSelectLink:
         self.clear_parent_on_kid_subset = bool(clear_parent_on_kid_subset)
 
         self.kid_by_lid: Dict[str, str] = {
-            link.lid: kid_name for kid_name, link in self.kids.items()
+            link.lid: kid_name
+            for kid_name, link in self.kids.items()
             if link.lid is not None
         }
 
@@ -82,7 +85,9 @@ class MultiSelectLink:
         self.map_widget.selectionChanged.connect(self._on_map)
         self.parent.table.selectionKeysChanged.connect(self._on_parent_table)
         for kid_name, link in self.kids.items():
-            link.table.selectionKeysChanged.connect(partial(self._on_kid_table, kid_name))
+            link.table.selectionKeysChanged.connect(
+                partial(self._on_kid_table, kid_name)
+            )
 
     def set_links(self, parent_by_kid: Mapping[str, Mapping[str, str]]) -> None:
         """Replace parent/child ownership mappings for one or more child links."""
@@ -92,10 +97,7 @@ class MultiSelectLink:
         for kid_name, raw in parent_by_kid.items():
             if kid_name not in self.kids:
                 continue
-            mapping = {
-                str(kid_id): str(parent_id)
-                for kid_id, parent_id in raw.items()
-            }
+            mapping = {str(kid_id): str(parent_id) for kid_id, parent_id in raw.items()}
             grouped: Dict[str, List[str]] = defaultdict(list)
             for kid_id, parent_id in mapping.items():
                 grouped[parent_id].append(kid_id)
@@ -106,12 +108,20 @@ class MultiSelectLink:
             self.parent_by_kid.setdefault(kid_name, {})
             self.kid_by_parent.setdefault(kid_name, {})
 
-    def set_parent(self, parent_ids: Sequence[str], *, set_map: bool = True) -> None:
+    def set_parent(
+        self,
+        parent_ids: Sequence[str],
+        *,
+        set_map: bool = True,
+        update_parent_table: bool = True,
+    ) -> None:
         pids = list(dict.fromkeys(str(pid) for pid in parent_ids))
+        previous_parent_sel = self.parent_sel
         self.parent_sel = set(pids)
 
-        self.parent.select_ids(pids, clear_first=True)
-        if set_map:
+        if update_parent_table:
+            self.parent.select_ids(pids, clear_first=True)
+        if set_map and previous_parent_sel != self.parent_sel:
             self._set_map(self.parent, pids)
 
         for kid_name, link in self.kids.items():
@@ -120,9 +130,11 @@ class MultiSelectLink:
                 for pid in pids
                 for kid_id in self.kid_by_parent[kid_name].get(pid, [])
             ]
+            previous_kid_sel = self.kid_sel.get(kid_name, set())
             self.kid_sel[kid_name] = set(kid_ids)
-            link.select_ids(kid_ids, clear_first=True)
-            self._set_map(link, kid_ids)
+            if previous_kid_sel != self.kid_sel[kid_name]:
+                link.select_ids(kid_ids, clear_first=True)
+                self._set_map(link, kid_ids)
 
     def set_kid(
         self,
@@ -131,22 +143,27 @@ class MultiSelectLink:
         *,
         set_map: bool = True,
         clear_parent: bool = False,
+        update_kid_table: bool = True,
     ) -> None:
         if kid_name not in self.kids:
             return
 
         link = self.kids[kid_name]
         ids = list(dict.fromkeys(str(kid_id) for kid_id in kid_ids))
+        previous_kid_sel = self.kid_sel.get(kid_name, set())
         self.kid_sel[kid_name] = set(ids)
 
-        link.select_ids(ids, clear_first=True)
-        if set_map:
+        if update_kid_table:
+            link.select_ids(ids, clear_first=True)
+        if set_map and previous_kid_sel != self.kid_sel[kid_name]:
             self._set_map(link, ids)
 
         if clear_parent:
+            had_parent_selection = bool(self.parent_sel)
             self.parent_sel.clear()
-            self.parent.table.clear_selection()
-            self._set_map(self.parent, [])
+            if had_parent_selection:
+                self.parent.table.clear_selection()
+                self._set_map(self.parent, [])
 
     def _expected_kid(self, kid_name: str) -> Set[str]:
         return {
@@ -158,12 +175,20 @@ class MultiSelectLink:
     def _on_parent_table(self, keys: List[Tuple[str, str]]) -> None:
         if self._from_map:
             return
-        self.set_parent([fid for _lid, fid in keys])
+        self.set_parent(
+            [fid for _lid, fid in keys],
+            update_parent_table=False,
+        )
 
     def _on_kid_table(self, kid_name: str, keys: List[Tuple[str, str]]) -> None:
         if self._from_map:
             return
-        self.set_kid(kid_name, [fid for _lid, fid in keys], clear_parent=False)
+        self.set_kid(
+            kid_name,
+            [fid for _lid, fid in keys],
+            clear_parent=False,
+            update_kid_table=False,
+        )
 
     def _on_map(self, sel) -> None:
         self._from_map = True
@@ -195,7 +220,7 @@ class MultiSelectLink:
             return
         blocker = QSignalBlocker(self.map_widget)
         setter = self._pick_setter(link.layer)
-        setter(link.lid, ids)
+        setter(link.lid, ids, False)
         del blocker
 
     def _pick_setter(self, layer: BaseLayer) -> SetSel:
