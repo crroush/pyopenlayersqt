@@ -1255,26 +1255,104 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
     def open_layer_settings_dialog(self) -> None:
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle("Base/WMS Settings")
+        dialog.setMinimumWidth(780)
+        if self._dark_mode:
+            dialog.setStyleSheet("""
+                QDialog, QWidget {
+                    background-color: #111827;
+                    color: #e5e7eb;
+                }
+                QLineEdit {
+                    background-color: #0f172a;
+                    border: 1px solid #64748b;
+                    border-radius: 4px;
+                    color: #f8fafc;
+                    padding: 5px 7px;
+                    selection-background-color: #2563eb;
+                    selection-color: #ffffff;
+                }
+                QLineEdit:focus {
+                    border: 1px solid #93c5fd;
+                }
+                QPushButton {
+                    background-color: #1f2937;
+                    border: 1px solid #64748b;
+                    border-radius: 4px;
+                    color: #e5e7eb;
+                    padding: 5px 10px;
+                }
+                QPushButton:hover {
+                    background-color: #374151;
+                }
+                QCheckBox, QLabel {
+                    color: #e5e7eb;
+                }
+                QSlider::groove:horizontal {
+                    background: #334155;
+                    border-radius: 3px;
+                    height: 6px;
+                }
+                QSlider::sub-page:horizontal {
+                    background: #2563eb;
+                    border-radius: 3px;
+                    height: 6px;
+                }
+                QSlider::handle:horizontal {
+                    background: #e5e7eb;
+                    border: 1px solid #93c5fd;
+                    border-radius: 7px;
+                    margin: -5px 0;
+                    width: 14px;
+                }
+                """)
         form = QtWidgets.QFormLayout(dialog)
+        form.setFieldGrowthPolicy(
+            QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+
+        def configure_url_edit(edit: QtWidgets.QLineEdit) -> None:
+            """Make long OSM/WMS URLs easier to inspect and edit."""
+            edit.setMinimumWidth(620)
+            edit.setClearButtonEnabled(True)
+            edit.setPlaceholderText("https://...")
+
+        def opacity_slider(value: float) -> tuple[QtWidgets.QWidget, QtWidgets.QSlider]:
+            """Return a slider row for opacity and keep a percentage label updated."""
+            row = QtWidgets.QWidget()
+            layout = QtWidgets.QHBoxLayout(row)
+            layout.setContentsMargins(0, 0, 0, 0)
+            slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+            slider.setRange(0, 100)
+            slider.setSingleStep(5)
+            slider.setPageStep(10)
+            slider.setValue(int(round(max(0.0, min(1.0, value)) * 100)))
+            label = QtWidgets.QLabel(f"{slider.value()}%")
+            label.setMinimumWidth(42)
+            label.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+            slider.valueChanged.connect(
+                lambda new_value: label.setText(f"{new_value}%")
+            )
+            layout.addWidget(slider, 1)
+            layout.addWidget(label)
+            return row, slider
 
         osm_visible = QtWidgets.QCheckBox("Show OSM/XYZ base layer")
         osm_visible.setChecked(self._osm_visible)
         osm_url_edit = QtWidgets.QLineEdit(self._osm_url or "")
-        osm_opacity = QtWidgets.QDoubleSpinBox()
-        osm_opacity.setRange(0.0, 1.0)
-        osm_opacity.setSingleStep(0.05)
-        osm_opacity.setValue(self._osm_opacity)
+        configure_url_edit(osm_url_edit)
+        osm_opacity_row, osm_opacity_slider = opacity_slider(self._osm_opacity)
 
         wms_visible = QtWidgets.QCheckBox("Show WMS overlay")
         wms_visible.setChecked(self._wms_visible)
         wms_url_edit = QtWidgets.QLineEdit(self._wms_url or "")
+        configure_url_edit(wms_url_edit)
         wms_layers_edit = QtWidgets.QLineEdit(self._wms_layers or "")
-        wms_opacity = QtWidgets.QDoubleSpinBox()
-        wms_opacity.setRange(0.0, 1.0)
-        wms_opacity.setSingleStep(0.05)
-        wms_opacity.setValue(self._wms_opacity)
+        configure_url_edit(wms_layers_edit)
+        wms_layers_edit.setPlaceholderText("layer_a,layer_b")
+        wms_opacity_row, wms_opacity_slider = opacity_slider(self._wms_opacity)
 
         background_edit = QtWidgets.QLineEdit(self._map_background_color)
+        background_edit.setMinimumWidth(180)
         background_button = QtWidgets.QPushButton("Pick...")
 
         def pick_background_color() -> None:
@@ -1295,6 +1373,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         countries_visible = QtWidgets.QCheckBox("Show country boundaries")
         countries_visible.setChecked(self._countries_visible)
         country_stroke_edit = QtWidgets.QLineEdit(self._country_stroke_color)
+        country_stroke_edit.setMinimumWidth(180)
         country_stroke_button = QtWidgets.QPushButton("Pick...")
 
         def pick_country_stroke_color() -> None:
@@ -1314,11 +1393,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         form.addRow(osm_visible)
         form.addRow("OSM/XYZ URL:", osm_url_edit)
-        form.addRow("OSM opacity:", osm_opacity)
+        form.addRow("OSM opacity:", osm_opacity_row)
         form.addRow(wms_visible)
         form.addRow("WMS URL:", wms_url_edit)
         form.addRow("WMS layer(s):", wms_layers_edit)
-        form.addRow("WMS opacity:", wms_opacity)
+        form.addRow("WMS opacity:", wms_opacity_row)
         form.addRow("Map background color:", background_row)
         form.addRow(countries_visible)
         form.addRow("Country stroke color:", country_stroke_row)
@@ -1335,11 +1414,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             return
         self._osm_visible = osm_visible.isChecked()
         self._osm_url = osm_url_edit.text().strip() or None
-        self._osm_opacity = float(osm_opacity.value())
+        self._osm_opacity = osm_opacity_slider.value() / 100.0
         self._wms_visible = wms_visible.isChecked()
         self._wms_url = wms_url_edit.text().strip() or None
         self._wms_layers = wms_layers_edit.text().strip() or None
-        self._wms_opacity = float(wms_opacity.value())
+        self._wms_opacity = wms_opacity_slider.value() / 100.0
         self._map_background_color = background_edit.text().strip() or "#0f172a"
         self._countries_visible = countries_visible.isChecked()
         self._country_stroke_color = country_stroke_edit.text().strip() or "#334155"
