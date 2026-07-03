@@ -1351,6 +1351,21 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         wms_layers_edit.setPlaceholderText("layer_a,layer_b")
         wms_opacity_row, wms_opacity_slider = opacity_slider(self._wms_opacity)
 
+        original_osm_opacity = self._osm_opacity
+        original_wms_opacity = self._wms_opacity
+
+        def apply_osm_opacity(value: int) -> None:
+            """Preview OSM/XYZ opacity as the user moves the slider."""
+            self.map_widget.set_base_opacity(value / 100.0)
+
+        def apply_wms_opacity(value: int) -> None:
+            """Preview WMS opacity as the user moves the slider."""
+            if self.wms_layer is not None:
+                self.wms_layer.set_opacity(value / 100.0)
+
+        osm_opacity_slider.valueChanged.connect(apply_osm_opacity)
+        wms_opacity_slider.valueChanged.connect(apply_wms_opacity)
+
         background_edit = QtWidgets.QLineEdit(self._map_background_color)
         background_edit.setMinimumWidth(180)
         background_button = QtWidgets.QPushButton("Pick...")
@@ -1411,6 +1426,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         form.addWidget(buttons)
 
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            self.map_widget.set_base_opacity(original_osm_opacity)
+            if self.wms_layer is not None:
+                self.wms_layer.set_opacity(original_wms_opacity)
             return
         self._osm_visible = osm_visible.isChecked()
         self._osm_url = osm_url_edit.text().strip() or None
