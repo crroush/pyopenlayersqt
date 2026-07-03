@@ -31,7 +31,7 @@ class MovableVectorDemo(QtWidgets.QWidget):
             "• Orange line and green polygon: existing vertices move.\n"
             "• Purple line and olive polygon: new vertices can be created.\n"
             "• Navy polygon and gradient line: whole-object movement only.\n"
-            "• Red objects are not movable and should stay fixed."
+            "• Red objects, including the red icon point, are not movable and should stay fixed."
         )
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
@@ -39,7 +39,6 @@ class MovableVectorDemo(QtWidgets.QWidget):
         self.map_widget = OLMapWidget(center=(39.5, -98.0), zoom=4)
         layout.addWidget(self.map_widget, 1)
         self.map_widget.ready.connect(self._populate)
-        self.map_widget.vectorFeatureChanged.connect(self._feature_changed)
         self._populated = False
 
     def _populate(self) -> None:
@@ -47,7 +46,9 @@ class MovableVectorDemo(QtWidgets.QWidget):
             return
         self._populated = True
         layer = self.map_widget.add_vector_layer(
-            "movable_vectors", selectable=True, movable=True,
+            "movable_vectors",
+            selectable=True,
+            movable=True,
             vertex_editing=VectorVertexEditing.MOVE,
         )
         self.vector_layer = layer
@@ -70,13 +71,19 @@ class MovableVectorDemo(QtWidgets.QWidget):
             "<circle cx='32' cy='23' r='8' fill='white'/></svg>"
         )
         layer.add_icon_points(
-            [(37.8, -119.5)], icon=str(icon_path), ids=["movable_icon_point"],
-            movable=True, style=IconStyle(scale=0.08),
+            [(37.8, -119.5)],
+            icon=str(icon_path),
+            ids=["movable_icon_point"],
+            movable=True,
+            style=IconStyle(scale=0.08),
             properties=[{"label": "movable icon point"}],
         )
         layer.add_icon_points(
-            [(36.6, -118.3)], icon=red_pin, ids=["fixed_icon_point"],
-            movable=False, style=IconStyle(scale=0.8),
+            [(36.6, -118.3)],
+            icon=red_pin,
+            ids=["fixed_icon_point"],
+            movable=False,
+            style=IconStyle(scale=0.8),
             properties=[{"label": "not movable icon point"}],
         )
 
@@ -133,13 +140,42 @@ class MovableVectorDemo(QtWidgets.QWidget):
             properties={"label": "not movable polygon"}, movable=False,
         )
 
-        layer.add_circle((42, -84), 90000, "movable_circle", CircleStyle(stroke_color="#1f77b4"), {"label": "movable circle"}, movable=True)
-        layer.add_circle((39, -84), 90000, "fixed_circle", CircleStyle(stroke_color=red, fill_color=red), {"label": "not movable circle"}, movable=False)
-        layer.add_ellipse((42, -78), 150000, 70000, 35, "movable_ellipse", EllipseStyle(stroke_color="#17becf"), {"label": "movable ellipse"}, movable=True)
-        layer.add_ellipse((39, -78), 150000, 70000, -25, "fixed_ellipse", EllipseStyle(stroke_color=red, fill_color=red), {"label": "not movable ellipse"}, movable=False)
-
-    def _feature_changed(self, payload: object) -> None:
-        print("vectorFeatureChanged:", payload)
+        layer.add_circle(
+            (42, -84),
+            90000,
+            "movable_circle",
+            CircleStyle(stroke_color="#1f77b4"),
+            {"label": "movable circle"},
+            movable=True,
+        )
+        layer.add_circle(
+            (39, -84),
+            90000,
+            "fixed_circle",
+            CircleStyle(stroke_color=red, fill_color=red),
+            {"label": "not movable circle"},
+            movable=False,
+        )
+        layer.add_ellipse(
+            (42, -78),
+            150000,
+            70000,
+            35,
+            "movable_ellipse",
+            EllipseStyle(stroke_color="#17becf"),
+            {"label": "movable ellipse"},
+            movable=True,
+        )
+        layer.add_ellipse(
+            (39, -78),
+            150000,
+            70000,
+            -25,
+            "fixed_ellipse",
+            EllipseStyle(stroke_color=red, fill_color=red),
+            {"label": "not movable ellipse"},
+            movable=False,
+        )
 
 
 if __name__ == "__main__":
