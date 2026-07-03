@@ -1496,11 +1496,9 @@ function fgp_make_canvas_layer(entry) {
 
       function ellipseStrokeRgbaForIndex(i, selected) {
         if (selected) {
-          return (
-            st.selected_ellipse_stroke_rgba ||
-            st.ellipse_stroke_rgba ||
-            pointRgbaForIndex(i, true)
-          );
+          // Keep selected FastGeo ellipses visually tied to their selected
+          // point marker so the two selection highlights never disagree.
+          return pointRgbaForIndex(i, true);
         }
         if (entry.color_u32[i] !== 0) {
           return pointRgbaForIndex(i, false);
