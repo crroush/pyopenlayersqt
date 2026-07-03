@@ -780,11 +780,15 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.current_tilt_col: str | None = None
         self._using_ellipses = False
         self._ellipses_visible = True
+        self._osm_visible = bool(self.cli_args.osm_visible)
         self._osm_url = self.cli_args.osm_url
         self._osm_opacity = float(self.cli_args.osm_opacity)
         self._wms_url = self.cli_args.wms_url
         self._wms_layers = self.cli_args.wms_layers
         self._wms_opacity = float(self.cli_args.wms_opacity)
+        self._wms_visible = bool(self.cli_args.wms_visible and self._wms_url)
+        self._countries_visible = bool(self.cli_args.countries_visible)
+        self._country_stroke_color = self.cli_args.country_stroke_color or "#334155"
         self.wms_layer = None
         self.mapped_epoch_col = "_slider_epoch_time"
         self.feature_ids: list[str] | np.ndarray = []
@@ -909,8 +913,19 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         map_layout = QtWidgets.QVBoxLayout(map_panel)
         map_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.map_widget = OLMapWidget(center=(0, 0), zoom=2, osm_url=self._osm_url)
+        self.map_widget = OLMapWidget(
+            center=(0, 0),
+            zoom=2,
+            show_osm_layer=self._osm_visible,
+            osm_url=self._osm_url,
+            show_country_boundaries=self._countries_visible,
+            country_boundaries_stroke_color=self._country_stroke_color,
+        )
         self.map_widget.set_base_opacity(self._osm_opacity)
+        self.map_widget.set_base_visible(self._osm_visible)
+        self.map_widget.set_country_boundaries_visible(
+            self._countries_visible, self._country_stroke_color
+        )
         self.map_widget.perfReceived.connect(
             lambda payload: perf("bridge_event", payload=payload)
         )
@@ -1132,7 +1147,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         """Create/update/remove the optional WMS overlay from stored settings."""
         url = (self._wms_url or "").strip()
         layers = (self._wms_layers or "").strip()
-        if not url:
+        if not self._wms_visible or not url:
             if self.wms_layer is not None:
                 self.wms_layer.remove()
                 self.wms_layer = None
@@ -1156,12 +1171,16 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         dialog.setWindowTitle("Base/WMS Settings")
         form = QtWidgets.QFormLayout(dialog)
 
+        osm_visible = QtWidgets.QCheckBox("Show OSM/XYZ base layer")
+        osm_visible.setChecked(self._osm_visible)
         osm_url_edit = QtWidgets.QLineEdit(self._osm_url or "")
         osm_opacity = QtWidgets.QDoubleSpinBox()
         osm_opacity.setRange(0.0, 1.0)
         osm_opacity.setSingleStep(0.05)
         osm_opacity.setValue(self._osm_opacity)
 
+        wms_visible = QtWidgets.QCheckBox("Show WMS overlay")
+        wms_visible.setChecked(self._wms_visible)
         wms_url_edit = QtWidgets.QLineEdit(self._wms_url or "")
         wms_layers_edit = QtWidgets.QLineEdit(self._wms_layers or "")
         wms_opacity = QtWidgets.QDoubleSpinBox()
@@ -1169,11 +1188,35 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         wms_opacity.setSingleStep(0.05)
         wms_opacity.setValue(self._wms_opacity)
 
+        countries_visible = QtWidgets.QCheckBox("Show country boundaries")
+        countries_visible.setChecked(self._countries_visible)
+        country_stroke_edit = QtWidgets.QLineEdit(self._country_stroke_color)
+        country_stroke_button = QtWidgets.QPushButton("Pick...")
+
+        def pick_country_stroke_color() -> None:
+            current = QtGui.QColor(country_stroke_edit.text().strip() or "#334155")
+            picked = QtWidgets.QColorDialog.getColor(
+                current, dialog, "Country boundary stroke color"
+            )
+            if picked.isValid():
+                country_stroke_edit.setText(picked.name())
+
+        country_stroke_button.clicked.connect(pick_country_stroke_color)
+        country_stroke_row = QtWidgets.QWidget()
+        country_stroke_layout = QtWidgets.QHBoxLayout(country_stroke_row)
+        country_stroke_layout.setContentsMargins(0, 0, 0, 0)
+        country_stroke_layout.addWidget(country_stroke_edit)
+        country_stroke_layout.addWidget(country_stroke_button)
+
+        form.addRow(osm_visible)
         form.addRow("OSM/XYZ URL:", osm_url_edit)
         form.addRow("OSM opacity:", osm_opacity)
+        form.addRow(wms_visible)
         form.addRow("WMS URL:", wms_url_edit)
         form.addRow("WMS layer(s):", wms_layers_edit)
         form.addRow("WMS opacity:", wms_opacity)
+        form.addRow(countries_visible)
+        form.addRow("Country stroke color:", country_stroke_row)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
@@ -1185,14 +1228,22 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
+        self._osm_visible = osm_visible.isChecked()
         self._osm_url = osm_url_edit.text().strip() or None
         self._osm_opacity = float(osm_opacity.value())
+        self._wms_visible = wms_visible.isChecked()
         self._wms_url = wms_url_edit.text().strip() or None
         self._wms_layers = wms_layers_edit.text().strip() or None
         self._wms_opacity = float(wms_opacity.value())
+        self._countries_visible = countries_visible.isChecked()
+        self._country_stroke_color = country_stroke_edit.text().strip() or "#334155"
         self.map_widget.set_base_url(self._osm_url)
+        self.map_widget.set_base_visible(self._osm_visible)
         self.map_widget.set_base_opacity(self._osm_opacity)
         self._apply_wms_settings()
+        self.map_widget.set_country_boundaries_visible(
+            self._countries_visible, self._country_stroke_color
+        )
 
     def toggle_ellipses(self, checked: bool) -> None:
         self._ellipses_visible = bool(checked)
@@ -1996,9 +2047,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tilt", type=str, default=None)
     parser.add_argument("--osm-url", type=str, default=None)
     parser.add_argument("--osm-opacity", type=float, default=1.0)
+    parser.add_argument("--no-osm", dest="osm_visible", action="store_false")
+    parser.set_defaults(osm_visible=True)
     parser.add_argument("--wms-url", type=str, default=None)
     parser.add_argument("--wms-layers", type=str, default=None)
     parser.add_argument("--wms-opacity", type=float, default=1.0)
+    parser.add_argument("--hide-wms", dest="wms_visible", action="store_false")
+    parser.set_defaults(wms_visible=True)
+    parser.add_argument("--countries-visible", action="store_true")
+    parser.add_argument("--country-stroke-color", type=str, default="#334155")
     parser.add_argument("--chunk-size", type=int, default=50_000)
     parser.add_argument("--cell-size-m", type=float, default=50_000.0)
     parser.add_argument(
