@@ -62,7 +62,7 @@ class MovableVectorDemo(QtWidgets.QWidget):
             movable=[True, False],
         )
 
-        icon_path = Path(__file__).parent / "assets" / "orange_pin.svg"
+        icon_path = Path(__file__).resolve().parent / "assets" / "orange_pin.svg"
         red_pin = (
             "data:image/svg+xml;utf8,"
             "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' "
@@ -75,7 +75,7 @@ class MovableVectorDemo(QtWidgets.QWidget):
             icon=str(icon_path),
             ids=["movable_icon_point"],
             movable=True,
-            style=IconStyle(scale=0.08),
+            style=IconStyle(scale=0.8),
             properties=[{"label": "movable icon point"}],
         )
         layer.add_icon_points(

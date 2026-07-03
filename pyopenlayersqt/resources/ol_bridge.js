@@ -2893,6 +2893,7 @@ function cmd_countries_set_visible(msg) {
 
   function vector_feature_vertex_mode(feature) {
     if (!feature || feature.get("_pyolqt_handle")) return "none";
+    if (feature.get("_gradient_parent")) return "none";
     const shapeKind = feature.get("_pyolqt_shape_kind") || "";
     if (shapeKind === "circle" || shapeKind === "ellipse") return "none";
     const layer_id = feature.get("_layer_id") || "";
@@ -2932,7 +2933,39 @@ function cmd_countries_set_visible(msg) {
     return [ll[1], ll[0]];
   }
 
+  function gradient_parent_geometry_payload(feature) {
+    const parent = feature.get("_gradient_parent");
+    const layer_id = feature.get("_layer_id") || "";
+    const e = state.layers.get(layer_id);
+    if (!parent || !e || e.type !== "vector") return null;
+
+    const segments = [];
+    e.source.forEachFeature((candidate) => {
+      if (candidate.get("_gradient_parent") !== parent) return;
+      const geom = candidate.getGeometry();
+      if (!geom || geom.getType() !== "LineString") return;
+      segments.push({
+        index: Number(candidate.get("_gradient_segment_index") || 0),
+        coords: geom.getCoordinates(),
+      });
+    });
+    segments.sort((a, b) => a.index - b.index);
+    if (!segments.length) return null;
+
+    const coords = [];
+    for (let i = 0; i < segments.length; i++) {
+      const segCoords = segments[i].coords;
+      if (!segCoords.length) continue;
+      if (coords.length === 0) coords.push(segCoords[0]);
+      if (segCoords.length > 1) coords.push(segCoords[segCoords.length - 1]);
+    }
+    return { type: "LineString", coordinates: coords.map(lonlatlat) };
+  }
+
   function vector_geometry_payload(feature) {
+    const gradientPayload = gradient_parent_geometry_payload(feature);
+    if (gradientPayload) return gradientPayload;
+
     const geom = feature.getGeometry();
     const shapeKind = feature.get("_pyolqt_shape_kind") || "";
     const params = feature.get("_pyolqt_shape_params") || {};
