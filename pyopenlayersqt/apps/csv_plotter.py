@@ -780,15 +780,15 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.current_tilt_col: str | None = None
         self._using_ellipses = False
         self._ellipses_visible = True
-        self._osm_visible = bool(self.cli_args.osm_visible)
+        self._osm_visible = True
         self._osm_url = self.cli_args.osm_url
         self._osm_opacity = float(self.cli_args.osm_opacity)
         self._wms_url = self.cli_args.wms_url
         self._wms_layers = self.cli_args.wms_layers
         self._wms_opacity = float(self.cli_args.wms_opacity)
-        self._wms_visible = bool(self.cli_args.wms_visible and self._wms_url)
-        self._countries_visible = bool(self.cli_args.countries_visible)
-        self._country_stroke_color = self.cli_args.country_stroke_color or "#334155"
+        self._wms_visible = bool(self._wms_url)
+        self._countries_visible = False
+        self._country_stroke_color = "#334155"
         self.wms_layer = None
         self.mapped_epoch_col = "_slider_epoch_time"
         self.feature_ids: list[str] | np.ndarray = []
@@ -967,6 +967,31 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         layer_settings_action = QtGui.QAction("Base/WMS Settings...", self)
         layer_settings_action.triggered.connect(self.open_layer_settings_dialog)
         map_menu.addAction(layer_settings_action)
+        map_menu.addSeparator()
+
+        self.osm_visible_action = QtGui.QAction("Show OSM/XYZ Base", self)
+        self.osm_visible_action.setCheckable(True)
+        self.osm_visible_action.setChecked(self._osm_visible)
+        self.osm_visible_action.triggered.connect(self.toggle_osm_layer)
+        map_menu.addAction(self.osm_visible_action)
+
+        self.wms_visible_action = QtGui.QAction("Show WMS Overlay", self)
+        self.wms_visible_action.setCheckable(True)
+        self.wms_visible_action.setChecked(self._wms_visible)
+        self.wms_visible_action.triggered.connect(self.toggle_wms_layer)
+        map_menu.addAction(self.wms_visible_action)
+
+        self.countries_visible_action = QtGui.QAction("Show Countries", self)
+        self.countries_visible_action.setCheckable(True)
+        self.countries_visible_action.setChecked(self._countries_visible)
+        self.countries_visible_action.triggered.connect(self.toggle_country_boundaries)
+        map_menu.addAction(self.countries_visible_action)
+
+        country_color_action = QtGui.QAction("Country Stroke Color...", self)
+        country_color_action.triggered.connect(self.choose_country_stroke_color)
+        map_menu.addAction(country_color_action)
+        map_menu.addSeparator()
+
         self.ellipses_action = QtGui.QAction("Show Ellipses", self)
         self.ellipses_action.setCheckable(True)
         self.ellipses_action.setChecked(True)
@@ -1241,9 +1266,52 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.map_widget.set_base_visible(self._osm_visible)
         self.map_widget.set_base_opacity(self._osm_opacity)
         self._apply_wms_settings()
+        if self._wms_visible and (not self._wms_url or not self._wms_layers):
+            self._wms_visible = False
         self.map_widget.set_country_boundaries_visible(
             self._countries_visible, self._country_stroke_color
         )
+        self._sync_map_menu_actions()
+
+    def _sync_map_menu_actions(self) -> None:
+        """Keep checkable Map menu actions aligned with layer state."""
+        self.osm_visible_action.setChecked(self._osm_visible)
+        self.wms_visible_action.setChecked(self._wms_visible)
+        self.countries_visible_action.setChecked(self._countries_visible)
+
+    def toggle_osm_layer(self, checked: bool) -> None:
+        """Toggle the OSM/XYZ base layer from the Map menu."""
+        self._osm_visible = bool(checked)
+        self.map_widget.set_base_visible(self._osm_visible)
+
+    def toggle_wms_layer(self, checked: bool) -> None:
+        """Toggle the optional WMS overlay from the Map menu."""
+        self._wms_visible = bool(checked)
+        self._apply_wms_settings(show_errors=checked)
+        if self._wms_visible and (not self._wms_url or not self._wms_layers):
+            self._wms_visible = False
+        self._sync_map_menu_actions()
+
+    def toggle_country_boundaries(self, checked: bool) -> None:
+        """Toggle bundled country boundaries from the Map menu."""
+        self._countries_visible = bool(checked)
+        self.map_widget.set_country_boundaries_visible(
+            self._countries_visible, self._country_stroke_color
+        )
+
+    def choose_country_stroke_color(self) -> None:
+        """Pick and apply the country boundary stroke color from the Map menu."""
+        current = QtGui.QColor(self._country_stroke_color or "#334155")
+        picked = QtWidgets.QColorDialog.getColor(
+            current, self, "Country boundary stroke color"
+        )
+        if not picked.isValid():
+            return
+        self._country_stroke_color = picked.name()
+        if self._countries_visible:
+            self.map_widget.set_country_boundaries_visible(
+                True, self._country_stroke_color
+            )
 
     def toggle_ellipses(self, checked: bool) -> None:
         self._ellipses_visible = bool(checked)
@@ -2047,15 +2115,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tilt", type=str, default=None)
     parser.add_argument("--osm-url", type=str, default=None)
     parser.add_argument("--osm-opacity", type=float, default=1.0)
-    parser.add_argument("--no-osm", dest="osm_visible", action="store_false")
-    parser.set_defaults(osm_visible=True)
     parser.add_argument("--wms-url", type=str, default=None)
     parser.add_argument("--wms-layers", type=str, default=None)
     parser.add_argument("--wms-opacity", type=float, default=1.0)
-    parser.add_argument("--hide-wms", dest="wms_visible", action="store_false")
-    parser.set_defaults(wms_visible=True)
-    parser.add_argument("--countries-visible", action="store_true")
-    parser.add_argument("--country-stroke-color", type=str, default="#334155")
     parser.add_argument("--chunk-size", type=int, default=50_000)
     parser.add_argument("--cell-size-m", type=float, default=50_000.0)
     parser.add_argument(
