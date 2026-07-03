@@ -1256,6 +1256,37 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         first_file = paths[0]
         base_columns = _read_csv_header(first_file)
+        if self.df is not None and list(self.df._columns) != list(base_columns):
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Schema Mismatch",
+                (
+                    "The selected CSV columns do not match the currently loaded "
+                    "data, so the existing data was left unchanged."
+                ),
+            )
+            return
+
+        mismatched_files = [
+            os.path.basename(path)
+            for path in paths[1:]
+            if _read_csv_header(path) != base_columns
+        ]
+        if mismatched_files:
+            preserved_text = (
+                "the existing data was left unchanged"
+                if self.df is not None
+                else "nothing was loaded"
+            )
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Schema Mismatch",
+                (
+                    "The selected CSV files do not all have the same columns, so "
+                    f"{preserved_text}.\n\n" + "\n".join(mismatched_files)
+                ),
+            )
+            return
 
         cli_time_valid = cli_time in (None, "", "None") or cli_time in base_columns
         cli_ellipse_values = (cli_sma, cli_smi, cli_tilt)
