@@ -799,6 +799,10 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._deleted_mask: np.ndarray | None = None
         self._keyword_mask: np.ndarray | None = None
         self._keyword_filter: tuple[str, str] | None = None
+        self._append_prior_row_count = 0
+        self._append_prior_visible_mask: np.ndarray | None = None
+        self._append_prior_deleted_mask: np.ndarray | None = None
+        self._append_prior_keyword_filter: tuple[str, str] | None = None
         self.current_selection_fids: list[str] = []
         self.table_widget: FeatureTableWidget | None = None
         self._map_selection_conn = None
@@ -1191,6 +1195,10 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._deleted_mask = None
         self._keyword_mask = None
         self._keyword_filter = None
+        self._append_prior_row_count = 0
+        self._append_prior_visible_mask = None
+        self._append_prior_deleted_mask = None
+        self._append_prior_keyword_filter = None
         self.current_selection_fids = []
         self._last_chunk_redraw_time = 0.0
         self._table_sort_column = None
@@ -1239,6 +1247,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 self.wms_layer = None
             return
         if not layers:
+            if self.wms_layer is not None:
+                self.wms_layer.remove()
+                self.wms_layer = None
             if show_errors:
                 QtWidgets.QMessageBox.warning(
                     self, "Missing WMS Layers", "Please provide WMS layer name(s)."
@@ -1734,6 +1745,20 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         self._last_chunk_redraw_time = time.perf_counter()
         if append_to_existing:
+            self._append_prior_row_count = len(self.df)
+            self._append_prior_visible_mask = (
+                self._visible_mask.copy()
+                if self._visible_mask is not None
+                and len(self._visible_mask) == self._append_prior_row_count
+                else None
+            )
+            self._append_prior_deleted_mask = (
+                self._deleted_mask.copy()
+                if self._deleted_mask is not None
+                and len(self._deleted_mask) == self._append_prior_row_count
+                else None
+            )
+            self._append_prior_keyword_filter = self._keyword_filter
             # Successful loads store feature_ids as an ndarray for compactness.
             # Convert back to a list while streaming appended chunks so
             # _on_chunk_ready can extend it cheaply.
@@ -1744,6 +1769,10 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                     column: CsvColumnIndex() for column in base_columns
                 }
         else:
+            self._append_prior_row_count = 0
+            self._append_prior_visible_mask = None
+            self._append_prior_deleted_mask = None
+            self._append_prior_keyword_filter = None
             self.fast_layer.clear()
             self._reset_loaded_data_state()
             self._last_chunk_redraw_time = time.perf_counter()
@@ -1997,10 +2026,48 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.feature_ids = np.array(self.feature_ids)
         if self.table_widget is not None:
             self.table_widget.set_row_provider(self.df)
-        self._visible_mask = np.ones(len(self.df), dtype=bool)
-        self._deleted_mask = np.zeros(len(self.df), dtype=bool)
-        self._keyword_mask = None
-        self._keyword_filter = None
+        append_row_count = self._append_prior_row_count
+        appended_rows = max(0, len(self.df) - append_row_count)
+        appended_to_existing = append_row_count > 0
+        if appended_to_existing:
+            old_visible = (
+                self._append_prior_visible_mask
+                if self._append_prior_visible_mask is not None
+                and len(self._append_prior_visible_mask) == append_row_count
+                else np.ones(append_row_count, dtype=bool)
+            )
+            old_deleted = (
+                self._append_prior_deleted_mask
+                if self._append_prior_deleted_mask is not None
+                and len(self._append_prior_deleted_mask) == append_row_count
+                else np.zeros(append_row_count, dtype=bool)
+            )
+            self._visible_mask = np.concatenate(
+                [old_visible, np.ones(appended_rows, dtype=bool)]
+            )
+            self._deleted_mask = np.concatenate(
+                [old_deleted, np.zeros(appended_rows, dtype=bool)]
+            )
+            self._keyword_filter = self._append_prior_keyword_filter
+            if self._keyword_filter is not None:
+                column_name, pattern = self._keyword_filter
+                self._keyword_mask = self._build_keyword_mask(column_name, pattern)
+            else:
+                self._keyword_mask = None
+            self._apply_visibility_mask(
+                self._visible_mask & self._combined_filter_mask(),
+                "append_preserve_visibility",
+                appended_rows=appended_rows,
+            )
+        else:
+            self._visible_mask = np.ones(len(self.df), dtype=bool)
+            self._deleted_mask = np.zeros(len(self.df), dtype=bool)
+            self._keyword_mask = None
+            self._keyword_filter = None
+        self._append_prior_row_count = 0
+        self._append_prior_visible_mask = None
+        self._append_prior_deleted_mask = None
+        self._append_prior_keyword_filter = None
         self.fast_layer.redraw()
         self._setup_slider_and_view()
         self._cleanup_load_ui()
