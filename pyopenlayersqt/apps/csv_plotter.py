@@ -787,9 +787,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._wms_layers = self.cli_args.wms_layers
         self._wms_opacity = float(self.cli_args.wms_opacity)
         self._wms_visible = bool(self._wms_url)
+        self._dark_mode = True
         self._map_background_color = "#0f172a"
         self._countries_visible = True
-        self._country_stroke_color = "#334155"
+        self._country_stroke_color = "#64748b"
+        self._default_palette = QtWidgets.QApplication.palette()
         self.wms_layer = None
         self.mapped_epoch_col = "_slider_epoch_time"
         self.feature_ids: list[str] | np.ndarray = []
@@ -823,6 +825,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             | None
         ) = None
 
+        self._apply_qt_dark_mode(self._dark_mode)
         self._setup_ui()
         if self.cli_args.csv:
             self._pending_cli_csv = (
@@ -836,6 +839,50 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             )
             self.map_widget.ready.connect(self._process_pending_cli_csv)
             QtCore.QTimer.singleShot(0, self._process_pending_cli_csv)
+
+    def _apply_qt_dark_mode(self, enabled: bool) -> None:
+        """Apply or restore the global Qt application palette."""
+        app = QtWidgets.QApplication.instance()
+        if app is None:
+            return
+        if not enabled:
+            app.setPalette(self._default_palette)
+            return
+        palette = QtGui.QPalette()
+        palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor("#111827"))
+        palette.setColor(QtGui.QPalette.ColorRole.WindowText, QtGui.QColor("#e5e7eb"))
+        palette.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor("#0f172a"))
+        palette.setColor(
+            QtGui.QPalette.ColorRole.AlternateBase, QtGui.QColor("#1f2937")
+        )
+        palette.setColor(QtGui.QPalette.ColorRole.ToolTipBase, QtGui.QColor("#111827"))
+        palette.setColor(QtGui.QPalette.ColorRole.ToolTipText, QtGui.QColor("#e5e7eb"))
+        palette.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor("#e5e7eb"))
+        palette.setColor(QtGui.QPalette.ColorRole.Button, QtGui.QColor("#1f2937"))
+        palette.setColor(QtGui.QPalette.ColorRole.ButtonText, QtGui.QColor("#e5e7eb"))
+        palette.setColor(QtGui.QPalette.ColorRole.BrightText, QtGui.QColor("#ffffff"))
+        palette.setColor(QtGui.QPalette.ColorRole.Highlight, QtGui.QColor("#2563eb"))
+        palette.setColor(
+            QtGui.QPalette.ColorRole.HighlightedText, QtGui.QColor("#ffffff")
+        )
+        app.setPalette(palette)
+
+    def _set_global_dark_mode(self, enabled: bool) -> None:
+        """Set both the Qt GUI palette and map colors for dark/light mode."""
+        self._dark_mode = bool(enabled)
+        self._apply_qt_dark_mode(self._dark_mode)
+        if self._dark_mode:
+            self._map_background_color = "#0f172a"
+            self._country_stroke_color = "#64748b"
+        else:
+            self._map_background_color = "#ffffff"
+            self._country_stroke_color = "#334155"
+        if hasattr(self, "map_widget"):
+            self.map_widget.set_map_background_color(self._map_background_color)
+            if self._countries_visible:
+                self.map_widget.set_country_boundaries_visible(
+                    True, self._country_stroke_color
+                )
 
     def _process_pending_cli_csv(self) -> None:
         if self._pending_cli_csv is None:
@@ -967,6 +1014,13 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         file_menu.addAction(quit_action)
 
         map_menu = self.menuBar().addMenu("Map")
+        self.dark_mode_action = QtGui.QAction("Dark Mode", self)
+        self.dark_mode_action.setCheckable(True)
+        self.dark_mode_action.setChecked(self._dark_mode)
+        self.dark_mode_action.triggered.connect(self.toggle_dark_mode)
+        map_menu.addAction(self.dark_mode_action)
+        map_menu.addSeparator()
+
         layer_settings_action = QtGui.QAction("Base/WMS Settings...", self)
         layer_settings_action.triggered.connect(self.open_layer_settings_dialog)
         map_menu.addAction(layer_settings_action)
@@ -1303,9 +1357,15 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
     def _sync_map_menu_actions(self) -> None:
         """Keep checkable Map menu actions aligned with layer state."""
+        self.dark_mode_action.setChecked(self._dark_mode)
         self.osm_visible_action.setChecked(self._osm_visible)
         self.wms_visible_action.setChecked(self._wms_visible)
         self.countries_visible_action.setChecked(self._countries_visible)
+
+    def toggle_dark_mode(self, checked: bool) -> None:
+        """Toggle global dark mode for both Qt widgets and the map."""
+        self._set_global_dark_mode(bool(checked))
+        self._sync_map_menu_actions()
 
     def toggle_osm_layer(self, checked: bool) -> None:
         """Toggle the OSM/XYZ base layer from the Map menu."""
