@@ -115,6 +115,7 @@ See the [examples directory](examples/) for more working examples:
 - `16_metadata_only_table_linking.py` - 100k FastGeo parent map objects linked to metadata-only child rows (3-5 per parent)
 - `17_map_right_click_context_menu.py` - Right-click anywhere on the map for a custom menu (create new points or open dialogs for existing points)
 - `18_gradient_track_speed.py` - Polyline/track speed visualization with segment color gradients from matplotlib colormaps
+- `19_virtual_feature_table.py` - Minimal lazy/virtual `FeatureTableWidget` row-provider example
 
 ## Core Components
 
@@ -1034,6 +1035,71 @@ table.set_context_menu_actions([
 # Optional hook for custom menus owned by your GUI code
 # table.contextMenuRequested.connect(on_context_menu_requested)
 ```
+
+
+#### Virtual/lazy row providers
+
+For very large datasets, use a row provider instead of appending one Python row
+object per table row. A provider implements the small `TableRowProvider` protocol:
+`row_count()`, `data(source_row, column, column_spec)`, `key(source_row)`,
+`row_for_key(key)`, and `row_data(source_row)`. The table keeps the same
+selection API (`selectionKeysChanged`, `select_keys()`, `select_feature_ids()`,
+and `set_visible_row_indices()`), but resolves display values and selection keys
+lazily through the provider.
+
+```python
+from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
+
+
+class ArrayBackedProvider:
+    def __init__(self, layer_id, names, values):
+        self.layer_id = layer_id
+        self.names = names
+        self.values = values
+
+    def row_count(self):
+        return len(self.names)
+
+    def data(self, source_row, column, column_spec):
+        if column_spec.name == "ID":
+            return f"pt_{source_row}"
+        if column_spec.name == "Name":
+            return self.names[source_row]
+        if column_spec.name == "Value":
+            return self.values[source_row]
+        return ""
+
+    def key(self, source_row):
+        return (self.layer_id, f"pt_{source_row}")
+
+    def row_for_key(self, key):
+        layer_id, feature_id = key
+        if layer_id != self.layer_id or not feature_id.startswith("pt_"):
+            return None
+        row = int(feature_id[3:])
+        return row if 0 <= row < self.row_count() else None
+
+    def row_data(self, source_row):
+        return {
+            "feature_id": f"pt_{source_row}",
+            "name": self.names[source_row],
+            "value": self.values[source_row],
+        }
+
+
+table = FeatureTableWidget(
+    columns=[
+        ColumnSpec("ID", lambda row: row.get("feature_id", "")),
+        ColumnSpec("Name", lambda row: row.get("name", "")),
+        ColumnSpec("Value", lambda row: row.get("value", "")),
+    ],
+    sorting_enabled=False,
+)
+table.set_row_provider(ArrayBackedProvider("measurements", names, values))
+```
+
+See [examples/19_virtual_feature_table.py](examples/19_virtual_feature_table.py)
+for a minimal runnable example.
 
 #### Multi-table linking pattern
 

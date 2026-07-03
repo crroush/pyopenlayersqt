@@ -22,13 +22,14 @@ from .layers import (
 )
 
 from .features_table import (
+    ColumnSpec,
     ContextMenuActionSpec,
     FeatureTableWidget,
     TableContextMenuEvent,
+    TableRowProvider,
 )
 from .range_slider import RangeSliderWidget
 from .selection_linking import DualSelectLink, MultiSelectLink, TableLink
-
 
 __all__ = [
     "OLMapWidget",
@@ -49,9 +50,11 @@ __all__ = [
     "FastGeoPointsStyle",
     "FastGeoPointsLayer",
     # Reusable Qt widgets
+    "ColumnSpec",
     "FeatureTableWidget",
     "ContextMenuActionSpec",
     "TableContextMenuEvent",
+    "TableRowProvider",
     "RangeSliderWidget",
     "TableLink",
     "DualSelectLink",

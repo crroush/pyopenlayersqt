@@ -32,20 +32,21 @@ class MeasurementUpdate:
 
 def _qcolor_to_rgba(color: Any) -> tuple[int, int, int, int]:
     """Convert a QColor object to an RGBA tuple.
-    
+
     Args:
         color: QColor object from PySide6.QtGui. Note that the type hint uses Any
                to avoid requiring PySide6 as a hard dependency for type checking.
-        
+
     Returns:
         Tuple of (r, g, b, a) with values 0-255.
-        
+
     Raises:
         TypeError: If the input is not a QColor object.
     """
     # Import here to avoid circular dependency and allow models.py to work without Qt
     try:
         from PySide6.QtGui import QColor
+
         if isinstance(color, QColor):
             return (color.red(), color.green(), color.blue(), color.alpha())
     except ImportError:
@@ -55,10 +56,10 @@ def _qcolor_to_rgba(color: Any) -> tuple[int, int, int, int]:
 
 def _is_color_name_string(s: str) -> bool:
     """Check if a string is likely a color name (not hex or CSS).
-    
+
     Args:
         s: String to check
-        
+
     Returns:
         True if the string appears to be a color name, False otherwise.
     """
@@ -68,19 +69,20 @@ def _is_color_name_string(s: str) -> bool:
 
 def _color_name_to_rgba(color_name: str) -> tuple[int, int, int, int]:
     """Convert a color name (e.g., 'Green', 'Red') to RGBA tuple using QColor.
-    
+
     Args:
         color_name: Color name (e.g., 'Green', 'Red', 'blue')
-        
+
     Returns:
         Tuple of (r, g, b, a) with values 0-255.
-        
+
     Raises:
         ValueError: If PySide6 is not available, Qt cannot initialize, or color name is invalid.
                    In this case, use RGBA tuples (r, g, b, a) instead.
     """
     try:
         from PySide6.QtGui import QColor
+
         qcolor = QColor(color_name)
         if qcolor.isValid():
             return (qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
@@ -98,18 +100,18 @@ def _color_name_to_rgba(color_name: str) -> tuple[int, int, int, int]:
 
 
 def _normalize_color_to_rgba(
-    color: Union[tuple[int, int, int, int], str, Any]
+    color: Union[tuple[int, int, int, int], str, Any],
 ) -> tuple[int, int, int, int]:
     """Normalize a color to RGBA tuple format.
-    
+
     Accepts:
     - RGBA tuple: (r, g, b, a) with values 0-255
     - QColor object from PySide6.QtGui
     - Color name string (e.g., 'Green', 'Red')
-    
+
     Args:
         color: RGBA tuple, QColor object, or color name string
-        
+
     Returns:
         Tuple of (r, g, b, a) with values 0-255.
     """
@@ -120,6 +122,7 @@ def _normalize_color_to_rgba(
     # Try to convert from QColor
     try:
         from PySide6.QtGui import QColor
+
         if isinstance(color, QColor):
             return _qcolor_to_rgba(color)
     except ImportError:
@@ -138,13 +141,14 @@ def _normalize_color_to_rgba(
 def _color_to_css(c: Union[Color, Any], alpha: Optional[float] = None) -> str:
     """
     Convert color into a CSS color string.
-    - Accepts "#RRGGBB", "rgba(...)", "rgb(...)", (r,g,b) / (r,g,b,a) tuples, 
+    - Accepts "#RRGGBB", "rgba(...)", "rgb(...)", (r,g,b) / (r,g,b,a) tuples,
       QColor objects, or color name strings (e.g., 'Green', 'Red').
     - If alpha is provided, it overrides tuple alpha and converts rgb tuple to rgba.
     """
     # First, try to convert QColor or color names to RGBA tuple
     try:
         from PySide6.QtGui import QColor
+
         # If it's a QColor object, convert it to RGBA tuple
         if isinstance(c, QColor):
             c = (c.red(), c.green(), c.blue(), c.alpha())
@@ -156,6 +160,7 @@ def _color_to_css(c: Union[Color, Any], alpha: Optional[float] = None) -> str:
         # Try to interpret as color name using QColor
         try:
             from PySide6.QtGui import QColor
+
             qcolor = QColor(c)
             if qcolor.isValid() and _is_color_name_string(c):
                 # It's a valid color name like 'Green', convert to tuple
@@ -199,7 +204,7 @@ class PointStyle:
     radius: pixels
     fill_color / fill_opacity: marker fill
     stroke_color / stroke_width / stroke_opacity: marker outline
-    
+
     Colors can be specified as:
     - Hex string: "#ff3333"
     - CSS string: "rgba(255, 51, 51, 0.8)"
@@ -208,6 +213,7 @@ class PointStyle:
     - QColor object: QColor("red") or QColor(255, 0, 0)
     - Color name: "red", "Green", "steelblue"
     """
+
     radius: float = 5.0
     fill_color: Color = "#ff3333"
     fill_opacity: float = 0.85
@@ -267,7 +273,8 @@ class IconStyle:
             "icon_src": str(self.icon_src),
             "selected_icon_src": (
                 str(self.selected_icon_src)
-                if self.selected_icon_src is not None else None
+                if self.selected_icon_src is not None
+                else None
             ),
             "scale": float(self.scale),
             "opacity": float(self.opacity),
@@ -286,7 +293,7 @@ class CircleStyle:
     Circle feature style (geodesic-ish circle drawn on map; rendered as polygon in OL)
     - radius_m: meters
     - outline + optional fill
-    
+
     Colors can be specified as:
     - Hex string: "#00aaff"
     - CSS string: "rgba(0, 170, 255, 0.95)"
@@ -295,6 +302,7 @@ class CircleStyle:
     - QColor object: QColor("blue") or QColor(0, 170, 255)
     - Color name: "blue", "steelblue", "cyan"
     """
+
     stroke_color: Color = "#00aaff"
     stroke_width: float = 2.0
     stroke_opacity: float = 0.95
@@ -308,7 +316,8 @@ class CircleStyle:
             "stroke_width": float(self.stroke_width),
             "fill": (
                 _color_to_css(self.fill_color, self.fill_opacity)
-                if self.fill else "rgba(0,0,0,0)"
+                if self.fill
+                else "rgba(0,0,0,0)"
             ),
         }
 
@@ -317,7 +326,7 @@ class CircleStyle:
 class PolygonStyle:
     """
     Polygon (and arbitrary geometry) style.
-    
+
     Colors can be specified as:
     - Hex string: "#00aaff"
     - CSS string: "rgba(0, 170, 255, 0.95)"
@@ -326,6 +335,7 @@ class PolygonStyle:
     - QColor object: QColor("blue") or QColor(0, 170, 255)
     - Color name: "blue", "Green", "purple"
     """
+
     stroke_color: Color = "#00aaff"
     stroke_width: float = 2.0
     stroke_opacity: float = 0.95
@@ -339,7 +349,8 @@ class PolygonStyle:
             "stroke_width": float(self.stroke_width),
             "fill": (
                 _color_to_css(self.fill_color, self.fill_opacity)
-                if self.fill else "rgba(0,0,0,0)"
+                if self.fill
+                else "rgba(0,0,0,0)"
             ),
         }
 
@@ -350,7 +361,7 @@ class EllipseStyle:
     Ellipse style. Ellipse is represented in JS as a polygon approximating an ellipse.
 
     stroke + optional fill.
-    
+
     Colors can be specified as:
     - Hex string: "#ffcc00"
     - CSS string: "rgba(255, 204, 0, 0.95)"
@@ -359,6 +370,7 @@ class EllipseStyle:
     - QColor object: QColor("yellow") or QColor(255, 204, 0)
     - Color name: "yellow", "gold", "orange"
     """
+
     stroke_color: Color = "#ffcc00"
     stroke_width: float = 2.0
     stroke_opacity: float = 0.95
@@ -372,7 +384,8 @@ class EllipseStyle:
             "stroke_width": float(self.stroke_width),
             "fill": (
                 _color_to_css(self.fill_color, self.fill_opacity)
-                if self.fill else "rgba(0,0,0,0)"
+                if self.fill
+                else "rgba(0,0,0,0)"
             ),
         }
 
@@ -383,6 +396,7 @@ class RasterStyle:
     Raster overlay style (image overlay).
     opacity: 0..1
     """
+
     opacity: float = 0.6
 
     def to_js(self) -> Dict[str, Any]:
@@ -398,17 +412,23 @@ class WMSOptions:
     params: dict passed to ol/source/TileWMS (e.g. {"LAYERS":"foo","TILED":True})
     opacity: 0..1
     """
+
     url: str
     params: Dict[str, Any]
     opacity: float = 1.0
 
     def to_js(self) -> Dict[str, Any]:
-        return {"url": self.url, "params": dict(self.params), "opacity": float(self.opacity)}
+        return {
+            "url": self.url,
+            "params": dict(self.params),
+            "opacity": float(self.opacity),
+        }
 
 
 @dataclass(frozen=True)
 class TileLayerOptions:
     """Generic XYZ/OSM tile layer options."""
+
     url: Optional[str] = None
     opacity: float = 1.0
     attribution: Optional[str] = None
@@ -426,6 +446,7 @@ class FeatureSelection:
     """
     Payload coming back from JS when selection changes.
     """
+
     layer_id: str
     feature_ids: List[str] = field(default_factory=list)
     count: int = 0
@@ -437,13 +458,14 @@ class FastPointsStyle:
     """Style for FastPointsLayer (canvas-rendered, index-backed).
 
     RGBA channels are 0-255.
-    
+
     You can specify colors either as:
     - default_rgba/selected_rgba: RGBA tuples (r, g, b, a) with values 0-255
     - default_color/selected_color: QColor objects or color name strings (e.g., 'Green', 'Red')
-    
+
     If both are specified, the *_color options take precedence.
     """
+
     radius: float = 3.0
     default_rgba: tuple[int, int, int, int] = (255, 51, 51, 204)
     selected_radius: float = 6.0
@@ -489,7 +511,7 @@ class FastGeoPointsStyle:
     - Ellipse fill (legacy): ellipse_fill_rgba (RGBA tuple, deprecated)
     - Selected ellipse stroke: selected_ellipse_stroke_color (QColor or color name, recommended)
     - Selected ellipse stroke (legacy): selected_ellipse_stroke_rgba (RGBA tuple, deprecated)
-    
+
     If both are specified, the *_color options take precedence.
 
     Notes:
@@ -509,8 +531,9 @@ class FastGeoPointsStyle:
     default_color: Optional[Union[str, Any]] = None
     selected_color: Optional[Union[str, Any]] = None
 
-    # ellipse style
-    ellipse_stroke_rgba: tuple[int, int, int, int] = (255, 204, 0, 180)
+    # ellipse style.  If no ellipse stroke color is provided, the renderer uses
+    # the point color so default FastGeoPoints do not draw mismatched ellipses.
+    ellipse_stroke_rgba: tuple[int, int, int, int] | None = None
     ellipse_stroke_width: float = 1.5
 
     # Optional QColor or color name alternative for ellipse stroke
@@ -549,7 +572,8 @@ class FastGeoPointsStyle:
             else self.selected_point_rgba
         )
 
-        # Use ellipse_stroke_color if provided, else ellipse_stroke_rgba
+        # Use ellipse_stroke_color if provided, else ellipse_stroke_rgba.  When
+        # both are None, JavaScript falls back to the row's point color.
         ellipse_stroke_rgba_final = (
             _normalize_color_to_rgba(self.ellipse_stroke_color)
             if self.ellipse_stroke_color is not None
@@ -563,9 +587,7 @@ class FastGeoPointsStyle:
                 self.selected_ellipse_stroke_color
             )
         elif self.selected_ellipse_stroke_rgba is not None:
-            selected_ellipse_stroke_rgba_final = (
-                self.selected_ellipse_stroke_rgba
-            )
+            selected_ellipse_stroke_rgba_final = self.selected_ellipse_stroke_rgba
 
         # Use ellipse_fill_color if provided, otherwise fall back to ellipse_fill_rgba
         ellipse_fill_rgba_final = (
@@ -579,15 +601,21 @@ class FastGeoPointsStyle:
             "default_point_rgba": list(default_point_rgba_final),
             "selected_point_radius": float(self.selected_point_radius),
             "selected_point_rgba": list(selected_point_rgba_final),
-            "ellipse_stroke_rgba": list(ellipse_stroke_rgba_final),
+            "ellipse_stroke_rgba": (
+                list(ellipse_stroke_rgba_final)
+                if ellipse_stroke_rgba_final is not None
+                else None
+            ),
             "ellipse_stroke_width": float(self.ellipse_stroke_width),
             "selected_ellipse_stroke_rgba": (
                 list(selected_ellipse_stroke_rgba_final)
-                if selected_ellipse_stroke_rgba_final is not None else None
+                if selected_ellipse_stroke_rgba_final is not None
+                else None
             ),
             "selected_ellipse_stroke_width": (
                 float(self.selected_ellipse_stroke_width)
-                if self.selected_ellipse_stroke_width is not None else None
+                if self.selected_ellipse_stroke_width is not None
+                else None
             ),
             "fill_ellipses": bool(self.fill_ellipses),
             "ellipse_fill_rgba": list(ellipse_fill_rgba_final),
@@ -595,5 +623,7 @@ class FastGeoPointsStyle:
             "selected_ellipses_visible": bool(self.selected_ellipses_visible),
             "min_ellipse_px": float(self.min_ellipse_px),
             "max_ellipses_per_path": int(self.max_ellipses_per_path),
-            "skip_ellipses_while_interacting": bool(self.skip_ellipses_while_interacting),
+            "skip_ellipses_while_interacting": bool(
+                self.skip_ellipses_while_interacting
+            ),
         }
