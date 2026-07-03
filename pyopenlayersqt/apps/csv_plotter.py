@@ -1862,11 +1862,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if self.table_widget is None:
             return
         header = self.table_widget.table.horizontalHeader()
-        current_section = header.sortIndicatorSection()
-        current_order = header.sortIndicatorOrder()
         if (
-            current_section == column
-            and current_order == QtCore.Qt.SortOrder.AscendingOrder
+            self._table_sort_column == column
+            and self._table_sort_order == QtCore.Qt.SortOrder.AscendingOrder
         ):
             order = QtCore.Qt.SortOrder.DescendingOrder
         else:
