@@ -202,6 +202,11 @@ class CsvColumnIndex:
         self._sort_cache: dict[bool, np.ndarray] = {}
 
     def add_values(self, values: np.ndarray) -> None:
+        if self.codes is not None and not self._code_by_value:
+            self._code_by_value = {
+                str(value): index for index, value in enumerate(self._unique_values)
+            }
+        self._sort_cache = {}
         chunk_uniques, inverse = np.unique(
             values.astype(str, copy=False), return_inverse=True
         )
@@ -217,9 +222,13 @@ class CsvColumnIndex:
         self._code_chunks.append(mapped_codes[inverse].astype(np.uint32, copy=False))
 
     def finalize(self) -> None:
+        code_chunks = []
+        if self.codes is not None:
+            code_chunks.append(self.codes)
+        code_chunks.extend(self._code_chunks)
         self.codes = (
-            np.concatenate(self._code_chunks).astype(np.uint32, copy=False)
-            if self._code_chunks
+            np.concatenate(code_chunks).astype(np.uint32, copy=False)
+            if code_chunks
             else np.empty(0, dtype=np.uint32)
         )
         self.unique_values = np.asarray(self._unique_values, dtype=str)
@@ -1288,55 +1297,76 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             )
             return
 
-        cli_time_valid = cli_time in (None, "", "None") or cli_time in base_columns
-        cli_ellipse_values = (cli_sma, cli_smi, cli_tilt)
-        cli_ellipse_empty = all(
-            value in (None, "", "None") for value in cli_ellipse_values
-        )
-        cli_ellipse_valid = cli_ellipse_empty or all(
-            value in base_columns for value in cli_ellipse_values
-        )
-        if (
-            cli_lat in base_columns
-            and cli_lon in base_columns
-            and cli_time_valid
-            and cli_ellipse_valid
-        ):
-            lat_col, lon_col, time_col = cli_lat, cli_lon, cli_time
-            sma_col, smi_col, tilt_col = cli_sma, cli_smi, cli_tilt
+        append_to_existing = self.df is not None
+        if append_to_existing:
+            lat_col = self.current_lat_col
+            lon_col = self.current_lon_col
+            time_col = self.current_time_col
+            sma_col = self.current_sma_col
+            smi_col = self.current_smi_col
+            tilt_col = self.current_tilt_col
         else:
-            dialog = CsvImportDialog(
-                base_columns,
-                cli_lat,
-                cli_lon,
-                cli_time,
-                cli_sma,
-                cli_smi,
-                cli_tilt,
-                self,
+            cli_time_valid = cli_time in (None, "", "None") or cli_time in base_columns
+            cli_ellipse_values = (cli_sma, cli_smi, cli_tilt)
+            cli_ellipse_empty = all(
+                value in (None, "", "None") for value in cli_ellipse_values
             )
-            if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
-                return
-            lat_col, lon_col, time_col, sma_col, smi_col, tilt_col = (
-                dialog.get_selections()
+            cli_ellipse_valid = cli_ellipse_empty or all(
+                value in base_columns for value in cli_ellipse_values
             )
+            if (
+                cli_lat in base_columns
+                and cli_lon in base_columns
+                and cli_time_valid
+                and cli_ellipse_valid
+            ):
+                lat_col, lon_col, time_col = cli_lat, cli_lon, cli_time
+                sma_col, smi_col, tilt_col = cli_sma, cli_smi, cli_tilt
+            else:
+                dialog = CsvImportDialog(
+                    base_columns,
+                    cli_lat,
+                    cli_lon,
+                    cli_time,
+                    cli_sma,
+                    cli_smi,
+                    cli_tilt,
+                    self,
+                )
+                if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+                    return
+                lat_col, lon_col, time_col, sma_col, smi_col, tilt_col = (
+                    dialog.get_selections()
+                )
 
         self.current_lat_col = lat_col
         self.current_lon_col = lon_col
         self.current_time_col = time_col
-        self._configure_point_layer(sma_col, smi_col, tilt_col)
-        self._configure_column_controls(base_columns)
+        if not append_to_existing:
+            self._configure_point_layer(sma_col, smi_col, tilt_col)
+            self._configure_column_controls(base_columns)
 
         self.centralWidget().setEnabled(False)
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(True)
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
 
-        self.fast_layer.clear()
-        self._reset_loaded_data_state()
         self._last_chunk_redraw_time = time.perf_counter()
-        self._column_indexers = {column: CsvColumnIndex() for column in base_columns}
-        self._initialize_empty_table(base_columns)
+        if append_to_existing:
+            if not isinstance(self.feature_ids, list):
+                self.feature_ids = list(self.feature_ids)
+            if not self._column_indexers:
+                self._column_indexers = {
+                    column: CsvColumnIndex() for column in base_columns
+                }
+        else:
+            self.fast_layer.clear()
+            self._reset_loaded_data_state()
+            self._last_chunk_redraw_time = time.perf_counter()
+            self._column_indexers = {
+                column: CsvColumnIndex() for column in base_columns
+            }
+            self._initialize_empty_table(base_columns)
 
         self.loader_thread = CsvLoaderThread(
             paths, base_columns, self.cli_args.chunk_size
