@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 # Color type: QColor objects, color names, "#RRGGBB", "rgba(...)", or tuples (deprecated)
@@ -8,6 +9,14 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 # Note: RGBA tuples are deprecated; prefer QColor objects or color name strings
 Color = Union[str, Tuple[int, int, int], Tuple[int, int, int, int], Any]
 LatLon = Tuple[float, float]  # (lat, lon) - Public API uses latitude first
+
+
+class VectorVertexEditing(str, Enum):
+    """Vertex editing modes for vector features."""
+
+    NONE = "none"
+    MOVE = "move"
+    MODIFY = "modify"
 
 
 @dataclass(frozen=True)
