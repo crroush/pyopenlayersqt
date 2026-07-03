@@ -87,7 +87,13 @@ def _category_codes_to_packed_rgba(codes: np.ndarray) -> np.ndarray:
 
 
 class _OffsetLineIterator:
-    """Decode binary CSV lines while tracking each logical record start offset."""
+    """Decode binary CSV lines while tracking each logical record start offset.
+
+    ``csv.reader`` can consume several physical lines for one logical CSV row
+    when quoted fields contain embedded newlines.  The loader stores byte
+    offsets so the table/export path can reread original rows lazily; those
+    offsets must point at logical records rather than every physical line.
+    """
 
     def __init__(self, fh):
         self._fh = fh
@@ -106,6 +112,7 @@ class _OffsetLineIterator:
         return line.decode("utf-8-sig")
 
     def consume_record_start(self) -> int:
+        """Return and clear the byte offset for the last parsed CSV record."""
         if self.record_start is None:
             return self._fh.tell()
         offset = self.record_start
@@ -183,7 +190,13 @@ def _factorize_values(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _numeric_aware_sort_values(values: np.ndarray) -> tuple[np.ndarray, bool]:
-    """Return sortable values, using numeric order when non-empty cells are numeric."""
+    """Return sortable values, using numeric order when cells are numeric.
+
+    CSV values are strings, but cached table sorting should still match the old
+    dataframe behavior for numeric columns.  If every non-empty value parses as
+    a finite float, the returned array sorts numerically; otherwise it falls
+    back to text sorting.
+    """
     text_values = values.astype(str, copy=False)
     numeric_values = _to_float_array(text_values)
     non_empty = np.char.strip(text_values) != ""
@@ -195,7 +208,13 @@ def _numeric_aware_sort_values(values: np.ndarray) -> tuple[np.ndarray, bool]:
 
 
 class CsvColumnIndex:
-    """Compact categorical index for one CSV column."""
+    """Compact categorical index for one CSV column.
+
+    The CSV app uses these indexes for color-by, keyword filtering, and large
+    sortable tables.  One uint32 code per row plus the unique value list is far
+    smaller than keeping every raw string cell in memory for multi-million-row
+    CSVs.
+    """
 
     def __init__(self) -> None:
         self._code_by_value: dict[str, int] = {}
@@ -206,7 +225,11 @@ class CsvColumnIndex:
         self._sort_cache: dict[bool, np.ndarray] = {}
 
     def add_values(self, values: np.ndarray) -> None:
+        """Add a loaded CSV chunk to the index."""
         if self.codes is not None and not self._code_by_value:
+            # Appending another file after an index was finalized means the
+            # lookup dictionary has been dropped.  Rebuild it from unique
+            # values so appended chunks reuse existing category codes.
             self._code_by_value = {
                 str(value): index for index, value in enumerate(self._unique_values)
             }
@@ -226,6 +249,7 @@ class CsvColumnIndex:
         self._code_chunks.append(mapped_codes[inverse].astype(np.uint32, copy=False))
 
     def finalize(self) -> None:
+        """Merge pending chunk codes into a row-aligned code array."""
         code_chunks = []
         if self.codes is not None:
             code_chunks.append(self.codes)
@@ -240,6 +264,7 @@ class CsvColumnIndex:
         self._code_by_value = {}
 
     def sorted_indices(self, descending: bool = False) -> np.ndarray:
+        """Return source row indices ordered by this indexed column."""
         cached = self._sort_cache.get(descending)
         if cached is not None:
             return cached
@@ -306,6 +331,7 @@ class CsvTable:
         return column in self._columns or column in self._extra_columns
 
     def __getitem__(self, column: str) -> np.ndarray:
+        """Return a full column from memory or the source CSV file."""
         if column in self._extra_columns:
             return self._extra_columns[column]
         if self._data is not None:
@@ -322,6 +348,7 @@ class CsvTable:
             self._extra_columns[column] = arr
 
     def get_cell(self, row_index: int, column: str, default: object = None) -> object:
+        """Return one table cell for the virtual FeatureTable provider."""
         if column in self._extra_columns:
             return self._extra_columns[column][row_index]
         if self._data is not None:
@@ -332,6 +359,7 @@ class CsvTable:
             return default
 
     def filtered(self, mask: np.ndarray) -> "CsvTable":
+        """Return a source-backed table containing only rows selected by mask."""
         filtered = CsvTable(
             self._columns,
             None if self._data is None else self._data[mask].copy(),
@@ -351,6 +379,7 @@ class CsvTable:
 
     @classmethod
     def concat(cls, chunks: Sequence["CsvTable"]) -> "CsvTable":
+        """Concatenate loaded chunks without materializing raw CSV strings."""
         if not chunks:
             return cls([], np.empty((0, 0), dtype=str))
         if all(chunk._data is not None for chunk in chunks):
@@ -366,6 +395,9 @@ class CsvTable:
                 if len(chunk._source_paths) != 1:
                     offsets.append(chunk._source_offsets)
                 else:
+                    # Single-file chunks store only byte offsets while loading.
+                    # Final concatenated tables need [file_id, offset] pairs so
+                    # lazy row reads can seek into the correct source file.
                     file_ids = np.full(len(chunk), path_base, dtype=np.uint32)
                     offsets.append(
                         np.column_stack((file_ids, chunk._source_offsets)).astype(
@@ -385,6 +417,7 @@ class CsvTable:
         self._column_indexes = indexes
 
     def factorized_column(self, column: str) -> tuple[np.ndarray, np.ndarray, bool]:
+        """Return categorical row codes and unique values for a column."""
         index = self._column_indexes.get(column)
         if index is not None:
             if index.codes is None:
@@ -399,6 +432,12 @@ class CsvTable:
         descending: bool = False,
         indices: Sequence[int] | np.ndarray | None = None,
     ) -> list[int]:
+        """Return provider source rows sorted by a column.
+
+        The feature table calls this when the user clicks a sortable header.
+        Indexed columns use cached row-code ordering; non-indexed columns fall
+        back to reading the requested values and sorting them directly.
+        """
         index = self._column_indexes.get(column)
         if index is None:
             values = self[column]
@@ -435,6 +474,7 @@ class CsvTable:
         return (self._layer_id, f"pt_{source_row}")
 
     def row_for_key(self, key: tuple[str, str]) -> int | None:
+        """Resolve a FeatureTable/Map feature key back to a provider row."""
         layer_id, feature_id = key
         if self._layer_id and str(layer_id) != self._layer_id:
             return None
@@ -456,6 +496,7 @@ class CsvTable:
         return row
 
     def write_csv(self, path: str, excluded_columns: set[str] | None = None) -> None:
+        """Write original CSV columns for selected/exported rows."""
         excluded_columns = excluded_columns or set()
         columns = [column for column in self._columns if column not in excluded_columns]
         column_indices = [self._columns.index(col) for col in columns]
@@ -480,6 +521,9 @@ class CsvTable:
         values = np.empty(len(self), dtype=object)
         row_index = 0
         while row_index < len(self):
+            # Rows can come from multiple appended CSV files.  Process all
+            # contiguous rows for the same source file with one open handle so
+            # full-column operations avoid millions of open/close calls.
             if self._source_offsets.ndim == 2:
                 file_id = int(self._source_offsets[row_index, 0])
             else:
@@ -507,6 +551,7 @@ class CsvTable:
         return values
 
     def _read_source_row(self, row_index: int) -> list[str]:
+        """Reread one original CSV record for table display or export."""
         if self._source_offsets.ndim == 2:
             file_id = int(self._source_offsets[row_index, 0])
             offset = int(self._source_offsets[row_index, 1])
@@ -530,7 +575,12 @@ def perf(message: str, **fields: object) -> None:
 
 
 class CsvLoaderThread(QtCore.QThread):
-    """Background thread that streams CSV chunks to the GUI thread."""
+    """Background thread that streams raw CSV chunks to the GUI thread.
+
+    The thread performs file I/O and CSV tokenization only.  The GUI thread owns
+    Qt objects, map layer updates, coordinate coercion, and table-provider
+    compaction in ``_on_chunk_ready``.
+    """
 
     progress_update = QtCore.Signal(int)
     status_update = QtCore.Signal(str)
@@ -566,6 +616,10 @@ class CsvLoaderThread(QtCore.QThread):
                         continue
 
                     with open(path, "rb") as fh:
+                        # Skip the header row here; the GUI thread already read
+                        # it to configure columns.  Keep the file in binary mode
+                        # so byte offsets remain seekable after csv.reader
+                        # consumes records.
                         fh.readline()
                         line_iter = _OffsetLineIterator(fh)
                         reader = csv.reader(line_iter)
@@ -581,6 +635,9 @@ class CsvLoaderThread(QtCore.QThread):
                                 if not row:
                                     continue
                                 if len(row) < len(self.base_columns):
+                                    # pandas.read_csv tolerated omitted
+                                    # trailing optional cells.  Preserve that
+                                    # behavior by padding them as empty strings.
                                     row = [
                                         *row,
                                         *([""] * (len(self.base_columns) - len(row))),
@@ -1221,6 +1278,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         smi_col: str | None,
         tilt_col: str | None,
     ) -> None:
+        """Switch between FastPoints and FastGeoPoints based on ellipse columns."""
         sma_col = None if sma_col in (None, "", "None") else sma_col
         smi_col = None if smi_col in (None, "", "None") else smi_col
         tilt_col = None if tilt_col in (None, "", "None") else tilt_col
@@ -1262,6 +1320,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         cli_smi: str | None = None,
         cli_tilt: str | None = None,
     ) -> None:
+        """Start a CSV load or append flow after validating schema/mappings."""
         if isinstance(paths, str):
             paths = [paths]
         if not paths:
@@ -1269,6 +1328,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         first_file = paths[0]
         base_columns = _read_csv_header(first_file)
+        # File > Open appends to the current dataset when the schema matches.
+        # If it does not match, bail out before clearing the current map/table.
         if self.df is not None and list(self.df._columns) != list(base_columns):
             QtWidgets.QMessageBox.warning(
                 self,
@@ -1303,6 +1364,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         append_to_existing = self.df is not None
         if append_to_existing:
+            # Appended files must use the same coordinate/time/ellipse mapping
+            # as the existing dataset; otherwise old and new rows would be
+            # interpreted differently inside one layer/table provider.
             lat_col = self.current_lat_col
             lon_col = self.current_lon_col
             time_col = self.current_time_col
@@ -1357,6 +1421,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         self._last_chunk_redraw_time = time.perf_counter()
         if append_to_existing:
+            # Successful loads store feature_ids as an ndarray for compactness.
+            # Convert back to a list while streaming appended chunks so
+            # _on_chunk_ready can extend it cheaply.
             if not isinstance(self.feature_ids, list):
                 self.feature_ids = list(self.feature_ids)
             if not self._column_indexers:
@@ -1475,10 +1542,13 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             QtWidgets.QApplication.restoreOverrideCursor()
 
     def _on_chunk_ready(self, chunk_df: CsvTable) -> None:
+        """Convert one raw CSV chunk into map arrays and provider metadata."""
         perf_start = time.perf_counter()
         incoming_rows = len(chunk_df)
 
         if self.current_time_col and self.current_time_col != "None":
+            # Numeric epoch values should stay numeric.  Only cells that fail
+            # numeric parsing fall back to mixed datetime string parsing.
             raw_time_values = chunk_df[self.current_time_col]
             numeric_times = _to_float_array(raw_time_values)
             invalid_numeric = ~np.isfinite(numeric_times)
@@ -1494,6 +1564,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         skipped_invalid_coords = int(incoming_rows - np.count_nonzero(valid_coords))
         ellipse_values = None
         if self._using_ellipses:
+            # Ellipse arrays are kept parallel to lat/lon.  If coordinate
+            # filtering removes a row, the ellipse row must be removed too.
             sma_values = _to_float_array(chunk_df[self.current_sma_col])
             smi_values = _to_float_array(chunk_df[self.current_smi_col])
             tilt_values = _to_float_array(chunk_df[self.current_tilt_col])
@@ -1517,6 +1589,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
         index_start = time.perf_counter()
         for column, indexer in self._column_indexers.items():
+            # Index while raw cells are still in memory.  After this point the
+            # retained chunk is compacted to source offsets plus derived arrays.
             indexer.add_values(chunk_df[column])
         index_ms = (time.perf_counter() - index_start) * 1000.0
 
@@ -1533,6 +1607,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             source_paths=source_paths,
             source_offsets=source_offsets,
         )
+        # Retained chunks keep map-critical arrays in memory and lazily reread
+        # other CSV cells from the source file when the table/export path needs
+        # them.  This keeps large CSV loads from storing all raw strings twice.
         chunk_df[self.current_lat_col] = lats
         chunk_df[self.current_lon_col] = lons
         if epoch_values is not None:
@@ -1766,6 +1843,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             return np.empty(0, dtype=bool)
         if column_name not in self.df.columns:
             return np.zeros(len(self.df), dtype=bool)
+        # Match against unique values and expand through row codes.  This avoids
+        # rereading millions of source CSV strings for each keyword filter.
         codes, unique_values, _used_cached_index = self.df.factorized_column(
             column_name
         )
@@ -1802,6 +1881,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if self._visible_mask is None or len(self._visible_mask) != len(new_visible):
             self._visible_mask = np.ones(len(new_visible), dtype=bool)
 
+        # Compute only the transition from the previous mask to the new mask so
+        # JS receives a compact hide/show update instead of a full row list for
+        # every filter change.
         visible_indices = np.flatnonzero(new_visible).astype(np.uint32)
         hide_indices = np.flatnonzero(self._visible_mask & ~new_visible).astype(
             np.uint32
