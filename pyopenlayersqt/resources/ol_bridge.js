@@ -387,6 +387,7 @@ function fp_qt_new_node(minX, minY, maxX, maxY, depth) {
     visibleCount: 0,
     firstIndex: -1,
     items: [],
+    coordBins: null,
     children: null,
   };
 }
@@ -422,6 +423,52 @@ function fp_qt_insert_into_child(entry, node, i) {
   fp_qt_insert_node(entry, node.children[slot], i);
 }
 
+function fp_qt_coord_key(entry, i) {
+  return entry.x[i] + "," + entry.y[i];
+}
+
+function fp_qt_add_coord_bin_item(entry, node, i) {
+  if (!node.coordBins) node.coordBins = new Map();
+  const key = fp_qt_coord_key(entry, i);
+  let bin = node.coordBins.get(key);
+  if (!bin) {
+    bin = { items: [], visibleCount: 0, firstVisibleIndex: -1 };
+    node.coordBins.set(key, bin);
+  }
+  bin.items.push(i);
+  if (!entry.deleted[i] && !entry.hidden[i]) {
+    bin.visibleCount++;
+    if (bin.firstVisibleIndex < 0) bin.firstVisibleIndex = i;
+  }
+}
+
+function fp_qt_first_visible_bin_index(entry, bin) {
+  if (!bin || bin.visibleCount <= 0) return -1;
+  const first = bin.firstVisibleIndex;
+  if (first >= 0 && !entry.deleted[first] && !entry.hidden[first]) return first;
+  for (let k = 0; k < bin.items.length; k++) {
+    const i = bin.items[k];
+    if (!entry.deleted[i] && !entry.hidden[i]) {
+      bin.firstVisibleIndex = i;
+      return i;
+    }
+  }
+  bin.firstVisibleIndex = -1;
+  bin.visibleCount = 0;
+  return -1;
+}
+
+function fp_qt_first_drawable_bin_index(entry, bin, skipSelected, extent) {
+  const first = fp_qt_first_visible_bin_index(entry, bin);
+  if (fp_qt_is_drawable_representative(entry, first, skipSelected, extent)) return first;
+  if (!bin || bin.visibleCount <= 0) return -1;
+  for (let k = 0; k < bin.items.length; k++) {
+    const i = bin.items[k];
+    if (fp_qt_is_drawable_representative(entry, i, skipSelected, extent)) return i;
+  }
+  return -1;
+}
+
 function fp_qt_insert_node(entry, node, i) {
   node.visibleCount++;
   if (node.firstIndex < 0) node.firstIndex = i;
@@ -429,7 +476,11 @@ function fp_qt_insert_node(entry, node, i) {
     fp_qt_insert_into_child(entry, node, i);
     return;
   }
-  if (node.items.length < FP_QT_LEAF_CAPACITY || node.depth >= FP_QT_MAX_DEPTH) {
+  if (node.depth >= FP_QT_MAX_DEPTH) {
+    fp_qt_add_coord_bin_item(entry, node, i);
+    return;
+  }
+  if (node.items.length < FP_QT_LEAF_CAPACITY) {
     node.items.push(i);
     return;
   }
@@ -450,7 +501,17 @@ function fp_qt_update_visibility(entry, i, delta) {
   let node = entry.qtRoot;
   while (node) {
     node.visibleCount += delta;
-    if (!node.children) return;
+    if (!node.children) {
+      if (node.coordBins) {
+        const bin = node.coordBins.get(fp_qt_coord_key(entry, i));
+        if (bin) {
+          bin.visibleCount += delta;
+          if (delta > 0 && bin.firstVisibleIndex < 0) bin.firstVisibleIndex = i;
+          if (delta < 0 && bin.firstVisibleIndex === i) bin.firstVisibleIndex = -1;
+        }
+      }
+      return;
+    }
     node = node.children[fp_qt_child_slot(node, entry.x[i], entry.y[i])];
   }
 }
@@ -458,6 +519,12 @@ function fp_qt_update_visibility(entry, i, delta) {
 function fp_qt_clear_visibility(node) {
   if (!node) return;
   node.visibleCount = 0;
+  if (node.coordBins) {
+    for (const bin of node.coordBins.values()) {
+      bin.visibleCount = 0;
+      bin.firstVisibleIndex = -1;
+    }
+  }
   if (!node.children) return;
   for (let c = 0; c < 4; c++) fp_qt_clear_visibility(node.children[c]);
 }
@@ -473,9 +540,23 @@ function fp_qt_rebuild_visibility_node(entry, node) {
     return total;
   }
   let total = 0;
-  for (let k = 0; k < node.items.length; k++) {
-    const i = node.items[k];
-    if (!entry.deleted[i] && !entry.hidden[i]) total++;
+  if (node.coordBins) {
+    for (const bin of node.coordBins.values()) {
+      bin.visibleCount = 0;
+      bin.firstVisibleIndex = -1;
+      for (let k = 0; k < bin.items.length; k++) {
+        const i = bin.items[k];
+        if (entry.deleted[i] || entry.hidden[i]) continue;
+        bin.visibleCount++;
+        if (bin.firstVisibleIndex < 0) bin.firstVisibleIndex = i;
+      }
+      total += bin.visibleCount;
+    }
+  } else {
+    for (let k = 0; k < node.items.length; k++) {
+      const i = node.items[k];
+      if (!entry.deleted[i] && !entry.hidden[i]) total++;
+    }
   }
   node.visibleCount = total;
   return total;
@@ -525,6 +606,13 @@ function fp_qt_pick_representative(entry, node, skipSelected, extent) {
     }
     return -1;
   }
+  if (node.coordBins) {
+    for (const bin of node.coordBins.values()) {
+      const i = fp_qt_first_drawable_bin_index(entry, bin, skipSelected, extent);
+      if (i >= 0) return i;
+    }
+    return -1;
+  }
   for (let k = 0; k < node.items.length; k++) {
     const i = node.items[k];
     if (fp_qt_is_drawable_representative(entry, i, skipSelected, extent)) return i;
@@ -553,6 +641,18 @@ function fp_qt_query_extent(entry, extent) {
     stats.visitedNodeCount++;
     if (node.children) {
       for (let c = 0; c < 4; c++) stack.push(node.children[c]);
+      continue;
+    }
+    if (node.coordBins) {
+      for (const bin of node.coordBins.values()) {
+        if (bin.visibleCount <= 0) continue;
+        for (let k = 0; k < bin.items.length; k++) {
+          const i = bin.items[k];
+          stats.scannedLeafPointCount++;
+          if (entry.deleted[i] || entry.hidden[i]) continue;
+          if (fp_qt_point_in_extent(entry, i, extent)) out.push(i);
+        }
+      }
       continue;
     }
     for (let k = 0; k < node.items.length; k++) {
@@ -757,6 +857,14 @@ function fp_make_canvas_layer(entry) {
       }
 
       function renderLeafItems(node) {
+        if (node.coordBins) {
+          for (const bin of node.coordBins.values()) {
+            scannedLeafPointCount++;
+            const i = fp_qt_first_drawable_bin_index(entry, bin, true, extent);
+            if (i >= 0) addPointToBatch(i, false);
+          }
+          return;
+        }
         for (let k = 0; k < node.items.length; k++) {
           scannedLeafPointCount++;
           addPointToBatch(node.items[k], false);
@@ -1451,6 +1559,14 @@ function fgp_make_canvas_layer(entry) {
           }
           if (node.children) {
             for (let c = 0; c < 4; c++) stack.push(node.children[c]);
+            continue;
+          }
+          if (node.coordBins) {
+            for (const bin of node.coordBins.values()) {
+              scannedLeafPointCount++;
+              const i = fp_qt_first_drawable_bin_index(entry, bin, true, extent);
+              if (i >= 0) addUnselectedDrawIndex(i, false);
+            }
             continue;
           }
           for (let k = 0; k < node.items.length; k++) {
