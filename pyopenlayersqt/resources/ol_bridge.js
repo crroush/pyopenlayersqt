@@ -1376,17 +1376,40 @@ function fgp_make_canvas_layer(entry) {
       const selectedDrawIndices = [];
       const seenCenterPixels = new Set();
       const seenSelectedCenterPixels = new Set();
+      const centerStyleIds = new Map(); // key: point color/radius -> numeric style id
       const centerPixelKeyWidth = canvas.width + 1;
+      const centerPixelKeyStride = centerPixelKeyWidth * (canvas.height + 1);
+      let nextCenterStyleId = 1;
 
-      function centerPixelKey(i) {
+      function centerStyleId(i, selected) {
+        const radius = (selected ? (st.selected_point_radius || 6.0) : (st.point_radius || 3.0)) * pixelRatio;
+        let colorKey;
+        if (selected) {
+          colorKey = "s:" + (st.selected_point_rgba || [0,255,255,255]).join(",");
+        } else if (entry.color_u32[i] !== 0) {
+          colorKey = "u:" + entry.color_u32[i];
+        } else {
+          colorKey = "d:" + (st.default_point_rgba || [255,51,51,204]).join(",");
+        }
+        const styleKey = colorKey + "|" + radius;
+        let styleId = centerStyleIds.get(styleKey);
+        if (styleId == null) {
+          styleId = nextCenterStyleId++;
+          centerStyleIds.set(styleKey, styleId);
+        }
+        return styleId;
+      }
+
+      function centerPixelKey(i, selected) {
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
-        return Math.round(y) * centerPixelKeyWidth + Math.round(x);
+        return centerStyleId(i, selected) * centerPixelKeyStride +
+          Math.round(y) * centerPixelKeyWidth + Math.round(x);
       }
 
       function addUnselectedDrawIndex(i, fromCollapsedNode) {
         if (entry.deleted[i] || entry.hidden[i] || selectedSet.has(entry.ids[i]) || !inExtent(i)) return;
-        const pixelKey = centerPixelKey(i);
+        const pixelKey = centerPixelKey(i, false);
         if (seenCenterPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
           return;
@@ -1400,7 +1423,7 @@ function fgp_make_canvas_layer(entry) {
         for (const fid of selectedSet) {
           const i = entry.idIndex.get(String(fid));
           if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
-          const pixelKey = centerPixelKey(i);
+          const pixelKey = centerPixelKey(i, true);
           if (seenSelectedCenterPixels.has(pixelKey)) {
             skippedDuplicatePixels++;
             continue;
