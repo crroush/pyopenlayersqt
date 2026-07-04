@@ -696,9 +696,13 @@ function fp_make_canvas_layer(entry) {
       // - Batch point draws by color/radius and skip duplicate pixel locations.
       // - Draw unselected points first, then selected points on top.
       const batchStart = performance.now();
-      const unselectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
-      const selectedBatches = new Map(); // key: "color|radius" -> array of {x, y}
-      const seenDrawPixels = new Set(); // key: "color|radius|px|py"
+      const unselectedBatches = new Map(); // style id -> {fill, radius, points: [x0, y0, ...]}
+      const selectedBatches = new Map(); // style id -> {fill, radius, points: [x0, y0, ...]}
+      const styleIds = new Map(); // key: "color|radius" -> numeric style id
+      const seenDrawPixels = new Set(); // numeric key: style id + rounded pixel
+      const pixelKeyWidth = canvas.width + 1;
+      const pixelKeyStride = pixelKeyWidth * (canvas.height + 1);
+      let nextStyleId = 1;
       let skippedDuplicatePixels = 0;
       let drawPointCount = 0;
       let visitedNodeCount = 0;
@@ -726,8 +730,16 @@ function fp_make_canvas_layer(entry) {
         );
         if (isSel) fill = selCss;
 
-        const key = fill + "|" + radius;
-        const pixelKey = key + "|" + Math.round(x) + "|" + Math.round(y);
+        const styleKey = fill + "|" + radius;
+        let styleId = styleIds.get(styleKey);
+        if (styleId == null) {
+          styleId = nextStyleId++;
+          styleIds.set(styleKey, styleId);
+        }
+
+        const px = Math.round(x);
+        const py = Math.round(y);
+        const pixelKey = styleId * pixelKeyStride + py * pixelKeyWidth + px;
         if (seenDrawPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
           return;
@@ -736,12 +748,12 @@ function fp_make_canvas_layer(entry) {
         drawPointCount++;
 
         const batches = isSel ? selectedBatches : unselectedBatches;
-        let batch = batches.get(key);
+        let batch = batches.get(styleId);
         if (!batch) {
           batch = { fill, radius, points: [] };
-          batches.set(key, batch);
+          batches.set(styleId, batch);
         }
-        batch.points.push({ x, y });
+        batch.points.push(x, y);
       }
 
       function renderLeafItems(node) {
@@ -791,9 +803,11 @@ function fp_make_canvas_layer(entry) {
       for (const batch of unselectedBatches.values()) {
         ctx.fillStyle = batch.fill;
         ctx.beginPath();
-        for (const pt of batch.points) {
-          ctx.moveTo(pt.x + batch.radius, pt.y);
-          ctx.arc(pt.x, pt.y, batch.radius, 0, Math.PI * 2);
+        for (let k = 0; k < batch.points.length; k += 2) {
+          const x = batch.points[k];
+          const y = batch.points[k + 1];
+          ctx.moveTo(x + batch.radius, y);
+          ctx.arc(x, y, batch.radius, 0, Math.PI * 2);
         }
         ctx.fill();
       }
@@ -802,9 +816,11 @@ function fp_make_canvas_layer(entry) {
       for (const batch of selectedBatches.values()) {
         ctx.fillStyle = batch.fill;
         ctx.beginPath();
-        for (const pt of batch.points) {
-          ctx.moveTo(pt.x + batch.radius, pt.y);
-          ctx.arc(pt.x, pt.y, batch.radius, 0, Math.PI * 2);
+        for (let k = 0; k < batch.points.length; k += 2) {
+          const x = batch.points[k];
+          const y = batch.points[k + 1];
+          ctx.moveTo(x + batch.radius, y);
+          ctx.arc(x, y, batch.radius, 0, Math.PI * 2);
         }
         ctx.fill();
       }
@@ -1360,11 +1376,12 @@ function fgp_make_canvas_layer(entry) {
       const selectedDrawIndices = [];
       const seenCenterPixels = new Set();
       const seenSelectedCenterPixels = new Set();
+      const centerPixelKeyWidth = canvas.width + 1;
 
       function centerPixelKey(i) {
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
-        return Math.round(x) + ',' + Math.round(y);
+        return Math.round(y) * centerPixelKeyWidth + Math.round(x);
       }
 
       function addUnselectedDrawIndex(i, fromCollapsedNode) {
@@ -1554,8 +1571,6 @@ function fgp_make_canvas_layer(entry) {
         if (!selectedOverride && selected) return;
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
-        const px = Math.round(x);
-        const py = Math.round(y);
         const radius = (selected ? (st.selected_point_radius || 6.0) : (st.point_radius || 3.0)) * pixelRatio;
         const colorKey = pointCssForIndex(i, selected);
         const batchKey = colorKey + '|' + radius;
@@ -1564,7 +1579,7 @@ function fgp_make_canvas_layer(entry) {
           batch = { color: colorKey, radius: radius, points: [] };
           batches.set(batchKey, batch);
         }
-        batch.points.push([x, y]);
+        batch.points.push(x, y);
         pointDrawCount++;
       }
 
@@ -1574,10 +1589,11 @@ function fgp_make_canvas_layer(entry) {
       for (const batch of batches.values()) {
         ctx.fillStyle = batch.color;
         ctx.beginPath();
-        for (let k = 0; k < batch.points.length; k++) {
-          const pt = batch.points[k];
-          ctx.moveTo(pt[0] + batch.radius, pt[1]);
-          ctx.arc(pt[0], pt[1], batch.radius, 0, TAU);
+        for (let k = 0; k < batch.points.length; k += 2) {
+          const x = batch.points[k];
+          const y = batch.points[k + 1];
+          ctx.moveTo(x + batch.radius, y);
+          ctx.arc(x, y, batch.radius, 0, TAU);
         }
         ctx.fill();
       }
