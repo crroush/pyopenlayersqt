@@ -397,7 +397,6 @@ function rgba_to_css_with_opacity(rgba, opacity) {
 const FP_QT_WORLD = 20037508.342789244;
 const FP_QT_MAX_DEPTH = 18;
 const FP_QT_LEAF_CAPACITY = 32;
-const FP_MAX_INLINE_SELECTION_IDS = 100000;
 
 // FastPoints quadtree -------------------------------------------------------
 //
@@ -747,25 +746,6 @@ function fp_prune_hidden_selection(entry) {
 function fp_emit_selection_payload(entry, operation) {
   const perfStart = performance.now();
   const selectionCount = entry.selectedIds.size;
-  if (selectionCount > FP_MAX_INLINE_SELECTION_IDS) {
-    emitToPython("selection_summary", {
-      layer_id: entry.layer_id,
-      count: selectionCount,
-      transport: "summary_only",
-    });
-    emitPerf({
-      side: "javascript",
-      layer_id: entry.layer_id,
-      operation,
-      selection_count: selectionCount,
-      transport: "summary_only",
-      times: {
-        total_ms: (performance.now() - perfStart).toFixed(2)
-      }
-    });
-    return;
-  }
-
   const featureIdsB64 = pyolqt_strings_iter_to_b64(entry.selectedIds);
   const encodeMs = performance.now() - perfStart;
   emitToPython("selection", {
