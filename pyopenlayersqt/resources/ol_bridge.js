@@ -88,6 +88,35 @@ function pyolqt_b64_to_strings(b64) {
   return text.length ? text.split("\0") : [];
 }
 
+function pyolqt_bytes_to_b64(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+  return btoa(binary);
+}
+
+function pyolqt_strings_iter_to_b64(values) {
+  const chunks = [];
+  let chunk = "";
+  let count = 0;
+  for (const value of values || []) {
+    const text = (count === 0 ? "" : "\0") + String(value);
+    if (chunk.length > 0 && chunk.length + text.length > 65536) {
+      chunks.push(chunk);
+      chunk = text;
+    } else {
+      chunk += text;
+    }
+    count++;
+  }
+  if (chunk.length > 0) chunks.push(chunk);
+  if (count === 0) return "";
+  return pyolqt_bytes_to_b64(new TextEncoder().encode(chunks.join("")));
+}
+
 function pyolqt_points_from_msg(msg) {
   if (msg.coords_b64) {
     const flat = pyolqt_b64_to_float64(msg.coords_b64);
@@ -710,20 +739,22 @@ function fp_prune_hidden_selection(entry) {
 
 function fp_emit_selection(entry) {
   const perfStart = performance.now();
-  const featureIds = Array.from(entry.selectedIds);
-  const arrayMs = performance.now() - perfStart;
+  const featureIdsB64 = pyolqt_strings_iter_to_b64(entry.selectedIds);
+  const encodeMs = performance.now() - perfStart;
   emitToPython("selection", {
     layer_id: entry.layer_id,
-    feature_ids: featureIds,
+    feature_ids_b64: featureIdsB64,
+    count: entry.selectedIds.size,
   });
-  if (featureIds.length > 100 || window.PYOLQT_SELECTION_PERF) {
+  if (entry.selectedIds.size > 100 || window.PYOLQT_SELECTION_PERF) {
     emitPerf({
       side: "javascript",
       layer_id: entry.layer_id,
       operation: "fast_points_emit_selection",
-      selection_count: featureIds.length,
+      selection_count: entry.selectedIds.size,
+      transport: "feature_ids_b64",
       times: {
-        array_ms: arrayMs.toFixed(2),
+        encode_ms: encodeMs.toFixed(2),
         total_ms: (performance.now() - perfStart).toFixed(2)
       }
     });
@@ -1383,20 +1414,22 @@ function fgp_redraw(entry) {
 }
 function fgp_emit_selection(entry) {
   const perfStart = performance.now();
-  const featureIds = Array.from(entry.selectedIds);
-  const arrayMs = performance.now() - perfStart;
+  const featureIdsB64 = pyolqt_strings_iter_to_b64(entry.selectedIds);
+  const encodeMs = performance.now() - perfStart;
   emitToPython("selection", {
     layer_id: entry.layer_id,
-    feature_ids: featureIds,
+    feature_ids_b64: featureIdsB64,
+    count: entry.selectedIds.size,
   });
-  if (featureIds.length > 100 || window.PYOLQT_SELECTION_PERF) {
+  if (entry.selectedIds.size > 100 || window.PYOLQT_SELECTION_PERF) {
     emitPerf({
       side: "javascript",
       layer_id: entry.layer_id,
       operation: "fast_geopoints_emit_selection",
-      selection_count: featureIds.length,
+      selection_count: entry.selectedIds.size,
+      transport: "feature_ids_b64",
       times: {
-        array_ms: arrayMs.toFixed(2),
+        encode_ms: encodeMs.toFixed(2),
         total_ms: (performance.now() - perfStart).toFixed(2)
       }
     });

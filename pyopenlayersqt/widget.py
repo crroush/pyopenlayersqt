@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -758,12 +759,21 @@ class OLMapWidget(QWebEngineView):
         else:
             self.ready.emit()
 
+    def _decode_selection_feature_ids(self, obj: dict[str, Any]) -> list[str]:
+        encoded = obj.get("feature_ids_b64")
+        if encoded:
+            data = base64.b64decode(str(encoded).encode("ascii"))
+            text = data.decode("utf-8")
+            return text.split("\0") if text else []
+        return [str(x) for x in obj.get("feature_ids", [])]
+
     def _handle_selection_event(self, payload_json: str) -> None:
         obj = self._parse_event_payload(payload_json)
+        feature_ids = self._decode_selection_feature_ids(obj)
         sel = FeatureSelection(
             layer_id=str(obj.get("layer_id", "")),
-            feature_ids=[str(x) for x in obj.get("feature_ids", [])],
-            count=int(obj.get("count", len(obj.get("feature_ids", []) or []))),
+            feature_ids=feature_ids,
+            count=int(obj.get("count", len(feature_ids))),
             raw=obj,
         )
         self.selectionChanged.emit(sel)
