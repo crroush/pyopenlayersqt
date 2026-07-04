@@ -397,6 +397,7 @@ function rgba_to_css_with_opacity(rgba, opacity) {
 const FP_QT_WORLD = 20037508.342789244;
 const FP_QT_MAX_DEPTH = 18;
 const FP_QT_LEAF_CAPACITY = 32;
+const FP_MAX_INLINE_SELECTION_IDS = 100000;
 
 // FastPoints quadtree -------------------------------------------------------
 //
@@ -649,7 +650,7 @@ function fp_qt_pick_representative(entry, node, skipSelected, extent) {
   return -1;
 }
 
-function fp_qt_query_extent(entry, extent) {
+function fp_qt_query_extent(entry, extent, aggregateCoordBins) {
   const out = [];
   const stats = {
     visitedNodeCount: 0,
@@ -675,6 +676,12 @@ function fp_qt_query_extent(entry, extent) {
     if (node.coordBins) {
       for (const bin of node.coordBins.values()) {
         if (bin.visibleCount <= 0) continue;
+        if (aggregateCoordBins) {
+          stats.scannedLeafPointCount++;
+          const i = fp_qt_first_visible_bin_index(entry, bin);
+          if (i >= 0 && fp_qt_point_in_extent(entry, i, extent)) out.push(i);
+          continue;
+        }
         for (let k = 0; k < bin.items.length; k++) {
           const i = bin.items[k];
           stats.scannedLeafPointCount++;
@@ -697,7 +704,7 @@ function fp_qt_query_extent(entry, extent) {
 function fp_pick_nearest(entry, coord3857, radius_m) {
   const r = radius_m;
   const ext = [coord3857[0]-r, coord3857[1]-r, coord3857[0]+r, coord3857[1]+r];
-  const query = fp_qt_query_extent(entry, ext);
+  const query = fp_qt_query_extent(entry, ext, true);
   const cand = query.indices;
   let best = -1;
   let bestd2 = r*r;
@@ -737,21 +744,41 @@ function fp_prune_hidden_selection(entry) {
   return changed;
 }
 
-function fp_emit_selection(entry) {
+function fp_emit_selection_payload(entry, operation) {
   const perfStart = performance.now();
+  const selectionCount = entry.selectedIds.size;
+  if (selectionCount > FP_MAX_INLINE_SELECTION_IDS) {
+    emitToPython("selection_summary", {
+      layer_id: entry.layer_id,
+      count: selectionCount,
+      transport: "summary_only",
+    });
+    emitPerf({
+      side: "javascript",
+      layer_id: entry.layer_id,
+      operation,
+      selection_count: selectionCount,
+      transport: "summary_only",
+      times: {
+        total_ms: (performance.now() - perfStart).toFixed(2)
+      }
+    });
+    return;
+  }
+
   const featureIdsB64 = pyolqt_strings_iter_to_b64(entry.selectedIds);
   const encodeMs = performance.now() - perfStart;
   emitToPython("selection", {
     layer_id: entry.layer_id,
     feature_ids_b64: featureIdsB64,
-    count: entry.selectedIds.size,
+    count: selectionCount,
   });
-  if (entry.selectedIds.size > 100 || window.PYOLQT_SELECTION_PERF) {
+  if (selectionCount > 100 || window.PYOLQT_SELECTION_PERF) {
     emitPerf({
       side: "javascript",
       layer_id: entry.layer_id,
-      operation: "fast_points_emit_selection",
-      selection_count: entry.selectedIds.size,
+      operation,
+      selection_count: selectionCount,
       transport: "feature_ids_b64",
       times: {
         encode_ms: encodeMs.toFixed(2),
@@ -759,6 +786,10 @@ function fp_emit_selection(entry) {
       }
     });
   }
+}
+
+function fp_emit_selection(entry) {
+  fp_emit_selection_payload(entry, "fast_points_emit_selection");
 }
 
 function fp_emit_singleclick(entry, ctrl_key, meta_key, shift_key, alt_key) {
@@ -829,7 +860,7 @@ function fp_make_canvas_layer(entry) {
       const batchStart = performance.now();
       const unselectedBatches = new Map(); // style id -> {fill, radius, points: [x0, y0, ...]}
       const selectedBatches = new Map(); // style id -> {fill, radius, points: [x0, y0, ...]}
-      const styleIds = new Map(); // key: "color|radius" -> numeric style id
+      const styleIds = new Map(); // raw style key -> {id, fill, radius}
       const seenDrawPixels = new Set(); // numeric key: style id + rounded pixel
       const pixelKeyWidth = canvas.width + 1;
       const pixelKeyStride = pixelKeyWidth * (canvas.height + 1);
@@ -852,25 +883,20 @@ function fp_make_canvas_layer(entry) {
         const isSel = selectedOverride || entry.selectedIds.has(fid);
         if (!selectedOverride && isSel) return;
         const radius = (isSel ? entry.style.selected_radius : entry.style.radius) * pixelRatio;
-
-        let fill = defCss;
-        const u = entry.color_u32[i];
-        if (u !== 0) fill = rgba_to_css_with_opacity(
-          rgba_from_u32(u),
-          entry.opacity
-        );
-        if (isSel) fill = selCss;
-
-        const styleKey = fill + "|" + radius;
-        let styleId = styleIds.get(styleKey);
-        if (styleId == null) {
-          styleId = nextStyleId++;
-          styleIds.set(styleKey, styleId);
+        const u = entry.color_u32[i] >>> 0;
+        const styleKey = (isSel ? "s" : u) + "|" + radius + "|" + entry.opacity;
+        let style = styleIds.get(styleKey);
+        if (!style) {
+          const fill = isSel
+            ? selCss
+            : (u !== 0 ? rgba_to_css_with_opacity(rgba_from_u32(u), entry.opacity) : defCss);
+          style = { id: nextStyleId++, fill, radius };
+          styleIds.set(styleKey, style);
         }
 
         const px = Math.round(x);
         const py = Math.round(y);
-        const pixelKey = styleId * pixelKeyStride + py * pixelKeyWidth + px;
+        const pixelKey = style.id * pixelKeyStride + py * pixelKeyWidth + px;
         if (seenDrawPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
           return;
@@ -879,10 +905,10 @@ function fp_make_canvas_layer(entry) {
         drawPointCount++;
 
         const batches = isSel ? selectedBatches : unselectedBatches;
-        let batch = batches.get(styleId);
+        let batch = batches.get(style.id);
         if (!batch) {
-          batch = { fill, radius, points: [] };
-          batches.set(styleId, batch);
+          batch = { fill: style.fill, radius: style.radius, points: [] };
+          batches.set(style.id, batch);
         }
         batch.points.push(x, y);
       }
@@ -1413,27 +1439,7 @@ function fgp_redraw(entry) {
   if (entry.source) entry.source.changed();
 }
 function fgp_emit_selection(entry) {
-  const perfStart = performance.now();
-  const featureIdsB64 = pyolqt_strings_iter_to_b64(entry.selectedIds);
-  const encodeMs = performance.now() - perfStart;
-  emitToPython("selection", {
-    layer_id: entry.layer_id,
-    feature_ids_b64: featureIdsB64,
-    count: entry.selectedIds.size,
-  });
-  if (entry.selectedIds.size > 100 || window.PYOLQT_SELECTION_PERF) {
-    emitPerf({
-      side: "javascript",
-      layer_id: entry.layer_id,
-      operation: "fast_geopoints_emit_selection",
-      selection_count: entry.selectedIds.size,
-      transport: "feature_ids_b64",
-      times: {
-        encode_ms: encodeMs.toFixed(2),
-        total_ms: (performance.now() - perfStart).toFixed(2)
-      }
-    });
-  }
+  fp_emit_selection_payload(entry, "fast_geopoints_emit_selection");
 }
 
 function fgp_make_canvas_layer(entry) {
@@ -2068,10 +2074,8 @@ function cmd_fast_geopoints_show_ids(msg) {
 function cmd_fast_geopoints_show_all(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
-  for (let i = 0; i < entry.hidden.length; i++) {
-    if (entry.hidden[i] && !entry.deleted[i]) fp_qt_update_visibility(entry, i, 1);
-    entry.hidden[i] = false;
-  }
+  entry.hidden.fill(false);
+  fp_qt_rebuild_visibility(entry);
   fgp_redraw(entry);
 }
 
@@ -2135,10 +2139,10 @@ function fp_install_interactions() {
     const ll_coord = p3857_to_lonlat(coord);
     fp_emit_singleclick(
       ll_coord,
-      orig.ctrlKey,
-      orig.metaKey,
-      orig.shiftKey,
-      orig.altKey
+      !!orig?.ctrlKey,
+      !!orig?.metaKey,
+      !!orig?.shiftKey,
+      !!orig?.altKey
     );
     if (!mod) return;
     for (const [layer_id, entry] of state.layers.entries()) {

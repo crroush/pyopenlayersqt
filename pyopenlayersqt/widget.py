@@ -820,6 +820,7 @@ class OLMapWidget(QWebEngineView):
 
         payload_handlers = {
             "selection": self._handle_selection_event,
+            "selection_summary": self._handle_selection_event,
             "view_extent_changed": self._handle_view_extent_changed_event,
             "view_extent": self._handle_view_extent_event,
             "measurement": self._handle_measurement_event,
