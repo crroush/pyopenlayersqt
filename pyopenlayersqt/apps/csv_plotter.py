@@ -302,12 +302,14 @@ class CsvTable:
         self,
         columns: Sequence[str],
         data: np.ndarray | None = None,
+        data_columns: Sequence[str] | None = None,
         source_paths: Sequence[str] | None = None,
         source_offsets: np.ndarray | None = None,
         source_rows_contiguous: bool = True,
     ):
         self._columns = list(columns)
         self._data = None if data is None else np.asarray(data)
+        self._data_columns = list(data_columns or columns)
         self._source_paths = list(source_paths or [])
         self._source_offsets = (
             np.asarray(source_offsets, dtype=np.uint64)
@@ -337,16 +339,16 @@ class CsvTable:
         """Return a full column from memory or the source CSV file."""
         if column in self._extra_columns:
             return self._extra_columns[column]
-        if self._data is not None:
-            return self._data[:, self._columns.index(column)]
+        if self._data is not None and column in self._data_columns:
+            return self._data[:, self._data_columns.index(column)]
         return self._read_source_column(column)
 
     def __setitem__(self, column: str, values: Sequence[object] | np.ndarray) -> None:
         arr = np.asarray(values)
         if column in self._extra_columns:
             self._extra_columns[column] = arr
-        elif self._data is not None and column in self._columns:
-            self._data[:, self._columns.index(column)] = arr
+        elif self._data is not None and column in self._data_columns:
+            self._data[:, self._data_columns.index(column)] = arr
         else:
             self._extra_columns[column] = arr
 
@@ -354,8 +356,8 @@ class CsvTable:
         """Return one table cell for the virtual FeatureTable provider."""
         if column in self._extra_columns:
             return self._extra_columns[column][row_index]
-        if self._data is not None:
-            return self._data[row_index, self._columns.index(column)]
+        if self._data is not None and column in self._data_columns:
+            return self._data[row_index, self._data_columns.index(column)]
         try:
             return self._read_source_row(row_index)[self._columns.index(column)]
         except (IndexError, ValueError):
@@ -366,6 +368,7 @@ class CsvTable:
         filtered = CsvTable(
             self._columns,
             None if self._data is None else self._data[mask].copy(),
+            self._data_columns,
             self._source_paths,
             self._source_offsets[mask].copy(),
             source_rows_contiguous=bool(np.all(mask)),
@@ -379,17 +382,22 @@ class CsvTable:
     def from_source_rows(
         cls, columns: Sequence[str], source_path: str, offsets: np.ndarray
     ) -> "CsvTable":
-        return cls(columns, None, [source_path], offsets)
+        return cls(columns, None, None, [source_path], offsets)
 
     @classmethod
     def concat(cls, chunks: Sequence["CsvTable"]) -> "CsvTable":
         """Concatenate loaded chunks without materializing raw CSV strings."""
         if not chunks:
             return cls([], np.empty((0, 0), dtype=str))
-        if all(chunk._data is not None for chunk in chunks):
+        if all(
+            chunk._data is not None and chunk._data_columns == chunks[0]._data_columns
+            for chunk in chunks
+        ):
             data = np.vstack([chunk._data for chunk in chunks])
+            data_columns = chunks[0]._data_columns
         else:
             data = None
+            data_columns = None
         paths: list[str] = []
         offsets: list[np.ndarray] = []
         for chunk in chunks:
@@ -409,7 +417,7 @@ class CsvTable:
                         )
                     )
         source_offsets = np.vstack(offsets) if offsets else None
-        table = cls(chunks[0]._columns, data, paths, source_offsets)
+        table = cls(chunks[0]._columns, data, data_columns, paths, source_offsets)
         table._source_rows_contiguous = all(
             chunk._source_rows_contiguous for chunk in chunks
         )
@@ -659,11 +667,19 @@ class CsvLoaderThread(QtCore.QThread):
     finished_success = QtCore.Signal(list)
     finished_error = QtCore.Signal(str)
 
-    def __init__(self, paths: Sequence[str], base_columns: list[str], chunk_size: int):
+    def __init__(
+        self,
+        paths: Sequence[str],
+        base_columns: list[str],
+        chunk_size: int,
+        loaded_columns: Sequence[str],
+    ):
         super().__init__()
         self.paths = list(paths)
         self.base_columns = base_columns
         self.chunk_size = int(chunk_size)
+        self.loaded_columns = list(loaded_columns)
+        self.loaded_column_indices = [base_columns.index(col) for col in loaded_columns]
 
     def run(self) -> None:
         loader_start = time.perf_counter()
@@ -722,7 +738,9 @@ class CsvLoaderThread(QtCore.QThread):
                                         "CSV row has unexpected column count"
                                     )
                                 offsets.append(offset)
-                                rows.append(row)
+                                rows.append(
+                                    [row[index] for index in self.loaded_column_indices]
+                                )
                             if not rows:
                                 break
                             data = np.asarray(rows, dtype=str)
@@ -731,6 +749,7 @@ class CsvLoaderThread(QtCore.QThread):
                             chunk = CsvTable(
                                 self.base_columns,
                                 data,
+                                data_columns=self.loaded_columns,
                                 source_paths=[path],
                                 source_offsets=np.asarray(offsets, dtype=np.uint64),
                             )
@@ -1900,8 +1919,29 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             )
             self._initialize_empty_table(base_columns)
 
+        loaded_columns = list(
+            dict.fromkeys(
+                column
+                for column in (
+                    self.current_lat_col,
+                    self.current_lon_col,
+                    self.current_time_col,
+                    self.current_sma_col,
+                    self.current_smi_col,
+                    self.current_tilt_col,
+                    *self._column_indexers.keys(),
+                )
+                if column and column != "None" and column in base_columns
+            )
+        )
+        perf(
+            "csv_loaded_columns",
+            columns=",".join(loaded_columns),
+            column_count=len(loaded_columns),
+            total_columns=len(base_columns),
+        )
         self.loader_thread = CsvLoaderThread(
-            paths, base_columns, self.cli_args.chunk_size
+            paths, base_columns, self.cli_args.chunk_size, loaded_columns
         )
         self.loader_thread.chunk_ready.connect(self._on_chunk_ready)
         self.loader_thread.progress_update.connect(self.progress_bar.setValue)
