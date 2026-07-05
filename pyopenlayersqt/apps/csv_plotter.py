@@ -127,6 +127,14 @@ def _read_csv_header(path: str) -> list[str]:
         return next(csv.reader(fh))
 
 
+def _csv_file_looks_simple(path: str, sample_bytes: int = 4 * 1024 * 1024) -> bool:
+    """Return whether a CSV sample appears to have no quoted records."""
+    with open(path, "rb") as fh:
+        fh.readline()
+        sample = fh.read(sample_bytes)
+    return b'"' not in sample
+
+
 def _parse_datetime_array(values: np.ndarray) -> np.ndarray:
     """Convert mixed common datetime strings to Unix epoch seconds."""
     fallback_formats = (
@@ -708,14 +716,39 @@ class CsvLoaderThread(QtCore.QThread):
                         )
                         continue
 
-                    with open(path, "rb") as fh:
+                    simple_csv = _csv_file_looks_simple(path)
+                    if simple_csv:
+                        text_fh = open(path, newline="", encoding="utf-8-sig")
+                        offset_fh = open(path, "rb")
+                        reader = csv.reader(text_fh)
+                        next(reader)
+                        offset_fh.readline()
+
+                        def consume_offset() -> int:
+                            offset = offset_fh.tell()
+                            offset_fh.readline()
+                            return offset
+
+                        def current_byte_offset() -> int:
+                            return offset_fh.tell()
+
+                    else:
+                        offset_fh = open(path, "rb")
                         # Skip the header row here; the GUI thread already read
                         # it to configure columns.  Keep the file in binary mode
                         # so byte offsets remain seekable after csv.reader
                         # consumes records.
-                        fh.readline()
-                        line_iter = _OffsetLineIterator(fh)
+                        offset_fh.readline()
+                        line_iter = _OffsetLineIterator(offset_fh)
                         reader = csv.reader(line_iter)
+
+                        def consume_offset() -> int:
+                            return line_iter.consume_record_start()
+
+                        def current_byte_offset() -> int:
+                            return offset_fh.tell()
+
+                    try:
                         while True:
                             chunk_start = time.perf_counter()
                             offsets: list[int] = []
@@ -725,7 +758,7 @@ class CsvLoaderThread(QtCore.QThread):
                                     row = next(reader)
                                 except StopIteration:
                                     break
-                                offset = line_iter.consume_record_start()
+                                offset = consume_offset()
                                 if not row:
                                     continue
                                 if len(row) < len(self.base_columns):
@@ -757,7 +790,8 @@ class CsvLoaderThread(QtCore.QThread):
                                 source_offsets=np.asarray(offsets, dtype=np.uint64),
                             )
                             self.chunk_ready.emit(chunk)
-                            current_bytes = bytes_finished + fh.tell()
+                            chunk_bytes = current_byte_offset()
+                            current_bytes = bytes_finished + chunk_bytes
                             self.progress_update.emit(
                                 min(int((current_bytes / total_bytes) * 100), 100)
                             )
@@ -767,11 +801,16 @@ class CsvLoaderThread(QtCore.QThread):
                                 file=file_name,
                                 rows=len(rows),
                                 file_rows=file_rows,
-                                bytes=fh.tell(),
+                                bytes=chunk_bytes,
+                                simple_csv=simple_csv,
                                 elapsed_ms=round(
                                     (time.perf_counter() - chunk_start) * 1000.0, 2
                                 ),
                             )
+                    finally:
+                        offset_fh.close()
+                        if simple_csv:
+                            text_fh.close()
                     bytes_finished += file_size
                     perf(
                         "csv_loader_file",
