@@ -595,6 +595,7 @@ class CsvLoaderThread(QtCore.QThread):
         self.chunk_size = int(chunk_size)
 
     def run(self) -> None:
+        loader_start = time.perf_counter()
         try:
             error_files: list[str] = []
             self.status_update.emit("Calculating total data size...")
@@ -603,8 +604,10 @@ class CsvLoaderThread(QtCore.QThread):
             bytes_finished = 0
 
             for path in self.paths:
+                file_start = time.perf_counter()
                 file_name = os.path.basename(path)
                 file_size = file_sizes.get(path, 0)
+                file_rows = 0
                 self.status_update.emit(f"Streaming chunks from {file_name}...")
                 try:
                     if _read_csv_header(path) != self.base_columns:
@@ -624,6 +627,7 @@ class CsvLoaderThread(QtCore.QThread):
                         line_iter = _OffsetLineIterator(fh)
                         reader = csv.reader(line_iter)
                         while True:
+                            chunk_start = time.perf_counter()
                             offsets: list[int] = []
                             rows: list[list[str]] = []
                             for _ in range(self.chunk_size):
@@ -664,12 +668,36 @@ class CsvLoaderThread(QtCore.QThread):
                             self.progress_update.emit(
                                 min(int((current_bytes / total_bytes) * 100), 100)
                             )
+                            file_rows += len(rows)
+                            perf(
+                                "csv_loader_chunk",
+                                file=file_name,
+                                rows=len(rows),
+                                file_rows=file_rows,
+                                bytes=fh.tell(),
+                                elapsed_ms=round(
+                                    (time.perf_counter() - chunk_start) * 1000.0, 2
+                                ),
+                            )
                     bytes_finished += file_size
+                    perf(
+                        "csv_loader_file",
+                        file=file_name,
+                        rows=file_rows,
+                        bytes=file_size,
+                        elapsed_ms=round((time.perf_counter() - file_start) * 1000.0, 2),
+                    )
                 except Exception:
                     error_files.append(file_name)
                     bytes_finished += file_size
 
             self.progress_update.emit(100)
+            perf(
+                "csv_loader_total",
+                files=len(self.paths),
+                bytes=total_bytes,
+                elapsed_ms=round((time.perf_counter() - loader_start) * 1000.0, 2),
+            )
             self.finished_success.emit(error_files)
         except Exception as exc:
             self.finished_error.emit(str(exc))
@@ -1990,9 +2018,10 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.feature_ids.extend(chunk_fids)
         self.global_fid_counter += num_rows
         perf(
-            "chunk_ready",
+            "csv_chunk_processed",
             rows=num_rows,
             incoming_rows=incoming_rows,
+            total_rows=self.global_fid_counter,
             skipped_invalid_coords=skipped_invalid_coords,
             index_ms=round(index_ms, 2),
             coords_ms=round(coords_ms, 2),
