@@ -172,16 +172,13 @@ def _parse_datetime_array(values: np.ndarray) -> np.ndarray:
 
 def _to_float_array(values: np.ndarray) -> np.ndarray:
     """Convert a string/object array to float, coercing invalid values to NaN."""
-    try:
-        return values.astype(np.float64, copy=False)
-    except (TypeError, ValueError):
-        out = np.empty(values.shape, dtype=np.float64)
-        for index, value in enumerate(values):
-            try:
-                out[index] = float(value)
-            except (TypeError, ValueError):
-                out[index] = np.nan
-        return out
+    out = np.empty(values.shape, dtype=np.float64)
+    for index, value in enumerate(values):
+        try:
+            out[index] = float(value)
+        except (TypeError, ValueError):
+            out[index] = np.nan
+    return out
 
 
 def _factorize_values(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -598,7 +595,6 @@ class CsvLoaderThread(QtCore.QThread):
         self.chunk_size = int(chunk_size)
 
     def run(self) -> None:
-        load_start = time.perf_counter()
         try:
             error_files: list[str] = []
             self.status_update.emit("Calculating total data size...")
@@ -607,10 +603,8 @@ class CsvLoaderThread(QtCore.QThread):
             bytes_finished = 0
 
             for path in self.paths:
-                file_start = time.perf_counter()
                 file_name = os.path.basename(path)
                 file_size = file_sizes.get(path, 0)
-                file_rows = 0
                 self.status_update.emit(f"Streaming chunks from {file_name}...")
                 try:
                     if _read_csv_header(path) != self.base_columns:
@@ -630,7 +624,6 @@ class CsvLoaderThread(QtCore.QThread):
                         line_iter = _OffsetLineIterator(fh)
                         reader = csv.reader(line_iter)
                         while True:
-                            chunk_start = time.perf_counter()
                             offsets: list[int] = []
                             rows: list[list[str]] = []
                             for _ in range(self.chunk_size):
@@ -657,16 +650,9 @@ class CsvLoaderThread(QtCore.QThread):
                                 rows.append(row)
                             if not rows:
                                 break
-                            # Keep the raw CSV strings as an object array for
-                            # chunk processing.  For large files this avoids an
-                            # expensive scan/copy into a fixed-width unicode
-                            # dtype before the GUI thread compacts the chunk to
-                            # derived arrays plus source offsets.
-                            data = np.asarray(rows, dtype=object)
+                            data = np.asarray(rows, dtype=str)
                             if data.ndim == 1:
                                 data = data.reshape(1, -1)
-                            file_rows += len(rows)
-                            chunk_read_ms = (time.perf_counter() - chunk_start) * 1000.0
                             chunk = CsvTable(
                                 self.base_columns,
                                 data,
@@ -678,32 +664,12 @@ class CsvLoaderThread(QtCore.QThread):
                             self.progress_update.emit(
                                 min(int((current_bytes / total_bytes) * 100), 100)
                             )
-                            perf(
-                                "csv_loader_chunk",
-                                file=file_name,
-                                rows=len(rows),
-                                bytes=current_bytes - bytes_finished,
-                                read_ms=round(chunk_read_ms, 2),
-                            )
                     bytes_finished += file_size
-                    perf(
-                        "csv_loader_file",
-                        file=file_name,
-                        rows=file_rows,
-                        size_bytes=file_size,
-                        elapsed_ms=round((time.perf_counter() - file_start) * 1000.0, 2),
-                    )
                 except Exception:
                     error_files.append(file_name)
                     bytes_finished += file_size
 
             self.progress_update.emit(100)
-            perf(
-                "csv_loader_total",
-                files=len(self.paths),
-                total_bytes=total_bytes,
-                elapsed_ms=round((time.perf_counter() - load_start) * 1000.0, 2),
-            )
             self.finished_success.emit(error_files)
         except Exception as exc:
             self.finished_error.emit(str(exc))
@@ -846,6 +812,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._pending_time_filter: tuple[float, float] | None = None
         self._time_filter_range: tuple[float, float] | None = None
         self._last_chunk_redraw_time = 0.0
+        self._csv_load_started_at: float | None = None
         self._time_filter_timer = QtCore.QTimer(self)
         self._time_filter_timer.setSingleShot(True)
         self._time_filter_timer.setInterval(50)
@@ -1823,6 +1790,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.loader_thread.status_update.connect(self.statusBar().showMessage)
         self.loader_thread.finished_success.connect(self._on_load_success)
         self.loader_thread.finished_error.connect(self._on_load_error)
+        self._csv_load_started_at = time.perf_counter()
         self.loader_thread.start()
 
     def _initialize_empty_table(self, columns: Sequence[str]) -> None:
@@ -2037,11 +2005,13 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
 
     def _on_load_success(self, error_files: list[str]) -> None:
         if not self.chunk_list:
+            elapsed_s = self._elapsed_csv_load_seconds()
             self._reset_loaded_data_state()
             self._cleanup_load_ui()
             QtWidgets.QMessageBox.warning(
                 self, "No Data", "No valid data could be loaded."
             )
+            self.statusBar().showMessage(f"No valid data loaded in {elapsed_s:.2f}s.")
             return
         self.statusBar().showMessage("Finalizing UI sync...")
         self.df = CsvTable.concat(self.chunk_list)
@@ -2113,15 +2083,30 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                     "and were skipped:\n\n" + "\n".join(error_files)
                 ),
             )
+        elapsed_s = self._elapsed_csv_load_seconds()
         self.statusBar().showMessage(
-            f"Successfully loaded {len(self.df):,} points.", 10000
+            f"Successfully loaded {len(self.df):,} points in {elapsed_s:.2f}s.",
+            10000,
+        )
+        perf(
+            "csv_load_complete",
+            rows=len(self.df),
+            elapsed_ms=round(elapsed_s * 1000.0, 2),
         )
 
     def _on_load_error(self, error_msg: str) -> None:
+        elapsed_s = self._elapsed_csv_load_seconds()
         self._reset_loaded_data_state()
         self._cleanup_load_ui()
         QtWidgets.QMessageBox.critical(self, "Error Loading Data", error_msg)
-        self.statusBar().showMessage("Load failed.")
+        self.statusBar().showMessage(f"Load failed after {elapsed_s:.2f}s.")
+
+    def _elapsed_csv_load_seconds(self) -> float:
+        if self._csv_load_started_at is None:
+            return 0.0
+        elapsed_s = time.perf_counter() - self._csv_load_started_at
+        self._csv_load_started_at = None
+        return elapsed_s
 
     def _cleanup_load_ui(self) -> None:
         QtWidgets.QApplication.restoreOverrideCursor()
