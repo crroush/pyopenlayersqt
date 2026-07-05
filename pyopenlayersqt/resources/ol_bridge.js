@@ -973,7 +973,7 @@ function cmd_fast_points_add_points(msg) {
     const idx = entry.x.length;
     entry.x.push(x3857);
     entry.y.push(y3857);
-    const fid = (ids ? ids[i] : String(idx));
+    const fid = (ids ? ids[i] : ((msg.id_prefix != null ? String(msg.id_prefix) : "") + idx));
     entry.ids.push(fid);
     entry.idIndex.set(String(fid), idx);
     entry.deleted.push(false);
@@ -1764,7 +1764,7 @@ function cmd_fast_geopoints_add_points(msg) {
     const idx = entry.x.length;
     entry.x.push(x3857);
     entry.y.push(y3857);
-    const fid = (ids ? ids[i] : String(idx));
+    const fid = (ids ? ids[i] : ((msg.id_prefix != null ? String(msg.id_prefix) : "") + idx));
     entry.ids.push(fid);
     entry.idIndex.set(String(fid), idx);
     entry.deleted.push(false);

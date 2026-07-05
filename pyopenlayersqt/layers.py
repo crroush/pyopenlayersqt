@@ -855,6 +855,7 @@ class FastPointsLayer(BaseLayer):
         self,
         coords: list[tuple[float, float]],
         ids: list[str] | None = None,
+        id_prefix: str | None = None,
         colors_rgba: list[Union[tuple[int, int, int, int], Any]] | None = None,
         chunk_size: int = 50000,
         redraw: bool = True,
@@ -902,6 +903,8 @@ class FastPointsLayer(BaseLayer):
             }
             if ids is not None:
                 msg["ids_b64"] = _strings_to_base64(ids[start:end])
+            elif id_prefix is not None:
+                msg["id_prefix"] = str(id_prefix)
             if colors_rgba is not None:
                 pack_start = time.perf_counter()
                 msg["colors_b64"] = _array_to_base64(
@@ -1154,6 +1157,7 @@ class FastGeoPointsLayer(BaseLayer):
         smi_m: list[float],
         tilt_deg: list[float],
         ids: list[str] | None = None,
+        id_prefix: str | None = None,
         colors_rgba: list[Union[tuple[int, int, int, int], Any]] | None = None,
         chunk_size: int = 50000,
         redraw: bool = True,
@@ -1211,6 +1215,8 @@ class FastGeoPointsLayer(BaseLayer):
             }
             if ids is not None:
                 msg["ids_b64"] = _strings_to_base64(ids[start:end])
+            elif id_prefix is not None:
+                msg["id_prefix"] = str(id_prefix)
             if colors_rgba is not None:
                 msg["colors_b64"] = _array_to_base64(
                     _pack_rgba_colors_array(colors_rgba[start:end])

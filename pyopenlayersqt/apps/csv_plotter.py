@@ -173,13 +173,16 @@ def _parse_datetime_array(values: np.ndarray) -> np.ndarray:
 
 def _to_float_array(values: np.ndarray) -> np.ndarray:
     """Convert a string/object array to float, coercing invalid values to NaN."""
-    out = np.empty(values.shape, dtype=np.float64)
-    for index, value in enumerate(values):
-        try:
-            out[index] = float(value)
-        except (TypeError, ValueError):
-            out[index] = np.nan
-    return out
+    try:
+        return values.astype(np.float64, copy=False)
+    except (TypeError, ValueError):
+        out = np.empty(values.shape, dtype=np.float64)
+        for index, value in enumerate(values):
+            try:
+                out[index] = float(value)
+            except (TypeError, ValueError):
+                out[index] = np.nan
+        return out
 
 
 def _factorize_values(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -2129,14 +2132,14 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 sma_m=sma_values,
                 smi_m=smi_values,
                 tilt_deg=tilt_values,
-                ids=chunk_fids,
+                id_prefix="pt_",
                 chunk_size=self.cli_args.chunk_size,
                 redraw=False,
             )
         else:
             self.fast_layer.add_points(
                 coords=coords,
-                ids=chunk_fids,
+                id_prefix="pt_",
                 chunk_size=self.cli_args.chunk_size,
                 redraw=False,
             )
