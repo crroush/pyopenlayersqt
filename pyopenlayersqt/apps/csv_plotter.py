@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import csv
 from datetime import datetime, timezone
+import io
 import os
 import re
 import sys
@@ -303,6 +304,7 @@ class CsvTable:
         data: np.ndarray | None = None,
         source_paths: Sequence[str] | None = None,
         source_offsets: np.ndarray | None = None,
+        source_rows_contiguous: bool = True,
     ):
         self._columns = list(columns)
         self._data = None if data is None else np.asarray(data)
@@ -315,6 +317,7 @@ class CsvTable:
         self._extra_columns: dict[str, np.ndarray] = {}
         self._column_indexes: dict[str, CsvColumnIndex] = {}
         self._layer_id = ""
+        self._source_rows_contiguous = bool(source_rows_contiguous)
 
     @property
     def columns(self) -> list[str]:
@@ -365,6 +368,7 @@ class CsvTable:
             None if self._data is None else self._data[mask].copy(),
             self._source_paths,
             self._source_offsets[mask].copy(),
+            source_rows_contiguous=bool(np.all(mask)),
         )
         filtered._extra_columns = {
             key: values[mask].copy() for key, values in self._extra_columns.items()
@@ -406,6 +410,9 @@ class CsvTable:
                     )
         source_offsets = np.vstack(offsets) if offsets else None
         table = cls(chunks[0]._columns, data, paths, source_offsets)
+        table._source_rows_contiguous = all(
+            chunk._source_rows_contiguous for chunk in chunks
+        )
         extra_keys = set().union(*(chunk._extra_columns.keys() for chunk in chunks))
         table._extra_columns = {
             key: np.concatenate([chunk._extra_columns[key] for chunk in chunks])
@@ -525,6 +532,9 @@ class CsvTable:
 
     def _read_source_column(self, column: str) -> np.ndarray:
         """Read one CSV column in source-row order without reopening per row."""
+        if self._source_rows_contiguous:
+            return self._read_contiguous_source_column(column)
+
         column_index = self._columns.index(column)
         values = np.empty(len(self), dtype=object)
         row_index = 0
@@ -538,6 +548,8 @@ class CsvTable:
                 file_id = 0
 
             with open(self._source_paths[file_id], "rb") as fh:
+                line_iter = _OffsetLineIterator(fh)
+                reader = csv.reader(line_iter)
                 while row_index < len(self):
                     if self._source_offsets.ndim == 2:
                         next_file_id = int(self._source_offsets[row_index, 0])
@@ -548,14 +560,65 @@ class CsvTable:
                     if next_file_id != file_id:
                         break
 
-                    fh.seek(offset)
-                    row = next(csv.reader(_OffsetLineIterator(fh)))
+                    # Full-column reads usually walk rows in source order.
+                    # Keep one csv.reader moving forward and compare record
+                    # offsets instead of seeking/rebuilding a reader per row.
+                    # If coordinate filtering removed a source row, this loop
+                    # consumes and skips it.  If offsets ever move backwards,
+                    # seek and recreate the reader for that discontinuity.
+                    while True:
+                        row = next(reader)
+                        record_offset = line_iter.consume_record_start()
+                        if record_offset == offset:
+                            break
+                        if record_offset is not None and record_offset < offset:
+                            continue
+                        fh.seek(offset)
+                        line_iter = _OffsetLineIterator(fh)
+                        reader = csv.reader(line_iter)
                     values[row_index] = (
                         row[column_index] if column_index < len(row) else ""
                     )
                     row_index += 1
                     if row_index and row_index % 50_000 == 0:
                         QtWidgets.QApplication.processEvents()
+        return values
+
+    def _read_contiguous_source_column(self, column: str) -> np.ndarray:
+        """Read one column by streaming contiguous retained source rows."""
+        column_index = self._columns.index(column)
+        values = np.empty(len(self), dtype=object)
+        row_index = 0
+        while row_index < len(self):
+            if self._source_offsets.ndim == 2:
+                file_id = int(self._source_offsets[row_index, 0])
+                offset = int(self._source_offsets[row_index, 1])
+            else:
+                file_id = 0
+                offset = int(self._source_offsets[row_index])
+
+            segment_end = row_index + 1
+            if self._source_offsets.ndim == 2:
+                while (
+                    segment_end < len(self)
+                    and int(self._source_offsets[segment_end, 0]) == file_id
+                ):
+                    segment_end += 1
+            else:
+                segment_end = len(self)
+
+            with open(self._source_paths[file_id], "rb") as raw_fh:
+                raw_fh.seek(offset)
+                text_fh = io.TextIOWrapper(raw_fh, encoding="utf-8-sig", newline="")
+                reader = csv.reader(text_fh)
+                for target_index in range(row_index, segment_end):
+                    row = next(reader)
+                    values[target_index] = (
+                        row[column_index] if column_index < len(row) else ""
+                    )
+                    if target_index and target_index % 50_000 == 0:
+                        QtWidgets.QApplication.processEvents()
+            row_index = segment_end
         return values
 
     def _read_source_row(self, row_index: int) -> list[str]:
@@ -1980,6 +2043,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             data=None,
             source_paths=source_paths,
             source_offsets=source_offsets,
+            source_rows_contiguous=chunk_df._source_rows_contiguous,
         )
         # Retained chunks keep map-critical arrays in memory and lazily reread
         # other CSV cells from the source file when the table/export path needs
