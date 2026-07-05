@@ -1200,6 +1200,26 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.keyword_edit.clear()
         self.keyword_edit.setEnabled(bool(columns))
 
+    def _preindex_columns_for_load(
+        self, columns: Sequence[str]
+    ) -> dict[str, CsvColumnIndex]:
+        """Return low-cost/high-value column indexes to build during ingest."""
+        requested = set(self.cli_args.preindex_column or [])
+        # AIS CSVs commonly color by VesselName immediately after loading.
+        # Indexing that one column while chunks are already in memory avoids a
+        # slow source-file reread on first color-by without returning to the old
+        # behavior of indexing every CSV column during ingest.
+        requested.update(
+            column
+            for column in columns
+            if column.replace("_", "").lower() == "vesselname"
+        )
+        return {
+            column: CsvColumnIndex()
+            for column in columns
+            if column in requested
+        }
+
     def _resize_table_columns_to_contents(self) -> None:
         """Resize CSV table columns to fit loaded headers and visible cell data."""
         if self.table_widget is None:
@@ -1872,9 +1892,12 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             self.fast_layer.clear()
             self._reset_loaded_data_state()
             self._last_chunk_redraw_time = time.perf_counter()
-            # Column indexes are created on demand by color-by/keyword/sort
-            # paths instead of being built for every CSV column during ingest.
-            self._column_indexers = {}
+            self._column_indexers = self._preindex_columns_for_load(base_columns)
+            perf(
+                "csv_preindex_columns",
+                columns=",".join(self._column_indexers),
+                column_count=len(self._column_indexers),
+            )
             self._initialize_empty_table(base_columns)
 
         self.loader_thread = CsvLoaderThread(
@@ -2495,6 +2518,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--wms-opacity", type=float, default=1.0)
     parser.add_argument("--chunk-size", type=int, default=50_000)
     parser.add_argument("--cell-size-m", type=float, default=50_000.0)
+    parser.add_argument(
+        "--preindex-column",
+        action="append",
+        default=None,
+        help=(
+            "Build a categorical index for this CSV column during ingest so "
+            "first color/filter use is fast. May be supplied multiple times."
+        ),
+    )
     parser.add_argument(
         "--sortable-table",
         action="store_true",
