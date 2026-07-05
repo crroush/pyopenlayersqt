@@ -2090,10 +2090,16 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 smi_m=smi_values,
                 tilt_deg=tilt_values,
                 ids=chunk_fids,
+                chunk_size=self.cli_args.chunk_size,
                 redraw=False,
             )
         else:
-            self.fast_layer.add_points(coords=coords, ids=chunk_fids, redraw=False)
+            self.fast_layer.add_points(
+                coords=coords,
+                ids=chunk_fids,
+                chunk_size=self.cli_args.chunk_size,
+                redraw=False,
+            )
         now = time.perf_counter()
         redraw_requested = False
         if now - self._last_chunk_redraw_time >= 0.75:
@@ -2516,7 +2522,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--wms-url", type=str, default=None)
     parser.add_argument("--wms-layers", type=str, default=None)
     parser.add_argument("--wms-opacity", type=float, default=1.0)
-    parser.add_argument("--chunk-size", type=int, default=50_000)
+    parser.add_argument("--chunk-size", type=int, default=200_000)
     parser.add_argument("--cell-size-m", type=float, default=50_000.0)
     parser.add_argument(
         "--preindex-column",
