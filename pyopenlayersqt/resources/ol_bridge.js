@@ -979,7 +979,10 @@ function cmd_fast_points_add_points(msg) {
     entry.deleted.push(false);
     entry.hidden.push(false);
     entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
-    fp_index_insert(entry, idx);
+    // Rendering, picking, and visibility use the quadtree.  Avoid also
+    // maintaining the legacy grid index during bulk loads; its string-keyed
+    // Map updates add per-point overhead and are only used by the old fallback
+    // path when no quadtree exists.
     fp_qt_insert(entry, idx);
   }
   const convertIndexMs = performance.now() - convertStart;
@@ -1774,7 +1777,10 @@ function cmd_fast_geopoints_add_points(msg) {
     entry.b.push((Number(smi_m[i] || 0.0)) * k);
     entry.rot.push((90.0 - Number(tilt_deg[i] || 0.0)) * Math.PI / 180.0);
 
-    fp_index_insert(entry, idx);
+    // Rendering, picking, and visibility use the quadtree.  Avoid also
+    // maintaining the legacy grid index during bulk loads; its string-keyed
+    // Map updates add per-point overhead and are only used by the old fallback
+    // path when no quadtree exists.
     fp_qt_insert(entry, idx);
   }
   const convertIndexMs = performance.now() - convertStart;
