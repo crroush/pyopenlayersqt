@@ -423,8 +423,16 @@ class CsvTable:
             if index.codes is None:
                 index.finalize()
             return index.codes, index.unique_values, True
-        codes, unique_values = _factorize_values(self[column])
-        return codes, unique_values, False
+        # Build categorical indexes lazily.  Initial CSV ingest only needs
+        # mapped coordinate/time/ellipse arrays for the map; eagerly indexing
+        # every raw CSV column makes large loads pay for color/filter/sort
+        # features before the user asks for them.
+        values = self[column]
+        index = CsvColumnIndex()
+        index.add_values(values)
+        index.finalize()
+        self._column_indexes[column] = index
+        return index.codes, index.unique_values, False
 
     def sorted_source_indices(
         self,
@@ -1793,10 +1801,6 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             # _on_chunk_ready can extend it cheaply.
             if not isinstance(self.feature_ids, list):
                 self.feature_ids = list(self.feature_ids)
-            if not self._column_indexers:
-                self._column_indexers = {
-                    column: CsvColumnIndex() for column in base_columns
-                }
         else:
             self._append_prior_row_count = 0
             self._append_prior_visible_mask = None
@@ -1805,9 +1809,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             self.fast_layer.clear()
             self._reset_loaded_data_state()
             self._last_chunk_redraw_time = time.perf_counter()
-            self._column_indexers = {
-                column: CsvColumnIndex() for column in base_columns
-            }
+            # Column indexes are created on demand by color-by/keyword/sort
+            # paths instead of being built for every CSV column during ingest.
+            self._column_indexers = {}
             self._initialize_empty_table(base_columns)
 
         self.loader_thread = CsvLoaderThread(
