@@ -63,28 +63,28 @@ class TimeHistogramSliderExample(QtWidgets.QMainWindow):
         )
 
     def _setup_layout(self):
-        """Set up controls, map, and table."""
-        controls = QtWidgets.QWidget()
-        controls_layout = QtWidgets.QVBoxLayout(controls)
-        controls_layout.addWidget(self.time_slider)
+        """Set up table, map, and time controls under the map."""
+        map_panel = QtWidgets.QWidget()
+        map_layout = QtWidgets.QVBoxLayout(map_panel)
+        map_layout.addWidget(self.map_widget, stretch=1)
+        map_layout.addWidget(self.time_slider)
 
         self.info_label = QtWidgets.QLabel("Loading time-based data...")
         self.info_label.setStyleSheet("background-color: #e8f4f8; padding: 8px;")
-        controls_layout.addWidget(self.info_label)
+        map_layout.addWidget(self.info_label)
 
         reset_btn = QtWidgets.QPushButton("Reset Time Filter")
         reset_btn.clicked.connect(self._reset_filter)
-        controls_layout.addWidget(reset_btn)
+        map_layout.addWidget(reset_btn)
 
         splitter = QtWidgets.QSplitter(Qt.Horizontal)
         splitter.addWidget(self.table)
-        splitter.addWidget(self.map_widget)
+        splitter.addWidget(map_panel)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 2)
 
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
-        layout.addWidget(controls)
         layout.addWidget(splitter, stretch=1)
         self.setCentralWidget(container)
 

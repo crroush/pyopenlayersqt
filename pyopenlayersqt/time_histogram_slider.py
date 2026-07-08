@@ -17,6 +17,7 @@ automatically chosen range-slider step.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Callable, List, Optional, Tuple, Union
 
 from PySide6.QtCore import QRect, Qt, Signal
@@ -51,13 +52,25 @@ class GraphicalTimeSlider(QWidget):
         self._last_bin_size = 1
         self._handle_hit_width = 10
         self._tooltip_formatter: Optional[Callable[[int], str]] = None
-        self.setMinimumHeight(150)
+        self._axis_formatter: Optional[Callable[[int], str]] = None
+        self._show_x_axis = True
+        self.setMinimumHeight(170)
         self.setMouseTracking(True)
         self.setCursor(Qt.ArrowCursor)
 
     def setTooltipFormatter(self, formatter: Optional[Callable[[int], str]]) -> None:
         """Set value formatter used by tooltips."""
         self._tooltip_formatter = formatter
+
+    def setAxisFormatter(self, formatter: Optional[Callable[[int], str]]) -> None:
+        """Set formatter used for x-axis tick labels."""
+        self._axis_formatter = formatter
+        self.update()
+
+    def setShowXAxis(self, show: bool) -> None:
+        """Set whether date/time x-axis ticks are drawn below the histogram."""
+        self._show_x_axis = show
+        self.update()
 
     def setDistributionValues(self, timestamps: List[float]) -> None:
         """Set timestamp values, expressed in parent slider coordinates."""
@@ -128,13 +141,18 @@ class GraphicalTimeSlider(QWidget):
 
     def _plot_rect(self) -> QRect:
         margin = 14
+        reserved_height = 72 if self._show_x_axis else 50
         return QRect(
-            margin, 8, max(1, self.width() - 2 * margin), max(1, self.height() - 48)
+            margin,
+            8,
+            max(1, self.width() - 2 * margin),
+            max(1, self.height() - reserved_height),
         )
 
     def _overview_rect(self) -> QRect:
         plot = self._plot_rect()
-        return QRect(plot.left(), plot.bottom() + 18, plot.width(), 8)
+        gap = 40 if self._show_x_axis else 18
+        return QRect(plot.left(), plot.bottom() + gap, plot.width(), 8)
 
     def _extent_value_to_pos(self, value: int) -> int:
         rect = self._plot_rect()
@@ -248,6 +266,27 @@ class GraphicalTimeSlider(QWidget):
                 break
             bin_start = bin_end
 
+    def _draw_x_axis(self, painter: QPainter, plot: QRect) -> None:
+        """Draw date/time tick marks for the currently visible histogram extent."""
+        if not self._show_x_axis or self._axis_formatter is None:
+            return
+
+        painter.setPen(QPen(QColor(90, 90, 90), 1))
+        axis_y = plot.bottom() + 5
+        painter.drawLine(plot.left(), axis_y, plot.right(), axis_y)
+
+        tick_count = 5
+        for i in range(tick_count):
+            ratio = i / max(tick_count - 1, 1)
+            value = int(
+                self._extent_min + ratio * (self._extent_max - self._extent_min)
+            )
+            x = self._extent_value_to_pos(value)
+            painter.drawLine(x, axis_y, x, axis_y + 4)
+            label = self._axis_formatter(value)
+            label_rect = QRect(x - 48, axis_y + 6, 96, 16)
+            painter.drawText(label_rect, Qt.AlignHCenter | Qt.AlignTop, label)
+
     def paintEvent(self, _event: QPaintEvent) -> None:
         """Draw histogram, filter handles, and extent handles."""
         painter = QPainter()
@@ -288,8 +327,8 @@ class GraphicalTimeSlider(QWidget):
             for x in (filter_left, filter_right):
                 painter.drawLine(x, plot.top(), x, plot.bottom() + 8)
 
-            painter.setPen(QPen(QColor(122, 78, 20), 1))
-            painter.drawText(overview.left(), overview.top() - 10, "Zoom extent")
+            self._draw_x_axis(painter, plot)
+
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor(220, 220, 220))
             painter.drawRoundedRect(overview, 4, 4)
@@ -451,8 +490,10 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         values: Optional[List[str]] = None,
         label: str = "Time Range",
         show_value_tooltips: bool = False,
+        show_x_axis: bool = True,
     ) -> None:
         self._distribution_iso_values: List[str] = values or []
+        self._show_x_axis = show_x_axis
         super().__init__(
             parent=parent,
             min_val=min_val,
@@ -475,6 +516,8 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         self._slider = GraphicalTimeSlider()
         self._slider.setMinimum(self._slider_min)
         self._slider.setMaximum(self._slider_max)
+        self._slider.setShowXAxis(self._show_x_axis)
+        self._slider.setAxisFormatter(self._format_axis_value)
         self._slider.rangeChanged.connect(self._on_range_changed)
         self._slider.extentChanged.connect(self._on_extent_changed)
         if self._show_value_tooltips:
@@ -484,9 +527,7 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         layout.addWidget(self._slider)
 
         self._extent_label = QLabel()
-        self._extent_label.setStyleSheet(
-            "background-color: #fff4e6; color: #7a3f00; padding: 4px;"
-        )
+        self._extent_label.setStyleSheet("color: #7a3f00; padding: 2px;")
         layout.addWidget(self._extent_label)
 
         labels_container = QHBoxLayout()
@@ -495,8 +536,7 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         filter_title = QLabel("Filter range:")
         filter_title.setStyleSheet("font-weight: bold; color: #195b9b;")
         hint = QLabel(
-            "Orange controls the zoom window shown in the histogram above; "
-            "blue controls the emitted filter range."
+            "Orange handles adjust the histogram view; blue handles adjust the filter."
         )
         hint.setStyleSheet("color: #666; font-size: 10px;")
         labels_container.addWidget(filter_title)
@@ -516,6 +556,20 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         """Update filter labels and the zoom extent label."""
         super()._update_labels()
         self._update_extent_label()
+
+    def _format_axis_value(self, slider_value: int) -> str:
+        """Format a slider value as a compact date/time axis tick."""
+        numeric_value = self._slider_to_value(slider_value)
+        if not self._is_iso8601:
+            return self._format_value(numeric_value)
+        if self._iso_values:
+            return self._format_value(numeric_value)
+        timestamp = min(
+            self._iso_origin_ts + (numeric_value * self._iso_step_seconds),
+            self._iso_max_ts,
+        )
+        dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        return dt.strftime("%m-%d %H:%M")
 
     def _format_duration(self, seconds: float) -> str:
         """Format an approximate duration for the current histogram bin size."""
@@ -543,9 +597,8 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
             self._iso_step_seconds if self._is_iso8601 and not self._iso_values else 1.0
         )
         self._extent_label.setText(
-            "Zoom window shown above: "
-            f"{extent_start} → {extent_stop} "
-            f"(histogram bin ≈ {self._format_duration(bin_seconds)})"
+            f"View: {extent_start} → {extent_stop}  "
+            f"Bin: ≈ {self._format_duration(bin_seconds)}"
         )
 
     def _distribution_timestamps_to_slider_values(
