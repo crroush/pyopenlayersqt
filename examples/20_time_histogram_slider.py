@@ -18,7 +18,7 @@ from PySide6.QtGui import QColor
 
 from pyopenlayersqt import FastPointsStyle, OLMapWidget
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
-from pyopenlayersqt.range_slider import TimeHistogramSliderWidget
+from pyopenlayersqt.time_histogram_slider import TimeHistogramSliderWidget
 
 
 class TimeHistogramSliderExample(QtWidgets.QMainWindow):

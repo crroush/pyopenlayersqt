@@ -28,7 +28,8 @@ from .features_table import (
     TableContextMenuEvent,
     TableRowProvider,
 )
-from .range_slider import RangeSliderWidget, TimeHistogramSliderWidget
+from .range_slider import RangeSliderWidget
+from .time_histogram_slider import TimeHistogramSliderWidget
 from .selection_linking import DualSelectLink, MultiSelectLink, TableLink
 
 __all__ = [
