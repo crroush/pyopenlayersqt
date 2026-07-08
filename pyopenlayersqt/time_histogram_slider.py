@@ -281,6 +281,8 @@ class GraphicalTimeSlider(QWidget):
             for x in (filter_left, filter_right):
                 painter.drawLine(x, plot.top(), x, plot.bottom() + 8)
 
+            painter.setPen(QPen(QColor(122, 78, 20), 1))
+            painter.drawText(overview.left(), overview.top() - 10, "Zoom extent")
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor(220, 220, 220))
             painter.drawRoundedRect(overview, 4, 4)
@@ -459,19 +461,30 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         self._slider.setMinimum(self._slider_min)
         self._slider.setMaximum(self._slider_max)
         self._slider.rangeChanged.connect(self._on_range_changed)
+        self._slider.extentChanged.connect(self._on_extent_changed)
         if self._show_value_tooltips:
             self._slider.setTooltipFormatter(
                 lambda slider_val: self._format_value(self._slider_to_value(slider_val))
             )
         layout.addWidget(self._slider)
 
+        self._extent_label = QLabel()
+        self._extent_label.setStyleSheet(
+            "background-color: #fff4e6; color: #7a3f00; padding: 4px;"
+        )
+        layout.addWidget(self._extent_label)
+
         labels_container = QHBoxLayout()
         self._min_label = QLabel()
         self._max_label = QLabel()
+        filter_title = QLabel("Filter range:")
+        filter_title.setStyleSheet("font-weight: bold; color: #195b9b;")
         hint = QLabel(
-            "Blue: filter/drag fixed span • Orange: resize or drag zoom extent • Wheel: zoom"
+            "Orange controls the zoom window shown in the histogram above; "
+            "blue controls the emitted filter range."
         )
         hint.setStyleSheet("color: #666; font-size: 10px;")
+        labels_container.addWidget(filter_title)
         labels_container.addWidget(QLabel("Start:"))
         labels_container.addWidget(self._min_label)
         labels_container.addStretch()
@@ -479,6 +492,46 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         labels_container.addWidget(self._max_label)
         layout.addLayout(labels_container)
         layout.addWidget(hint)
+
+    def _on_extent_changed(self, _min_slider_val: int, _max_slider_val: int) -> None:
+        """Update zoom/aggregation labels when the orange extent changes."""
+        self._update_extent_label()
+
+    def _update_labels(self) -> None:
+        """Update filter labels and the zoom extent label."""
+        super()._update_labels()
+        self._update_extent_label()
+
+    def _format_duration(self, seconds: float) -> str:
+        """Format an approximate duration for the current histogram bin size."""
+        seconds = max(float(seconds), 0.0)
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        minutes = seconds / 60
+        if minutes < 60:
+            return f"{minutes:.1f}m" if minutes < 10 else f"{minutes:.0f}m"
+        hours = minutes / 60
+        if hours < 48:
+            return f"{hours:.1f}h" if hours < 10 else f"{hours:.0f}h"
+        days = hours / 24
+        return f"{days:.1f}d" if days < 10 else f"{days:.0f}d"
+
+    def _update_extent_label(self) -> None:
+        """Show the zoom extent that defines the histogram above."""
+        if not hasattr(self, "_extent_label") or not hasattr(self, "_slider"):
+            return
+        extent_min = self._slider._extent_min
+        extent_max = self._slider._extent_max
+        extent_start = self._format_value(self._slider_to_value(extent_min))
+        extent_stop = self._format_value(self._slider_to_value(extent_max))
+        bin_seconds = self._slider._last_bin_size * (
+            self._iso_step_seconds if self._is_iso8601 and not self._iso_values else 1.0
+        )
+        self._extent_label.setText(
+            "Zoom window shown above: "
+            f"{extent_start} → {extent_stop} "
+            f"(histogram bin ≈ {self._format_duration(bin_seconds)})"
+        )
 
     def _distribution_timestamps_to_slider_values(
         self, values: List[str]
@@ -504,10 +557,12 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
                     self._distribution_iso_values
                 )
             )
+            self._update_extent_label()
 
     def reset_view(self) -> None:
         """Reset the aggregation/zoom extent to the full available time range."""
         self._slider.resetExtent()
+        self._update_extent_label()
 
     def set_values(self, values: List[str]) -> None:
         super().set_values(values)
