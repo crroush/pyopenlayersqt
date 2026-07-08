@@ -255,7 +255,7 @@ class GraphicalTimeSlider(QWidget):
             painter.setBrush(QColor(248, 250, 252))
             painter.drawRoundedRect(plot, 4, 4)
 
-            max_count = max((count for _, _, count in self._bins), default=1)
+            max_count = max(1, max((count for _, _, count in self._bins), default=0))
             painter.setPen(Qt.NoPen)
             for start, end, count in self._bins:
                 x1 = self._extent_value_to_pos(start)
