@@ -43,6 +43,9 @@ class GraphicalTimeSlider(QWidget):
         self._drag_start_value: Optional[int] = None
         self._drag_initial_min: Optional[int] = None
         self._drag_initial_max: Optional[int] = None
+        self._drag_initial_extent_min: Optional[int] = None
+        self._drag_initial_extent_max: Optional[int] = None
+        self._last_bin_size = 1
         self._handle_hit_width = 10
         self._tooltip_formatter: Optional[Callable[[int], str]] = None
         self.setMinimumHeight(150)
@@ -187,6 +190,15 @@ class GraphicalTimeSlider(QWidget):
                 24,
             ).contains(pos):
                 return name
+        extent_left = self._domain_value_to_pos(self._extent_min)
+        extent_right = self._domain_value_to_pos(self._extent_max)
+        if QRect(
+            min(extent_left, extent_right),
+            overview.top() - 6,
+            abs(extent_right - extent_left),
+            overview.height() + 12,
+        ).contains(pos):
+            return "extent_span"
         return None
 
     def _show_tooltip(self, value: int) -> None:
@@ -204,6 +216,7 @@ class GraphicalTimeSlider(QWidget):
         width_bins = max(4, min(360, self._plot_rect().width() // 3))
         span = max(self._extent_max - self._extent_min, 1)
         bin_size = max(1, -(-span // width_bins))
+        self._last_bin_size = bin_size
         counts = {}
         for ts in self._timestamps:
             if self._extent_min <= ts <= self._extent_max:
@@ -212,10 +225,18 @@ class GraphicalTimeSlider(QWidget):
                     + int((ts - self._extent_min) // bin_size) * bin_size
                 )
                 counts[start] = counts.get(start, 0) + 1
-        self._bins = [
-            (start, min(start + bin_size, self._extent_max), count)
-            for start, count in sorted(counts.items())
-        ]
+
+        # Build a complete sequence of bins for the current zoom extent rather
+        # than only the bins with data. This makes every extent change redraw the
+        # plot at the new fidelity, including gaps between active periods.
+        self._bins = []
+        bin_start = self._extent_min
+        while bin_start <= self._extent_max:
+            bin_end = min(bin_start + bin_size, self._extent_max)
+            self._bins.append((bin_start, bin_end, counts.get(bin_start, 0)))
+            if bin_end == self._extent_max:
+                break
+            bin_start = bin_end
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         """Draw histogram, filter handles, and extent handles."""
@@ -289,9 +310,14 @@ class GraphicalTimeSlider(QWidget):
                 if event.pos().x() < self._extent_value_to_pos(self._min_value)
                 else "filter_max"
             )
-        self._drag_start_value = self._extent_pos_to_value(event.pos().x())
+        if self._dragging_handle in ("extent_min", "extent_max", "extent_span"):
+            self._drag_start_value = self._domain_pos_to_value(event.pos().x())
+        else:
+            self._drag_start_value = self._extent_pos_to_value(event.pos().x())
         self._drag_initial_min = self._min_value
         self._drag_initial_max = self._max_value
+        self._drag_initial_extent_min = self._extent_min
+        self._drag_initial_extent_max = self._extent_max
         self._apply_drag(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -310,6 +336,8 @@ class GraphicalTimeSlider(QWidget):
             self._drag_start_value = None
             self._drag_initial_min = None
             self._drag_initial_max = None
+            self._drag_initial_extent_min = None
+            self._drag_initial_extent_max = None
             QToolTip.hideText()
 
     def wheelEvent(self, event) -> None:
@@ -333,12 +361,28 @@ class GraphicalTimeSlider(QWidget):
 
     def _apply_drag(self, event: QMouseEvent) -> None:
         handle = self._dragging_handle
-        if handle in ("extent_min", "extent_max"):
+        if handle in ("extent_min", "extent_max", "extent_span"):
             value = self._domain_pos_to_value(event.pos().x())
             if handle == "extent_min":
                 self.setExtentRange(value, self._extent_max)
-            else:
+            elif handle == "extent_max":
                 self.setExtentRange(self._extent_min, value)
+            elif (
+                self._drag_start_value is not None
+                and self._drag_initial_extent_min is not None
+                and self._drag_initial_extent_max is not None
+            ):
+                delta = value - self._drag_start_value
+                span = self._drag_initial_extent_max - self._drag_initial_extent_min
+                new_min = self._drag_initial_extent_min + delta
+                new_max = self._drag_initial_extent_max + delta
+                if new_min < self._minimum:
+                    new_min = self._minimum
+                    new_max = new_min + span
+                if new_max > self._maximum:
+                    new_max = self._maximum
+                    new_min = new_max - span
+                self.setExtentRange(int(new_min), int(new_max))
             self._show_tooltip(value)
             return
 
@@ -417,7 +461,7 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         self._min_label = QLabel()
         self._max_label = QLabel()
         hint = QLabel(
-            "Blue: filter range/drag fixed span • Orange: aggregation extent • Wheel: zoom"
+            "Blue: filter/drag fixed span • Orange: resize or drag zoom extent • Wheel: zoom"
         )
         hint.setStyleSheet("color: #666; font-size: 10px;")
         labels_container.addWidget(QLabel("Start:"))
