@@ -55,7 +55,7 @@ class GraphicalTimeSlider(QWidget):
         self._tooltip_formatter: Optional[Callable[[int], str]] = None
         self._axis_formatter: Optional[Callable[[int], str]] = None
         self._show_x_axis = True
-        self.setMinimumHeight(170)
+        self.setMinimumHeight(190)
         self.setMouseTracking(True)
         self.setCursor(Qt.ArrowCursor)
 
@@ -144,7 +144,7 @@ class GraphicalTimeSlider(QWidget):
 
     def _plot_rect(self) -> QRect:
         margin = 14
-        reserved_height = 72 if self._show_x_axis else 50
+        reserved_height = 94 if self._show_x_axis else 50
         return QRect(
             margin,
             8,
@@ -154,7 +154,8 @@ class GraphicalTimeSlider(QWidget):
 
     def _overview_rect(self) -> QRect:
         plot = self._plot_rect()
-        return QRect(plot.left(), plot.bottom() + 18, plot.width(), 8)
+        gap = 40 if self._show_x_axis else 18
+        return QRect(plot.left(), plot.bottom() + gap, plot.width(), 8)
 
     def _extent_value_to_pos(self, value: int) -> int:
         rect = self._plot_rect()
@@ -296,32 +297,61 @@ class GraphicalTimeSlider(QWidget):
         }
         return colors[role]
 
-    def _draw_x_axis(self, painter: QPainter, overview: QRect) -> None:
-        """Draw date/time tick marks below the orange global time slider."""
+    def _draw_time_axis(
+        self,
+        painter: QPainter,
+        rect: QRect,
+        axis_y: int,
+        min_value: int,
+        max_value: int,
+        value_to_pos: Callable[[int], int],
+    ) -> None:
+        """Draw date/time tick marks for a time range."""
         if not self._show_x_axis or self._axis_formatter is None:
             return
 
         painter.setPen(QPen(self._color("axis"), 1))
-        axis_y = overview.bottom() + 5
-        painter.drawLine(overview.left(), axis_y, overview.right(), axis_y)
+        painter.drawLine(rect.left(), axis_y, rect.right(), axis_y)
 
         tick_count = 5
         for i in range(tick_count):
             ratio = i / max(tick_count - 1, 1)
-            value = int(self._minimum + ratio * (self._maximum - self._minimum))
-            x = self._domain_value_to_pos(value)
+            value = int(min_value + ratio * (max_value - min_value))
+            x = value_to_pos(value)
             painter.drawLine(x, axis_y, x, axis_y + 4)
             label = self._axis_formatter(value)
             if i == 0:
-                label_rect = QRect(overview.left(), axis_y + 6, 110, 16)
+                label_rect = QRect(rect.left(), axis_y + 6, 110, 16)
                 alignment = Qt.AlignLeft | Qt.AlignTop
             elif i == tick_count - 1:
-                label_rect = QRect(overview.right() - 110, axis_y + 6, 110, 16)
+                label_rect = QRect(rect.right() - 110, axis_y + 6, 110, 16)
                 alignment = Qt.AlignRight | Qt.AlignTop
             else:
                 label_rect = QRect(x - 55, axis_y + 6, 110, 16)
                 alignment = Qt.AlignHCenter | Qt.AlignTop
             painter.drawText(label_rect, alignment, label)
+
+    def _draw_histogram_axis(self, painter: QPainter, plot: QRect) -> None:
+        """Draw the axis for the currently viewed histogram extent."""
+        self._draw_time_axis(
+            painter,
+            plot,
+            plot.bottom() + 5,
+            self._extent_min,
+            self._extent_max,
+            self._extent_value_to_pos,
+        )
+
+    def _draw_overview_axis(self, painter: QPainter, overview: QRect) -> None:
+        """Draw the axis for the full data range under the orange slider."""
+        self._draw_time_axis(
+            painter,
+            overview,
+            overview.bottom() + 5,
+            self._minimum,
+            self._maximum,
+            self._domain_value_to_pos,
+        )
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         """Draw histogram, filter handles, and extent handles."""
@@ -362,6 +392,7 @@ class GraphicalTimeSlider(QWidget):
             painter.setPen(QPen(self._color("filter_line"), 3))
             for x in (filter_left, filter_right):
                 painter.drawLine(x, plot.top(), x, plot.bottom() + 8)
+            self._draw_histogram_axis(painter, plot)
 
             painter.setPen(Qt.NoPen)
             painter.setBrush(self._color("overview_bg"))
@@ -380,7 +411,7 @@ class GraphicalTimeSlider(QWidget):
             painter.setPen(QPen(self._color("extent_line"), 3))
             for x in (extent_left, extent_right):
                 painter.drawLine(x, overview.top() - 8, x, overview.bottom() + 8)
-            self._draw_x_axis(painter, overview)
+            self._draw_overview_axis(painter, overview)
         finally:
             painter.end()
 
