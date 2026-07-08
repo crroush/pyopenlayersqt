@@ -28,7 +28,7 @@ from .features_table import (
     TableContextMenuEvent,
     TableRowProvider,
 )
-from .range_slider import RangeSliderWidget
+from .range_slider import RangeSliderWidget, TimeHistogramSliderWidget
 from .selection_linking import DualSelectLink, MultiSelectLink, TableLink
 
 __all__ = [
@@ -56,6 +56,7 @@ __all__ = [
     "TableContextMenuEvent",
     "TableRowProvider",
     "RangeSliderWidget",
+    "TimeHistogramSliderWidget",
     "TableLink",
     "DualSelectLink",
     "MultiSelectLink",

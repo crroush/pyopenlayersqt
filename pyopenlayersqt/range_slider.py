@@ -329,6 +329,236 @@ class DualHandleSlider(QWidget):
             QToolTip.hideText()
 
 
+class GraphicalTimeSlider(QWidget):
+    """Interactive histogram-backed time range slider with zooming."""
+
+    rangeChanged = Signal(int, int)
+    viewChanged = Signal(int, int)
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._minimum = 0
+        self._maximum = 100
+        self._view_min = 0
+        self._view_max = 100
+        self._min_value = 0
+        self._max_value = 100
+        self._timestamps: List[float] = []
+        self._bins: List[Tuple[int, int, int]] = []
+        self._dragging_handle = None
+        self._handle_radius = 7
+        self._tooltip_formatter: Optional[Callable[[int], str]] = None
+        self.setMinimumHeight(110)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.ArrowCursor)
+
+    def setTooltipFormatter(self, formatter: Optional[Callable[[int], str]]) -> None:
+        self._tooltip_formatter = formatter
+
+    def setDistributionValues(self, timestamps: List[float]) -> None:
+        self._timestamps = sorted(timestamps)
+        self._reaggregate()
+        self.update()
+
+    def setMinimum(self, value: int) -> None:
+        self._minimum = value
+        self._view_min = max(self._view_min, value)
+        self.setMinValue(max(self._min_value, value))
+        self._reaggregate()
+
+    def setMaximum(self, value: int) -> None:
+        old_maximum = self._maximum
+        self._maximum = value
+        if self._view_max == old_maximum or self._view_max > value:
+            self._view_max = value
+        self.setMaxValue(min(self._max_value, value))
+        self._reaggregate()
+
+    def setViewRange(self, min_value: int, max_value: int) -> None:
+        if max_value <= min_value:
+            return
+        self._view_min = max(self._minimum, min_value)
+        self._view_max = min(self._maximum, max_value)
+        self._reaggregate()
+        self.update()
+        self.viewChanged.emit(self._view_min, self._view_max)
+
+    def resetView(self) -> None:
+        self.setViewRange(self._minimum, self._maximum)
+
+    def setMinValue(self, value: int) -> None:
+        value = max(self._minimum, min(value, self._max_value))
+        if value != self._min_value:
+            self._min_value = value
+            self.update()
+            self.rangeChanged.emit(self._min_value, self._max_value)
+
+    def setMaxValue(self, value: int) -> None:
+        value = min(self._maximum, max(value, self._min_value))
+        if value != self._max_value:
+            self._max_value = value
+            self.update()
+            self.rangeChanged.emit(self._min_value, self._max_value)
+
+    def minValue(self) -> int:
+        return self._min_value
+
+    def maxValue(self) -> int:
+        return self._max_value
+
+    def _plot_rect(self) -> QRect:
+        margin = self._handle_radius + 5
+        return QRect(
+            margin, 8, max(1, self.width() - 2 * margin), max(1, self.height() - 30)
+        )
+
+    def _value_to_pos(self, value: int) -> int:
+        rect = self._plot_rect()
+        if self._view_max == self._view_min:
+            return rect.left()
+        ratio = (value - self._view_min) / (self._view_max - self._view_min)
+        return rect.left() + int(max(0.0, min(1.0, ratio)) * rect.width())
+
+    def _pos_to_value(self, pos: int) -> int:
+        rect = self._plot_rect()
+        ratio = (pos - rect.left()) / max(rect.width(), 1)
+        ratio = max(0.0, min(1.0, ratio))
+        return self._view_min + int(ratio * (self._view_max - self._view_min))
+
+    def _handle_at_pos(self, pos) -> Optional[str]:
+        y = self._plot_rect().bottom() + 8
+        for name, value in (("min", self._min_value), ("max", self._max_value)):
+            x = self._value_to_pos(value)
+            if QRect(x - 9, y - 9, 18, 18).contains(pos):
+                return name
+        return None
+
+    def _show_tooltip(self, handle: str) -> None:
+        if self._tooltip_formatter is None:
+            return
+        value = self._min_value if handle == "min" else self._max_value
+        QToolTip.showText(
+            self.mapToGlobal(self._plot_rect().center()),
+            self._tooltip_formatter(value),
+            self,
+            QRect(),
+            1800,
+        )
+
+    def _reaggregate(self) -> None:
+        width_bins = max(20, min(240, self._plot_rect().width() // 4))
+        span = max(self._view_max - self._view_min, 1)
+        bin_size = max(1, math.ceil(span / width_bins))
+        counts = {}
+        for ts in self._timestamps:
+            if self._view_min <= ts <= self._view_max:
+                start = (
+                    self._view_min + int((ts - self._view_min) // bin_size) * bin_size
+                )
+                counts[start] = counts.get(start, 0) + 1
+        self._bins = [
+            (start, min(start + bin_size, self._view_max), count)
+            for start, count in sorted(counts.items())
+        ]
+
+    def paintEvent(self, _event: QPaintEvent) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = self._plot_rect()
+        painter.setPen(QPen(QColor(210, 210, 210), 1))
+        painter.setBrush(QColor(248, 250, 252))
+        painter.drawRoundedRect(rect, 4, 4)
+        max_count = max((count for _, _, count in self._bins), default=1)
+        painter.setPen(Qt.NoPen)
+        for start, end, count in self._bins:
+            x1 = self._value_to_pos(start)
+            x2 = max(x1 + 1, self._value_to_pos(end))
+            height = int((count / max_count) * (rect.height() - 8))
+            bar = QRect(x1, rect.bottom() - height, max(1, x2 - x1 - 1), height)
+            painter.setBrush(QColor(94, 151, 246, 180))
+            painter.drawRect(bar)
+        sel_left = self._value_to_pos(self._min_value)
+        sel_right = self._value_to_pos(self._max_value)
+        painter.setBrush(QColor(70, 130, 180, 50))
+        painter.drawRect(
+            QRect(sel_left, rect.top(), max(0, sel_right - sel_left), rect.height())
+        )
+        painter.setPen(QPen(QColor(55, 100, 145), 2))
+        for value in (self._min_value, self._max_value):
+            x = self._value_to_pos(value)
+            painter.drawLine(x, rect.top(), x, rect.bottom() + 8)
+            painter.setBrush(QColor(255, 255, 255))
+            painter.drawEllipse(
+                x - self._handle_radius,
+                rect.bottom() + 1,
+                self._handle_radius * 2,
+                self._handle_radius * 2,
+            )
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._reaggregate()
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.LeftButton:
+            handle = self._handle_at_pos(event.pos())
+            value = self._pos_to_value(event.pos().x())
+            if handle is None:
+                handle = (
+                    "min"
+                    if abs(value - self._min_value) < abs(value - self._max_value)
+                    else "max"
+                )
+            self._dragging_handle = handle
+            if handle == "min":
+                self.setMinValue(value)
+            else:
+                self.setMaxValue(value)
+            self._show_tooltip(handle)
+        elif event.button() == Qt.RightButton:
+            self.resetView()
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._dragging_handle == "min":
+            self.setMinValue(self._pos_to_value(event.pos().x()))
+            self._show_tooltip("min")
+        elif self._dragging_handle == "max":
+            self.setMaxValue(self._pos_to_value(event.pos().x()))
+            self._show_tooltip("max")
+        else:
+            self.setCursor(
+                Qt.PointingHandCursor
+                if self._handle_at_pos(event.pos())
+                else Qt.ArrowCursor
+            )
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.LeftButton:
+            self._dragging_handle = None
+            QToolTip.hideText()
+
+    def wheelEvent(self, event) -> None:
+        if self._maximum <= self._minimum:
+            return
+        cursor_value = self._pos_to_value(
+            event.position().x() if hasattr(event, "position") else event.pos().x()
+        )
+        span = self._view_max - self._view_min
+        zoom_factor = 0.75 if event.angleDelta().y() > 0 else 1.35
+        new_span = int(max(1, min(self._maximum - self._minimum, span * zoom_factor)))
+        ratio = (cursor_value - self._view_min) / max(span, 1)
+        new_min = int(cursor_value - ratio * new_span)
+        new_max = new_min + new_span
+        if new_min < self._minimum:
+            new_min = self._minimum
+            new_max = new_min + new_span
+        if new_max > self._maximum:
+            new_max = self._maximum
+            new_min = new_max - new_span
+        self.setViewRange(new_min, new_max)
+        event.accept()
+
+
 class RangeSliderWidget(QWidget):
     """A dual-handle range slider widget for numeric or ISO8601 timestamp ranges.
 
@@ -411,9 +641,7 @@ class RangeSliderWidget(QWidget):
         # timestamp is still reachable when the step does not divide evenly.
         if not self._is_iso8601:
             self._slider_min = 0
-            self._slider_max = int(
-                (self._max_numeric - self._min_numeric) / self._step
-            )
+            self._slider_max = int((self._max_numeric - self._min_numeric) / self._step)
 
         # Create UI
         self._setup_ui(label)
@@ -573,9 +801,7 @@ class RangeSliderWidget(QWidget):
         """Convert numeric value to slider position."""
         return int((value - self._min_numeric) / self._step)
 
-    def set_value_formatter(
-        self, formatter: Optional[Callable[[float], str]]
-    ) -> None:
+    def set_value_formatter(self, formatter: Optional[Callable[[float], str]]) -> None:
         """Set a formatter for numeric labels and handle tooltips."""
         self._value_formatter = formatter
         self._update_labels()
@@ -767,3 +993,124 @@ class RangeSliderWidget(QWidget):
         self._slider.setMinimum(self._slider_min)
         self._slider.setMaximum(self._slider_max)
         self.reset_range()
+
+
+class TimeHistogramSliderWidget(RangeSliderWidget):
+    """Drop-in ISO8601 range slider with an aggregated activity histogram.
+
+    The widget keeps the same public API and ``rangeChanged`` signal as
+    :class:`RangeSliderWidget`, but replaces the plain track with a time-based
+    histogram. Mouse-wheel zooming changes the plotted time window and the
+    histogram is re-aggregated for the visible window, exposing more detail as
+    users zoom in. Right-click the plot to reset the plotted window.
+    """
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        *,
+        min_val: Optional[str] = None,
+        max_val: Optional[str] = None,
+        step: float = 1.0,
+        values: Optional[List[str]] = None,
+        label: str = "Time Range",
+        show_value_tooltips: bool = False,
+    ) -> None:
+        self._distribution_iso_values: List[str] = values or []
+        super().__init__(
+            parent=parent,
+            min_val=min_val,
+            max_val=max_val,
+            step=step,
+            values=values,
+            is_iso8601=True,
+            label=label,
+            show_value_tooltips=show_value_tooltips,
+        )
+        if values:
+            self.set_distribution_values(values)
+
+    def _setup_ui(self, label: str) -> None:
+        """Set up the histogram time-slider user interface."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        self._label = QLabel(label)
+        layout.addWidget(self._label)
+
+        self._slider = GraphicalTimeSlider()
+        self._slider.setMinimum(self._slider_min)
+        self._slider.setMaximum(self._slider_max)
+        self._slider.rangeChanged.connect(self._on_range_changed)
+        if self._show_value_tooltips:
+            self._slider.setTooltipFormatter(
+                lambda slider_val: self._format_value(self._slider_to_value(slider_val))
+            )
+        layout.addWidget(self._slider)
+
+        labels_container = QHBoxLayout()
+        self._min_label = QLabel()
+        self._max_label = QLabel()
+        hint = QLabel("Wheel: zoom/re-aggregate • Right-click: reset zoom")
+        hint.setStyleSheet("color: #666; font-size: 10px;")
+        labels_container.addWidget(QLabel("Start:"))
+        labels_container.addWidget(self._min_label)
+        labels_container.addStretch()
+        labels_container.addWidget(QLabel("Stop:"))
+        labels_container.addWidget(self._max_label)
+        layout.addLayout(labels_container)
+        layout.addWidget(hint)
+
+    def _distribution_timestamps_to_slider_values(
+        self, values: List[str]
+    ) -> List[float]:
+        """Convert ISO8601 distribution values into current slider coordinates."""
+        timestamps = []
+        for value in values:
+            ts = self._parse_iso8601(value)
+            if self._iso_values:
+                # Explicit values map to their sorted index.
+                try:
+                    timestamps.append(float(self._iso_values.index(value)))
+                except ValueError:
+                    continue
+            else:
+                timestamps.append((ts - self._iso_origin_ts) / self._iso_step_seconds)
+        return timestamps
+
+    def set_distribution_values(self, values: List[str]) -> None:
+        """Set ISO8601 timestamps used to draw the activity histogram."""
+        self._distribution_iso_values = list(values)
+        if hasattr(self, "_slider"):
+            self._slider.setDistributionValues(
+                self._distribution_timestamps_to_slider_values(
+                    self._distribution_iso_values
+                )
+            )
+
+    def reset_view(self) -> None:
+        """Reset the histogram zoom window to the full available time range."""
+        self._slider.resetView()
+
+    def set_values(self, values: List[str]) -> None:
+        """Set available values and use them as the histogram distribution."""
+        super().set_values(values)
+        self.set_distribution_values(values)
+
+    def set_available_range(
+        self,
+        min_value: Union[float, str],
+        max_value: Union[float, str],
+        step: Optional[float] = None,
+    ) -> None:
+        """Replace available time bounds and re-bin existing histogram data."""
+        super().set_available_range(min_value, max_value, step)
+        self._slider.resetView()
+        self.set_distribution_values(self._distribution_iso_values)
+
+    def set_range(
+        self, min_value: Union[float, str], max_value: Union[float, str]
+    ) -> None:
+        """Set the selected time range and keep the histogram data in sync."""
+        super().set_range(min_value, max_value)
+        self.set_distribution_values(self._distribution_iso_values)
