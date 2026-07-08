@@ -989,7 +989,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.slider = TimeHistogramSliderWidget(
             label="Time Activity",
             show_value_tooltips=True,
-            show_global_range_label=True,
+            show_global_range_label=False,
         )
         self.slider.setEnabled(False)
         map_layout.addWidget(self.slider)

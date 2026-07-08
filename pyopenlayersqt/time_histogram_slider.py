@@ -20,6 +20,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Callable, List, Optional, Sequence, Tuple, Union
 
+import numpy as np
 from PySide6.QtCore import QRect, Qt, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolTip, QVBoxLayout, QWidget
@@ -41,7 +42,7 @@ class GraphicalTimeSlider(QWidget):
         self._extent_max = 100
         self._min_value = 0
         self._max_value = 100
-        self._timestamps: List[float] = []
+        self._timestamps = np.empty(0, dtype=np.float64)
         self._bins: List[Tuple[int, int, int]] = []
         self._dragging_handle: Optional[str] = None
         self._drag_start_value: Optional[int] = None
@@ -72,9 +73,11 @@ class GraphicalTimeSlider(QWidget):
         self._show_x_axis = show
         self.update()
 
-    def setDistributionValues(self, timestamps: List[float]) -> None:
+    def setDistributionValues(self, timestamps: Sequence[float]) -> None:
         """Set timestamp values, expressed in parent slider coordinates."""
-        self._timestamps = sorted(timestamps)
+        values = np.asarray(timestamps, dtype=np.float64)
+        values = values[np.isfinite(values)]
+        self._timestamps = np.sort(values)
         self._reaggregate()
         self.update()
 
@@ -242,29 +245,33 @@ class GraphicalTimeSlider(QWidget):
         span = max(self._extent_max - self._extent_min, 1)
         bin_size = max(1, -(-span // width_bins))
         self._last_bin_size = bin_size
-        counts = {}
-        for ts in self._timestamps:
-            if self._extent_min <= ts <= self._extent_max:
-                offset = ts - self._extent_min
-                if ts == self._extent_max:
-                    # Keep a sample exactly on the max boundary in the final
-                    # real bin instead of assigning it to a zero-width bin that
-                    # starts at _extent_max and is never drawn.
-                    offset = max(0.0, self._extent_max - self._extent_min - 1e-9)
-                start = self._extent_min + int(offset // bin_size) * bin_size
-                counts[start] = counts.get(start, 0) + 1
 
-        # Build a complete sequence of bins for the current zoom extent rather
-        # than only the bins with data. This makes every extent change redraw the
-        # plot at the new fidelity, including gaps between active periods.
-        self._bins = []
-        bin_start = self._extent_min
-        while bin_start <= self._extent_max:
-            bin_end = min(bin_start + bin_size, self._extent_max)
-            self._bins.append((bin_start, bin_end, counts.get(bin_start, 0)))
-            if bin_end == self._extent_max:
-                break
-            bin_start = bin_end
+        edges = np.arange(
+            self._extent_min,
+            self._extent_max,
+            bin_size,
+            dtype=np.float64,
+        )
+        if edges.size == 0 or edges[0] != self._extent_min:
+            edges = np.insert(edges, 0, float(self._extent_min))
+        if edges[-1] != self._extent_max:
+            edges = np.append(edges, float(self._extent_max))
+        if edges.size < 2:
+            edges = np.asarray([self._extent_min, self._extent_max], dtype=np.float64)
+
+        if self._timestamps.size:
+            lower = np.searchsorted(self._timestamps, edges[:-1], side="left")
+            upper = np.searchsorted(self._timestamps, edges[1:], side="left")
+            # Include samples exactly on the visible maximum in the final bin.
+            upper[-1] = np.searchsorted(self._timestamps, edges[-1], side="right")
+            counts = upper - lower
+        else:
+            counts = np.zeros(edges.size - 1, dtype=np.int64)
+
+        self._bins = [
+            (int(edges[i]), int(edges[i + 1]), int(counts[i]))
+            for i in range(len(counts))
+        ]
 
     def _draw_x_axis(self, painter: QPainter, plot: QRect) -> None:
         """Draw date/time tick marks for the currently visible histogram extent."""
@@ -499,7 +506,7 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         label: str = "Time Range",
         show_value_tooltips: bool = False,
         show_x_axis: bool = True,
-        show_global_range_label: bool = True,
+        show_global_range_label: bool = False,
     ) -> None:
         self._distribution_iso_values: List[str] = values or []
         self._show_x_axis = show_x_axis
@@ -550,10 +557,6 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         self._max_label = QLabel()
         filter_title = QLabel("Filter range:")
         filter_title.setStyleSheet("font-weight: bold; color: #195b9b;")
-        hint = QLabel(
-            "Orange handles adjust the histogram view; blue handles adjust the filter."
-        )
-        hint.setStyleSheet("color: #666; font-size: 10px;")
         labels_container.addWidget(filter_title)
         labels_container.addWidget(QLabel("Start:"))
         labels_container.addWidget(self._min_label)
@@ -561,7 +564,6 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         labels_container.addWidget(QLabel("Stop:"))
         labels_container.addWidget(self._max_label)
         layout.addLayout(labels_container)
-        layout.addWidget(hint)
 
     def _on_extent_changed(self, _min_slider_val: int, _max_slider_val: int) -> None:
         """Update zoom/aggregation labels when the orange extent changes."""
@@ -663,10 +665,10 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
             iso_values = [self._timestamp_to_iso8601(float(ts)) for ts in timestamps]
             self.set_distribution_values(iso_values)
             return
-        slider_values = [
-            (float(ts) - self._iso_origin_ts) / self._iso_step_seconds
-            for ts in timestamps
-        ]
+        timestamp_values = np.asarray(timestamps, dtype=np.float64)
+        slider_values = (
+            timestamp_values - self._iso_origin_ts
+        ) / self._iso_step_seconds
         self._distribution_iso_values = []
         if hasattr(self, "_slider"):
             self._slider.setDistributionValues(slider_values)
