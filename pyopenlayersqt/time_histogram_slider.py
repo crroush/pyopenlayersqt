@@ -154,8 +154,7 @@ class GraphicalTimeSlider(QWidget):
 
     def _overview_rect(self) -> QRect:
         plot = self._plot_rect()
-        gap = 40 if self._show_x_axis else 18
-        return QRect(plot.left(), plot.bottom() + gap, plot.width(), 8)
+        return QRect(plot.left(), plot.bottom() + 18, plot.width(), 8)
 
     def _extent_value_to_pos(self, value: int) -> int:
         rect = self._plot_rect()
@@ -297,29 +296,27 @@ class GraphicalTimeSlider(QWidget):
         }
         return colors[role]
 
-    def _draw_x_axis(self, painter: QPainter, plot: QRect) -> None:
-        """Draw date/time tick marks for the currently visible histogram extent."""
+    def _draw_x_axis(self, painter: QPainter, overview: QRect) -> None:
+        """Draw date/time tick marks below the orange global time slider."""
         if not self._show_x_axis or self._axis_formatter is None:
             return
 
         painter.setPen(QPen(self._color("axis"), 1))
-        axis_y = plot.bottom() + 5
-        painter.drawLine(plot.left(), axis_y, plot.right(), axis_y)
+        axis_y = overview.bottom() + 5
+        painter.drawLine(overview.left(), axis_y, overview.right(), axis_y)
 
         tick_count = 5
         for i in range(tick_count):
             ratio = i / max(tick_count - 1, 1)
-            value = int(
-                self._extent_min + ratio * (self._extent_max - self._extent_min)
-            )
-            x = self._extent_value_to_pos(value)
+            value = int(self._minimum + ratio * (self._maximum - self._minimum))
+            x = self._domain_value_to_pos(value)
             painter.drawLine(x, axis_y, x, axis_y + 4)
             label = self._axis_formatter(value)
             if i == 0:
-                label_rect = QRect(plot.left(), axis_y + 6, 110, 16)
+                label_rect = QRect(overview.left(), axis_y + 6, 110, 16)
                 alignment = Qt.AlignLeft | Qt.AlignTop
             elif i == tick_count - 1:
-                label_rect = QRect(plot.right() - 110, axis_y + 6, 110, 16)
+                label_rect = QRect(overview.right() - 110, axis_y + 6, 110, 16)
                 alignment = Qt.AlignRight | Qt.AlignTop
             else:
                 label_rect = QRect(x - 55, axis_y + 6, 110, 16)
@@ -366,8 +363,6 @@ class GraphicalTimeSlider(QWidget):
             for x in (filter_left, filter_right):
                 painter.drawLine(x, plot.top(), x, plot.bottom() + 8)
 
-            self._draw_x_axis(painter, plot)
-
             painter.setPen(Qt.NoPen)
             painter.setBrush(self._color("overview_bg"))
             painter.drawRoundedRect(overview, 4, 4)
@@ -385,6 +380,7 @@ class GraphicalTimeSlider(QWidget):
             painter.setPen(QPen(self._color("extent_line"), 3))
             for x in (extent_left, extent_right):
                 painter.drawLine(x, overview.top() - 8, x, overview.bottom() + 8)
+            self._draw_x_axis(painter, overview)
         finally:
             painter.end()
 
@@ -531,12 +527,10 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         show_value_tooltips: bool = False,
         show_x_axis: bool = True,
         show_global_range_label: bool = False,
-        show_view_label: bool = False,
     ) -> None:
         self._distribution_iso_values: List[str] = values or []
         self._show_x_axis = show_x_axis
         self._show_global_range_label = show_global_range_label
-        self._show_view_label = show_view_label
         super().__init__(
             parent=parent,
             min_val=min_val,
@@ -562,17 +556,11 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         self._slider.setShowXAxis(self._show_x_axis)
         self._slider.setAxisFormatter(self._format_axis_value)
         self._slider.rangeChanged.connect(self._on_range_changed)
-        self._slider.extentChanged.connect(self._on_extent_changed)
         if self._show_value_tooltips:
             self._slider.setTooltipFormatter(
                 lambda slider_val: self._format_value(self._slider_to_value(slider_val))
             )
         layout.addWidget(self._slider)
-
-        self._extent_label = QLabel()
-        self._extent_label.setStyleSheet("padding: 2px;")
-        self._extent_label.setVisible(self._show_view_label)
-        layout.addWidget(self._extent_label)
 
         self._global_label = QLabel()
         self._global_label.setStyleSheet("color: #666; padding: 0 2px;")
@@ -592,14 +580,9 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         labels_container.addWidget(self._max_label)
         layout.addLayout(labels_container)
 
-    def _on_extent_changed(self, _min_slider_val: int, _max_slider_val: int) -> None:
-        """Update zoom/aggregation labels when the orange extent changes."""
-        self._update_extent_label()
-
     def _update_labels(self) -> None:
-        """Update filter, zoom extent, and global range labels."""
+        """Update filter and optional global range labels."""
         super()._update_labels()
-        self._update_extent_label()
         self._update_global_label()
 
     def _update_global_label(self) -> None:
@@ -623,40 +606,6 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         )
         dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
         return dt.strftime("%m-%d %H:%M")
-
-    def _format_duration(self, seconds: float) -> str:
-        """Format an approximate duration for the current histogram bin size."""
-        seconds = max(float(seconds), 0.0)
-        if seconds < 60:
-            return f"{seconds:.0f}s"
-        minutes = seconds / 60
-        if minutes < 60:
-            return f"{minutes:.1f}m" if minutes < 10 else f"{minutes:.0f}m"
-        hours = minutes / 60
-        if hours < 48:
-            return f"{hours:.1f}h" if hours < 10 else f"{hours:.0f}h"
-        days = hours / 24
-        return f"{days:.1f}d" if days < 10 else f"{days:.0f}d"
-
-    def _update_extent_label(self) -> None:
-        """Show the zoom extent that defines the histogram above."""
-        if (
-            not hasattr(self, "_extent_label")
-            or not hasattr(self, "_slider")
-            or not self._show_view_label
-        ):
-            return
-        extent_min = self._slider._extent_min
-        extent_max = self._slider._extent_max
-        extent_start = self._format_value(self._slider_to_value(extent_min))
-        extent_stop = self._format_value(self._slider_to_value(extent_max))
-        bin_seconds = self._slider._last_bin_size * (
-            self._iso_step_seconds if self._is_iso8601 and not self._iso_values else 1.0
-        )
-        self._extent_label.setText(
-            f"View: {extent_start} → {extent_stop}  "
-            f"Bin: ≈ {self._format_duration(bin_seconds)}"
-        )
 
     def _distribution_timestamps_to_slider_values(
         self, values: List[str]
@@ -682,7 +631,6 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
                     self._distribution_iso_values
                 )
             )
-            self._update_extent_label()
             self._update_global_label()
 
     def set_distribution_epoch_seconds(self, timestamps: Sequence[float]) -> None:
@@ -703,13 +651,11 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         self._distribution_iso_values = []
         if hasattr(self, "_slider"):
             self._slider.setDistributionValues(slider_values)
-            self._update_extent_label()
             self._update_global_label()
 
     def reset_view(self) -> None:
         """Reset the aggregation/zoom extent to the full available time range."""
         self._slider.resetExtent()
-        self._update_extent_label()
 
     def set_values(self, values: List[str]) -> None:
         super().set_values(values)
