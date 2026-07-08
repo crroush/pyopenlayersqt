@@ -69,6 +69,8 @@ class GraphicalTimeSlider(QWidget):
         """Set the available minimum slider coordinate."""
         self._minimum = value
         self._extent_min = max(self._extent_min, value)
+        if self._extent_max <= self._extent_min:
+            self._extent_max = self._maximum
         self.setMinValue(max(self._min_value, value))
         self._reaggregate()
 
@@ -78,6 +80,8 @@ class GraphicalTimeSlider(QWidget):
         self._maximum = value
         if self._extent_max == old_maximum or self._extent_max > value:
             self._extent_max = value
+        if self._extent_min >= self._extent_max:
+            self._extent_min = self._minimum
         self.setMaxValue(min(self._max_value, value))
         self._reaggregate()
 
@@ -223,10 +227,13 @@ class GraphicalTimeSlider(QWidget):
         counts = {}
         for ts in self._timestamps:
             if self._extent_min <= ts <= self._extent_max:
-                start = (
-                    self._extent_min
-                    + int((ts - self._extent_min) // bin_size) * bin_size
-                )
+                offset = ts - self._extent_min
+                if ts == self._extent_max:
+                    # Keep a sample exactly on the max boundary in the final
+                    # real bin instead of assigning it to a zero-width bin that
+                    # starts at _extent_max and is never drawn.
+                    offset = max(0.0, self._extent_max - self._extent_min - 1e-9)
+                start = self._extent_min + int(offset // bin_size) * bin_size
                 counts[start] = counts.get(start, 0) + 1
 
         # Build a complete sequence of bins for the current zoom extent rather
@@ -403,8 +410,16 @@ class GraphicalTimeSlider(QWidget):
             self.setMaxValue(value)
         elif handle == "filter_span" and self._drag_start_value is not None:
             delta = value - self._drag_start_value
-            initial_min = self._drag_initial_min or self._min_value
-            initial_max = self._drag_initial_max or self._max_value
+            initial_min = (
+                self._drag_initial_min
+                if self._drag_initial_min is not None
+                else self._min_value
+            )
+            initial_max = (
+                self._drag_initial_max
+                if self._drag_initial_max is not None
+                else self._max_value
+            )
             span = initial_max - initial_min
             new_min = initial_min + delta
             new_max = initial_max + delta
