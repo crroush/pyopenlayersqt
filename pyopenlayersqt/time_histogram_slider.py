@@ -284,8 +284,16 @@ class GraphicalTimeSlider(QWidget):
             x = self._extent_value_to_pos(value)
             painter.drawLine(x, axis_y, x, axis_y + 4)
             label = self._axis_formatter(value)
-            label_rect = QRect(x - 48, axis_y + 6, 96, 16)
-            painter.drawText(label_rect, Qt.AlignHCenter | Qt.AlignTop, label)
+            if i == 0:
+                label_rect = QRect(plot.left(), axis_y + 6, 110, 16)
+                alignment = Qt.AlignLeft | Qt.AlignTop
+            elif i == tick_count - 1:
+                label_rect = QRect(plot.right() - 110, axis_y + 6, 110, 16)
+                alignment = Qt.AlignRight | Qt.AlignTop
+            else:
+                label_rect = QRect(x - 55, axis_y + 6, 110, 16)
+                alignment = Qt.AlignHCenter | Qt.AlignTop
+            painter.drawText(label_rect, alignment, label)
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         """Draw histogram, filter handles, and extent handles."""
@@ -491,9 +499,11 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         label: str = "Time Range",
         show_value_tooltips: bool = False,
         show_x_axis: bool = True,
+        show_global_range_label: bool = True,
     ) -> None:
         self._distribution_iso_values: List[str] = values or []
         self._show_x_axis = show_x_axis
+        self._show_global_range_label = show_global_range_label
         super().__init__(
             parent=parent,
             min_val=min_val,
@@ -530,6 +540,11 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         self._extent_label.setStyleSheet("color: #7a3f00; padding: 2px;")
         layout.addWidget(self._extent_label)
 
+        self._global_label = QLabel()
+        self._global_label.setStyleSheet("color: #666; padding: 0 2px;")
+        self._global_label.setVisible(self._show_global_range_label)
+        layout.addWidget(self._global_label)
+
         labels_container = QHBoxLayout()
         self._min_label = QLabel()
         self._max_label = QLabel()
@@ -553,9 +568,18 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         self._update_extent_label()
 
     def _update_labels(self) -> None:
-        """Update filter labels and the zoom extent label."""
+        """Update filter, zoom extent, and global range labels."""
         super()._update_labels()
         self._update_extent_label()
+        self._update_global_label()
+
+    def _update_global_label(self) -> None:
+        """Show the full available min/max time domain when enabled."""
+        if not hasattr(self, "_global_label") or not self._show_global_range_label:
+            return
+        domain_start = self._format_value(self._slider_to_value(self._slider_min))
+        domain_stop = self._format_value(self._slider_to_value(self._slider_max))
+        self._global_label.setText(f"Full range: {domain_start} → {domain_stop}")
 
     def _format_axis_value(self, slider_value: int) -> str:
         """Format a slider value as a compact date/time axis tick."""
@@ -626,6 +650,7 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
                 )
             )
             self._update_extent_label()
+            self._update_global_label()
 
     def reset_view(self) -> None:
         """Reset the aggregation/zoom extent to the full available time range."""
@@ -648,6 +673,7 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         # a coarser step.
         super().set_available_range(min_value, max_value, 1.0 if step is None else step)
         self._slider.resetExtent()
+        self._update_global_label()
         self.set_distribution_values(self._distribution_iso_values)
 
     def set_range(
