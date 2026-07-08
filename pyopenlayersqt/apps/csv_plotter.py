@@ -25,7 +25,7 @@ from pyopenlayersqt import (
     FastGeoPointsStyle,
     FastPointsStyle,
     OLMapWidget,
-    RangeSliderWidget,
+    TimeHistogramSliderWidget,
     WMSOptions,
 )
 from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
@@ -986,7 +986,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         map_layout.addWidget(self.map_widget, stretch=1)
         self._apply_wms_settings(show_errors=False)
 
-        self.slider = RangeSliderWidget(is_iso8601=True)
+        self.slider = TimeHistogramSliderWidget(
+            label="Time Activity",
+            show_value_tooltips=True,
+            show_global_range_label=True,
+        )
         self.slider.setEnabled(False)
         map_layout.addWidget(self.slider)
         self.splitter.addWidget(map_panel)
@@ -2113,6 +2117,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 self._epoch_to_iso8601(t_min),
                 self._epoch_to_iso8601(t_max),
             )
+            self.slider.set_distribution_epoch_seconds(valid_times)
             self.slider.setEnabled(True)
             self._slider_range_conn = self.slider.rangeChanged.connect(
                 self._on_time_slider_changed

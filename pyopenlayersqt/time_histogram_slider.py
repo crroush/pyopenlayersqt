@@ -18,7 +18,7 @@ automatically chosen range-slider step.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 from PySide6.QtCore import QRect, Qt, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QPainter, QPen
@@ -649,6 +649,27 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
                     self._distribution_iso_values
                 )
             )
+            self._update_extent_label()
+            self._update_global_label()
+
+    def set_distribution_epoch_seconds(self, timestamps: Sequence[float]) -> None:
+        """Set histogram distribution values from Unix epoch seconds.
+
+        This avoids formatting large timestamp arrays to ISO8601 strings before
+        passing them to the widget. It is useful for CSV/table workflows that
+        already store parsed timestamps as numeric epoch seconds.
+        """
+        if self._iso_values:
+            iso_values = [self._timestamp_to_iso8601(float(ts)) for ts in timestamps]
+            self.set_distribution_values(iso_values)
+            return
+        slider_values = [
+            (float(ts) - self._iso_origin_ts) / self._iso_step_seconds
+            for ts in timestamps
+        ]
+        self._distribution_iso_values = []
+        if hasattr(self, "_slider"):
+            self._slider.setDistributionValues(slider_values)
             self._update_extent_label()
             self._update_global_label()
 
