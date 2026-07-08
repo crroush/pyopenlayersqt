@@ -9,7 +9,10 @@ shows when timestamped data is present. It has four draggable time bars:
 
 Dragging the highlighted blue filter span moves it as a fixed-width selection.
 Mouse-wheel zoom changes the extent around the cursor, and every extent change
-recomputes histogram bins for the newly visible window.
+recomputes histogram bins for the newly visible window. The wrapper keeps
+continuous min/max ISO ranges at one-second resolution by default so zooming can
+actually produce smaller time buckets instead of being capped by a coarse
+automatically chosen range-slider step.
 """
 
 from __future__ import annotations
@@ -240,58 +243,63 @@ class GraphicalTimeSlider(QWidget):
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         """Draw histogram, filter handles, and extent handles."""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        plot = self._plot_rect()
-        overview = self._overview_rect()
+        painter = QPainter()
+        if not painter.begin(self):
+            return
+        try:
+            painter.setRenderHint(QPainter.Antialiasing)
+            plot = self._plot_rect()
+            overview = self._overview_rect()
 
-        painter.setPen(QPen(QColor(210, 210, 210), 1))
-        painter.setBrush(QColor(248, 250, 252))
-        painter.drawRoundedRect(plot, 4, 4)
+            painter.setPen(QPen(QColor(210, 210, 210), 1))
+            painter.setBrush(QColor(248, 250, 252))
+            painter.drawRoundedRect(plot, 4, 4)
 
-        max_count = max((count for _, _, count in self._bins), default=1)
-        painter.setPen(Qt.NoPen)
-        for start, end, count in self._bins:
-            x1 = self._extent_value_to_pos(start)
-            x2 = max(x1 + 1, self._extent_value_to_pos(end))
-            height = int((count / max_count) * (plot.height() - 8))
-            painter.setBrush(QColor(94, 151, 246, 180))
+            max_count = max((count for _, _, count in self._bins), default=1)
+            painter.setPen(Qt.NoPen)
+            for start, end, count in self._bins:
+                x1 = self._extent_value_to_pos(start)
+                x2 = max(x1 + 1, self._extent_value_to_pos(end))
+                height = int((count / max_count) * (plot.height() - 8))
+                painter.setBrush(QColor(94, 151, 246, 180))
+                painter.drawRect(
+                    QRect(x1, plot.bottom() - height, max(1, x2 - x1 - 1), height)
+                )
+
+            filter_left = self._extent_value_to_pos(self._min_value)
+            filter_right = self._extent_value_to_pos(self._max_value)
+            painter.setBrush(QColor(70, 130, 180, 55))
             painter.drawRect(
-                QRect(x1, plot.bottom() - height, max(1, x2 - x1 - 1), height)
+                QRect(
+                    filter_left,
+                    plot.top(),
+                    max(0, filter_right - filter_left),
+                    plot.height(),
+                )
             )
+            painter.setPen(QPen(QColor(25, 100, 180), 3))
+            for x in (filter_left, filter_right):
+                painter.drawLine(x, plot.top(), x, plot.bottom() + 8)
 
-        filter_left = self._extent_value_to_pos(self._min_value)
-        filter_right = self._extent_value_to_pos(self._max_value)
-        painter.setBrush(QColor(70, 130, 180, 55))
-        painter.drawRect(
-            QRect(
-                filter_left,
-                plot.top(),
-                max(0, filter_right - filter_left),
-                plot.height(),
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(220, 220, 220))
+            painter.drawRoundedRect(overview, 4, 4)
+            extent_left = self._domain_value_to_pos(self._extent_min)
+            extent_right = self._domain_value_to_pos(self._extent_max)
+            painter.setBrush(QColor(245, 145, 40, 90))
+            painter.drawRect(
+                QRect(
+                    extent_left,
+                    overview.top() - 2,
+                    max(1, extent_right - extent_left),
+                    overview.height() + 4,
+                )
             )
-        )
-        painter.setPen(QPen(QColor(25, 100, 180), 3))
-        for x in (filter_left, filter_right):
-            painter.drawLine(x, plot.top(), x, plot.bottom() + 8)
-
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(220, 220, 220))
-        painter.drawRoundedRect(overview, 4, 4)
-        extent_left = self._domain_value_to_pos(self._extent_min)
-        extent_right = self._domain_value_to_pos(self._extent_max)
-        painter.setBrush(QColor(245, 145, 40, 90))
-        painter.drawRect(
-            QRect(
-                extent_left,
-                overview.top() - 2,
-                max(1, extent_right - extent_left),
-                overview.height() + 4,
-            )
-        )
-        painter.setPen(QPen(QColor(215, 110, 20), 3))
-        for x in (extent_left, extent_right):
-            painter.drawLine(x, overview.top() - 8, x, overview.bottom() + 8)
+            painter.setPen(QPen(QColor(215, 110, 20), 3))
+            for x in (extent_left, extent_right):
+                painter.drawLine(x, overview.top() - 8, x, overview.bottom() + 8)
+        finally:
+            painter.end()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -511,7 +519,11 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         max_value: Union[float, str],
         step: Optional[float] = None,
     ) -> None:
-        super().set_available_range(min_value, max_value, step)
+        # Unlike the plain range slider, the graphical histogram needs the
+        # coordinate system to retain enough temporal precision for subsequent
+        # zooms. Default to one-second buckets unless callers explicitly request
+        # a coarser step.
+        super().set_available_range(min_value, max_value, 1.0 if step is None else step)
         self._slider.resetExtent()
         self.set_distribution_values(self._distribution_iso_values)
 
