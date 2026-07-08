@@ -22,7 +22,7 @@ from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from PySide6.QtCore import QRect, Qt, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QPainter, QPen
+from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QPainter, QPalette, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolTip, QVBoxLayout, QWidget
 
 from .range_slider import RangeSliderWidget
@@ -273,12 +273,36 @@ class GraphicalTimeSlider(QWidget):
             for i in range(len(counts))
         ]
 
+    def _is_dark_mode(self) -> bool:
+        """Return whether the widget palette is currently dark."""
+        return self.palette().color(QPalette.ColorRole.Window).lightness() < 128
+
+    def _color(self, role: str) -> QColor:
+        """Return high-contrast colors for light and dark palettes."""
+        dark = self._is_dark_mode()
+        colors = {
+            "plot_border": QColor("#475569") if dark else QColor("#cbd5e1"),
+            "plot_bg": QColor("#0b1220") if dark else QColor("#f8fafc"),
+            "axis": QColor("#cbd5e1") if dark else QColor("#5b6472"),
+            "bar": QColor(56, 189, 248, 220) if dark else QColor(94, 151, 246, 180),
+            "filter_fill": (
+                QColor(59, 130, 246, 90) if dark else QColor(70, 130, 180, 55)
+            ),
+            "filter_line": QColor("#60a5fa") if dark else QColor("#1964b4"),
+            "overview_bg": QColor("#1e293b") if dark else QColor("#dcdcdc"),
+            "extent_fill": (
+                QColor(251, 146, 60, 130) if dark else QColor(245, 145, 40, 90)
+            ),
+            "extent_line": QColor("#fdba74") if dark else QColor("#d76e14"),
+        }
+        return colors[role]
+
     def _draw_x_axis(self, painter: QPainter, plot: QRect) -> None:
         """Draw date/time tick marks for the currently visible histogram extent."""
         if not self._show_x_axis or self._axis_formatter is None:
             return
 
-        painter.setPen(QPen(QColor(90, 90, 90), 1))
+        painter.setPen(QPen(self._color("axis"), 1))
         axis_y = plot.bottom() + 5
         painter.drawLine(plot.left(), axis_y, plot.right(), axis_y)
 
@@ -312,8 +336,8 @@ class GraphicalTimeSlider(QWidget):
             plot = self._plot_rect()
             overview = self._overview_rect()
 
-            painter.setPen(QPen(QColor(210, 210, 210), 1))
-            painter.setBrush(QColor(248, 250, 252))
+            painter.setPen(QPen(self._color("plot_border"), 1))
+            painter.setBrush(self._color("plot_bg"))
             painter.drawRoundedRect(plot, 4, 4)
 
             max_count = max(1, max((count for _, _, count in self._bins), default=0))
@@ -322,14 +346,14 @@ class GraphicalTimeSlider(QWidget):
                 x1 = self._extent_value_to_pos(start)
                 x2 = max(x1 + 1, self._extent_value_to_pos(end))
                 height = int((count / max_count) * (plot.height() - 8))
-                painter.setBrush(QColor(94, 151, 246, 180))
+                painter.setBrush(self._color("bar"))
                 painter.drawRect(
                     QRect(x1, plot.bottom() - height, max(1, x2 - x1 - 1), height)
                 )
 
             filter_left = self._extent_value_to_pos(self._min_value)
             filter_right = self._extent_value_to_pos(self._max_value)
-            painter.setBrush(QColor(70, 130, 180, 55))
+            painter.setBrush(self._color("filter_fill"))
             painter.drawRect(
                 QRect(
                     filter_left,
@@ -338,18 +362,18 @@ class GraphicalTimeSlider(QWidget):
                     plot.height(),
                 )
             )
-            painter.setPen(QPen(QColor(25, 100, 180), 3))
+            painter.setPen(QPen(self._color("filter_line"), 3))
             for x in (filter_left, filter_right):
                 painter.drawLine(x, plot.top(), x, plot.bottom() + 8)
 
             self._draw_x_axis(painter, plot)
 
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(220, 220, 220))
+            painter.setBrush(self._color("overview_bg"))
             painter.drawRoundedRect(overview, 4, 4)
             extent_left = self._domain_value_to_pos(self._extent_min)
             extent_right = self._domain_value_to_pos(self._extent_max)
-            painter.setBrush(QColor(245, 145, 40, 90))
+            painter.setBrush(self._color("extent_fill"))
             painter.drawRect(
                 QRect(
                     extent_left,
@@ -358,7 +382,7 @@ class GraphicalTimeSlider(QWidget):
                     overview.height() + 4,
                 )
             )
-            painter.setPen(QPen(QColor(215, 110, 20), 3))
+            painter.setPen(QPen(self._color("extent_line"), 3))
             for x in (extent_left, extent_right):
                 painter.drawLine(x, overview.top() - 8, x, overview.bottom() + 8)
         finally:
@@ -507,10 +531,12 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         show_value_tooltips: bool = False,
         show_x_axis: bool = True,
         show_global_range_label: bool = False,
+        show_view_label: bool = False,
     ) -> None:
         self._distribution_iso_values: List[str] = values or []
         self._show_x_axis = show_x_axis
         self._show_global_range_label = show_global_range_label
+        self._show_view_label = show_view_label
         super().__init__(
             parent=parent,
             min_val=min_val,
@@ -544,7 +570,8 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         layout.addWidget(self._slider)
 
         self._extent_label = QLabel()
-        self._extent_label.setStyleSheet("color: #7a3f00; padding: 2px;")
+        self._extent_label.setStyleSheet("padding: 2px;")
+        self._extent_label.setVisible(self._show_view_label)
         layout.addWidget(self._extent_label)
 
         self._global_label = QLabel()
@@ -556,7 +583,7 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         self._min_label = QLabel()
         self._max_label = QLabel()
         filter_title = QLabel("Filter range:")
-        filter_title.setStyleSheet("font-weight: bold; color: #195b9b;")
+        filter_title.setStyleSheet("font-weight: bold;")
         labels_container.addWidget(filter_title)
         labels_container.addWidget(QLabel("Start:"))
         labels_container.addWidget(self._min_label)
@@ -613,7 +640,11 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
 
     def _update_extent_label(self) -> None:
         """Show the zoom extent that defines the histogram above."""
-        if not hasattr(self, "_extent_label") or not hasattr(self, "_slider"):
+        if (
+            not hasattr(self, "_extent_label")
+            or not hasattr(self, "_slider")
+            or not self._show_view_label
+        ):
             return
         extent_min = self._slider._extent_min
         extent_max = self._slider._extent_max
