@@ -54,6 +54,5 @@ pyopenlayersqt = [
   "resources/*.geojson.gz",
   "vendor/ol/*.js",
   "vendor/ol/*.css",
-  "favicon.ico",
 ]
 

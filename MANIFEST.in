@@ -1,4 +1,3 @@
 recursive-include pyopenlayersqt/resources *.html *.js *.geojson *.geojson.gz
 recursive-include pyopenlayersqt/vendor *.js *.css
-include pyopenlayersqt/favicon.ico
 
