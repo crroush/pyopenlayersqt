@@ -620,7 +620,6 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
             }
 
         # Build a reverse mapping for efficient lookup (O(n) instead of O(n²))
-        # old_row_to_new_row = {id(old_rows[i]): i for i in range(len(old_rows))}
         new_row_positions = {id(self._rows[i]): i for i in range(len(self._rows))}
 
         # Update persistent indexes efficiently
