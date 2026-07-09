@@ -31,8 +31,8 @@ from .range_slider import RangeSliderWidget
 class GraphicalTimeSlider(QWidget):
     """Histogram-backed four-handle time slider."""
 
-    rangeChanged = Signal(int, int)
-    extentChanged = Signal(int, int)
+    rangeChanged = Signal(object, object)
+    extentChanged = Signal(object, object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -560,6 +560,7 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         show_global_range_label: bool = False,
     ) -> None:
         self._distribution_iso_values: List[str] = values or []
+        self._distribution_epoch_seconds: Optional[np.ndarray] = None
         self._show_x_axis = show_x_axis
         self._show_global_range_label = show_global_range_label
         super().__init__(
@@ -656,6 +657,7 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
     def set_distribution_values(self, values: List[str]) -> None:
         """Set ISO8601 timestamps used to draw the activity plot."""
         self._distribution_iso_values = list(values)
+        self._distribution_epoch_seconds = None
         if hasattr(self, "_slider"):
             self._slider.setDistributionValues(
                 self._distribution_timestamps_to_slider_values(
@@ -671,15 +673,19 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         passing them to the widget. It is useful for CSV/table workflows that
         already store parsed timestamps as numeric epoch seconds.
         """
+        timestamp_values = np.asarray(timestamps, dtype=np.float64)
+        timestamp_values = timestamp_values[np.isfinite(timestamp_values)]
+        self._distribution_epoch_seconds = timestamp_values
+        self._distribution_iso_values = []
         if self._iso_values:
-            iso_values = [self._timestamp_to_iso8601(float(ts)) for ts in timestamps]
+            iso_values = [
+                self._timestamp_to_iso8601(float(ts)) for ts in timestamp_values
+            ]
             self.set_distribution_values(iso_values)
             return
-        timestamp_values = np.asarray(timestamps, dtype=np.float64)
         slider_values = (
             timestamp_values - self._iso_origin_ts
         ) / self._iso_step_seconds
-        self._distribution_iso_values = []
         if hasattr(self, "_slider"):
             self._slider.setDistributionValues(slider_values)
             self._update_global_label()
@@ -705,10 +711,16 @@ class TimeHistogramSliderWidget(RangeSliderWidget):
         super().set_available_range(min_value, max_value, 1.0 if step is None else step)
         self._slider.resetExtent()
         self._update_global_label()
-        self.set_distribution_values(self._distribution_iso_values)
+        if self._distribution_epoch_seconds is not None:
+            self.set_distribution_epoch_seconds(self._distribution_epoch_seconds)
+        elif self._distribution_iso_values:
+            self.set_distribution_values(self._distribution_iso_values)
 
     def set_range(
         self, min_value: Union[float, str], max_value: Union[float, str]
     ) -> None:
         super().set_range(min_value, max_value)
-        self.set_distribution_values(self._distribution_iso_values)
+        if self._distribution_epoch_seconds is not None:
+            self.set_distribution_epoch_seconds(self._distribution_epoch_seconds)
+        elif self._distribution_iso_values:
+            self.set_distribution_values(self._distribution_iso_values)

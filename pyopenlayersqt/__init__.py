@@ -1,3 +1,33 @@
+def _read_version() -> str:
+    """Return the installed package version, falling back to pyproject.toml."""
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            return version("pyopenlayersqt")
+        except PackageNotFoundError:
+            pass
+    except Exception:
+        pass
+
+    try:
+        import re
+        from pathlib import Path
+
+        pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+        match = re.search(
+            r'^version\s*=\s*["\']([^"\']+)["\']', pyproject.read_text(), re.MULTILINE
+        )
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return "0.0.0"
+
+
+__version__ = _read_version()
+
+
 from .widget import OLMapWidget
 from .models import (
     PointStyle,
@@ -61,4 +91,5 @@ __all__ = [
     "TableLink",
     "DualSelectLink",
     "MultiSelectLink",
+    "__version__",
 ]
