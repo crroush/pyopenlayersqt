@@ -381,6 +381,61 @@ const FP_QT_LEAF_CAPACITY = 32;
 //
 // `firstIndex` gives "first color wins" representative selection for collapsed
 // nodes while preserving deterministic color/category output.
+
+function fp_project_lonlat_to_mercator(lon, rawLat) {
+  if (!Number.isFinite(lon) || !Number.isFinite(rawLat)) return null;
+  const world = FP_QT_WORLD;
+  const lat = Math.max(-85.05112878, Math.min(85.05112878, rawLat));
+  const x3857 = lon * (world / 180.0);
+  const y3857 = Math.log(Math.tan((90.0 + lat) * Math.PI / 360.0)) * (world / Math.PI);
+  if (!Number.isFinite(x3857) || !Number.isFinite(y3857)) return null;
+  return [x3857, y3857];
+}
+
+function fp_add_projected_point(entry, x3857, y3857, fid, colorU32, extrasFn) {
+  const idx = entry.x.length;
+  entry.x.push(x3857);
+  entry.y.push(y3857);
+  entry.ids.push(fid);
+  entry.idIndex.set(String(fid), idx);
+  entry.deleted.push(false);
+  entry.hidden.push(false);
+  entry.color_u32.push(colorU32 >>> 0);
+  if (extrasFn) extrasFn(idx, x3857, y3857);
+  fp_qt_insert(entry, idx);
+  return idx;
+}
+
+function fp_add_decoded_points(entry, pointData, ids, colors, extrasFn) {
+  const coords = pointData.coords || null;
+  const coordsFlat = pointData.flat || null;
+  const pointCount = pointData.count;
+  let skippedInvalidCount = 0;
+  for (let i = 0; i < pointCount; i++) {
+    const lon = coordsFlat ? coordsFlat[i * 2] : coords[i][0];
+    const rawLat = coordsFlat ? coordsFlat[i * 2 + 1] : coords[i][1];
+    const merc = fp_project_lonlat_to_mercator(lon, rawLat);
+    if (!merc) {
+      skippedInvalidCount++;
+      continue;
+    }
+    const idx = entry.x.length;
+    const fid = (ids ? ids[i] : String(idx));
+    fp_add_projected_point(
+      entry, merc[0], merc[1], fid, colors ? (colors[i] >>> 0) : 0,
+      extrasFn ? ((newIdx, x3857, y3857) => extrasFn(newIdx, i, x3857, y3857)) : null
+    );
+  }
+  return { pointCount, skippedInvalidCount, acceptedPointCount: pointCount - skippedInvalidCount };
+}
+
+function fp_pixel_dedupe_key(entry, i, extent, scaleX, scaleY, styleKeyFn) {
+  const x = (entry.x[i] - extent[0]) * scaleX;
+  const y = (extent[3] - entry.y[i]) * scaleY;
+  const styleKey = styleKeyFn ? styleKeyFn(i) : '';
+  return { x, y, key: styleKey + '|' + Math.round(x) + '|' + Math.round(y) };
+}
+
 function fp_qt_new_node(minX, minY, maxX, maxY, depth) {
   return {
     minX, minY, maxX, maxY, depth,
@@ -711,8 +766,6 @@ function fp_make_canvas_layer(entry) {
         const mercY = entry.y[i];
         if (!Number.isFinite(mercX) || !Number.isFinite(mercY)) return;
         if (mercX < extent[0] || mercX > extent[2] || mercY < extent[1] || mercY > extent[3]) return;
-        const x = (mercX - extent[0]) * scaleX;
-        const y = (extent[3] - mercY) * scaleY;
         const fid = entry.ids[i];
         const isSel = selectedOverride || entry.selectedIds.has(fid);
         if (!selectedOverride && isSel) return;
@@ -727,7 +780,10 @@ function fp_make_canvas_layer(entry) {
         if (isSel) fill = selCss;
 
         const key = fill + "|" + radius;
-        const pixelKey = key + "|" + Math.round(x) + "|" + Math.round(y);
+        const pixel = fp_pixel_dedupe_key(entry, i, extent, scaleX, scaleY, () => key);
+        const x = pixel.x;
+        const y = pixel.y;
+        const pixelKey = pixel.key;
         if (seenDrawPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
           return;
@@ -885,43 +941,14 @@ function cmd_fast_points_add_points(msg) {
   if (entry.type !== "fast_points") return;
   const decodeStart = performance.now();
   const pointData = pyolqt_points_from_msg(msg);
-  const coords = pointData.coords || null;
-  const coordsFlat = pointData.flat || null;
-  const pointCount = pointData.count;
   const ids = msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.ids || null);
   const colors = msg.colors_b64 ? pyolqt_b64_to_uint32(msg.colors_b64) : (msg.colors || null);
   const decodeMs = performance.now() - decodeStart;
   const startIndex = entry.x.length;
-  let skippedInvalidCount = 0;
   const convertStart = performance.now();
-  const world = 20037508.342789244;
-  const xScale = world / 180.0;
-  const yScale = world / Math.PI;
-  for (let i = 0; i < pointCount; i++) {
-    const lon = coordsFlat ? coordsFlat[i * 2] : coords[i][0];
-    const rawLat = coordsFlat ? coordsFlat[i * 2 + 1] : coords[i][1];
-    if (!Number.isFinite(lon) || !Number.isFinite(rawLat)) {
-      skippedInvalidCount++;
-      continue;
-    }
-    const lat = Math.max(-85.05112878, Math.min(85.05112878, rawLat));
-    const x3857 = lon * xScale;
-    const y3857 = Math.log(Math.tan((90.0 + lat) * Math.PI / 360.0)) * yScale;
-    if (!Number.isFinite(x3857) || !Number.isFinite(y3857)) {
-      skippedInvalidCount++;
-      continue;
-    }
-    const idx = entry.x.length;
-    entry.x.push(x3857);
-    entry.y.push(y3857);
-    const fid = (ids ? ids[i] : String(idx));
-    entry.ids.push(fid);
-    entry.idIndex.set(String(fid), idx);
-    entry.deleted.push(false);
-    entry.hidden.push(false);
-    entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
-    fp_qt_insert(entry, idx);
-  }
+  const addResult = fp_add_decoded_points(entry, pointData, ids, colors);
+  const pointCount = addResult.pointCount;
+  const skippedInvalidCount = addResult.skippedInvalidCount;
   const convertIndexMs = performance.now() - convertStart;
   const redrawStart = performance.now();
   const shouldRedraw = (msg.redraw !== false);
@@ -1361,15 +1388,17 @@ function fgp_make_canvas_layer(entry) {
       const seenCenterPixels = new Set();
       const seenSelectedCenterPixels = new Set();
 
-      function centerPixelKey(i) {
-        const x = (entry.x[i] - extent[0]) * scaleX;
-        const y = (extent[3] - entry.y[i]) * scaleY;
-        return Math.round(x) + ',' + Math.round(y);
+      function centerPixelKey(i, selected) {
+        const radius = (selected ? (st.selected_point_radius || 6.0) : (st.point_radius || 3.0)) * pixelRatio;
+        const colorKey = pointCssForIndex(i, selected);
+        return fp_pixel_dedupe_key(
+          entry, i, extent, scaleX, scaleY, () => colorKey + '|' + radius
+        ).key;
       }
 
       function addUnselectedDrawIndex(i, fromCollapsedNode) {
         if (entry.deleted[i] || entry.hidden[i] || selectedSet.has(entry.ids[i]) || !inExtent(i)) return;
-        const pixelKey = centerPixelKey(i);
+        const pixelKey = centerPixelKey(i, false);
         if (seenCenterPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
           return;
@@ -1383,7 +1412,7 @@ function fgp_make_canvas_layer(entry) {
         for (const fid of selectedSet) {
           const i = entry.idIndex.get(String(fid));
           if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
-          const pixelKey = centerPixelKey(i);
+          const pixelKey = centerPixelKey(i, true);
           if (seenSelectedCenterPixels.has(pixelKey)) {
             skippedDuplicatePixels++;
             continue;
@@ -1665,9 +1694,6 @@ function cmd_fast_geopoints_add_points(msg) {
   if (entry.type !== 'fast_geopoints') return;
   const decodeStart = performance.now();
   const pointData = pyolqt_points_from_msg(msg);
-  const coords = pointData.coords || null;
-  const coordsFlat = pointData.flat || null;
-  const pointCount = pointData.count;
   const sma_m = msg.sma_m_b64 ? pyolqt_b64_to_float64(msg.sma_m_b64) : (msg.sma_m || []);
   const smi_m = msg.smi_m_b64 ? pyolqt_b64_to_float64(msg.smi_m_b64) : (msg.smi_m || []);
   const tilt_deg = msg.tilt_deg_b64 ? pyolqt_b64_to_float64(msg.tilt_deg_b64) : (msg.tilt_deg || []);
@@ -1676,43 +1702,19 @@ function cmd_fast_geopoints_add_points(msg) {
   const decodeMs = performance.now() - decodeStart;
 
   const startIndex = entry.x.length;
-  let skippedInvalidCount = 0;
   const convertStart = performance.now();
-  const world = 20037508.342789244;
-  const xScale = world / 180.0;
-  const yScale = world / Math.PI;
-  for (let i = 0; i < pointCount; i++) {
-    const lon = coordsFlat ? coordsFlat[i * 2] : coords[i][0];
-    const rawLat = coordsFlat ? coordsFlat[i * 2 + 1] : coords[i][1];
-    if (!Number.isFinite(lon) || !Number.isFinite(rawLat)) {
-      skippedInvalidCount++;
-      continue;
+  const addResult = fp_add_decoded_points(
+    entry, pointData, ids, colors,
+    (_idx, sourceIndex, _x3857, y3857) => {
+      const latRad = _fgp_lat_from_y(y3857);
+      const k = _fgp_sec(latRad);
+      entry.a.push((Number(sma_m[sourceIndex] || 0.0)) * k);
+      entry.b.push((Number(smi_m[sourceIndex] || 0.0)) * k);
+      entry.rot.push((90.0 - Number(tilt_deg[sourceIndex] || 0.0)) * Math.PI / 180.0);
     }
-    const lat = Math.max(-85.05112878, Math.min(85.05112878, rawLat));
-    const x3857 = lon * xScale;
-    const y3857 = Math.log(Math.tan((90.0 + lat) * Math.PI / 360.0)) * yScale;
-    if (!Number.isFinite(x3857) || !Number.isFinite(y3857)) {
-      skippedInvalidCount++;
-      continue;
-    }
-    const idx = entry.x.length;
-    entry.x.push(x3857);
-    entry.y.push(y3857);
-    const fid = (ids ? ids[i] : String(idx));
-    entry.ids.push(fid);
-    entry.idIndex.set(String(fid), idx);
-    entry.deleted.push(false);
-    entry.hidden.push(false);
-    entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
-
-    const latRad = _fgp_lat_from_y(y3857);
-    const k = _fgp_sec(latRad);
-    entry.a.push((Number(sma_m[i] || 0.0)) * k);
-    entry.b.push((Number(smi_m[i] || 0.0)) * k);
-    entry.rot.push((90.0 - Number(tilt_deg[i] || 0.0)) * Math.PI / 180.0);
-
-    fp_qt_insert(entry, idx);
-  }
+  );
+  const pointCount = addResult.pointCount;
+  const skippedInvalidCount = addResult.skippedInvalidCount;
   const convertIndexMs = performance.now() - convertStart;
   const shouldRedraw = (msg.redraw !== false);
   const redrawStart = performance.now();
