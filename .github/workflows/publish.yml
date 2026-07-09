@@ -13,7 +13,7 @@ permissions:
 jobs:
   build:
     name: Build distribution
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     
     steps:
       - uses: actions/checkout@v5
@@ -41,7 +41,7 @@ jobs:
     name: Publish to PyPI
     needs:
       - build
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/p/pyopenlayersqt
