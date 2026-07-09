@@ -53,8 +53,7 @@ class EllipseExample(QtWidgets.QMainWindow):
 
                 # Behavior
                 ellipses_visible=True,
-                min_ellipse_px=2.0,  # Don't draw very small ellipses
-                skip_ellipses_while_interacting=True  # Performance optimization
+                min_ellipse_px=2.0  # Don't draw very small ellipses
             ),
             cell_size_m=500.0
         )

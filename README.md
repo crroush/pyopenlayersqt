@@ -535,8 +535,7 @@ fast_geo = map_widget.add_fast_geopoints_layer(
         ellipses_visible=True,
         selected_ellipses_visible=True,  # Independent toggle for selected ellipses
         min_ellipse_px=0.0,  # Cull tiny ellipses
-        max_ellipses_per_path=2000,
-        skip_ellipses_while_interacting=True
+        max_ellipses_per_path=2000
     ),
     cell_size_m=750.0
 )
@@ -1425,7 +1424,6 @@ For a complete runnable demo, see
 3. **Chunk Large Additions**: `FastGeoPointsLayer.add_points_with_ellipses()` automatically chunks data (default 50k points per chunk)
 4. **Debounce Extent Watching**: Use appropriate `debounce_ms` when watching extent changes to avoid excessive updates
 5. **Cull Tiny Ellipses**: Set `min_ellipse_px` in `FastGeoPointsStyle` to skip rendering very small ellipses
-6. **Skip Ellipses While Interacting**: Enable `skip_ellipses_while_interacting` for smoother panning/zooming
 
 ## Architecture
 
