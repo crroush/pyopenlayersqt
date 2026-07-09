@@ -411,9 +411,7 @@ class RangeSliderWidget(QWidget):
         # timestamp is still reachable when the step does not divide evenly.
         if not self._is_iso8601:
             self._slider_min = 0
-            self._slider_max = int(
-                (self._max_numeric - self._min_numeric) / self._step
-            )
+            self._slider_max = int((self._max_numeric - self._min_numeric) / self._step)
 
         # Create UI
         self._setup_ui(label)
@@ -573,9 +571,7 @@ class RangeSliderWidget(QWidget):
         """Convert numeric value to slider position."""
         return int((value - self._min_numeric) / self._step)
 
-    def set_value_formatter(
-        self, formatter: Optional[Callable[[float], str]]
-    ) -> None:
+    def set_value_formatter(self, formatter: Optional[Callable[[float], str]]) -> None:
         """Set a formatter for numeric labels and handle tooltips."""
         self._value_formatter = formatter
         self._update_labels()
