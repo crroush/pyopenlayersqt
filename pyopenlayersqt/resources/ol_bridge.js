@@ -299,7 +299,16 @@ function cmd_map_fit_bounds(msg) {
 
 
 
-  function log(...args) { console.log("JS:", ...args); }
+  function debugLoggingEnabled() {
+    return !!(
+      window.PYOPENLAYERSQT_DEBUG ||
+      state.perfEnabled
+    );
+  }
+
+  function log(...args) {
+    if (debugLoggingEnabled()) console.log("JS:", ...args);
+  }
   function jsError(...args) { console.error("JS:", ...args); }
 
   function emitToPython(event_type, payloadObj) {
