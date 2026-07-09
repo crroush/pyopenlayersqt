@@ -961,10 +961,6 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
         layout.addWidget(self.splitter, stretch=1)
 
-        map_panel = QtWidgets.QWidget()
-        map_layout = QtWidgets.QVBoxLayout(map_panel)
-        map_layout.setContentsMargins(0, 0, 0, 0)
-
         self.map_widget = OLMapWidget(
             center=(0, 0),
             zoom=2,
@@ -983,8 +979,8 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.map_widget.perfReceived.connect(
             lambda payload: perf("bridge_event", payload=payload)
         )
-        map_layout.addWidget(self.map_widget, stretch=1)
         self._apply_wms_settings(show_errors=False)
+        self.splitter.addWidget(self.map_widget)
 
         self.slider = TimeHistogramSliderWidget(
             label="Time Activity",
@@ -992,8 +988,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             show_global_range_label=False,
         )
         self.slider.setEnabled(False)
-        map_layout.addWidget(self.slider)
-        self.splitter.addWidget(map_panel)
+        self.splitter.addWidget(self.slider)
 
         self.fast_layer = self.map_widget.add_fast_points_layer(
             name="Data Points",
@@ -1007,8 +1002,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.table_layout.setContentsMargins(0, 0, 0, 0)
         self.splitter.addWidget(self.table_container)
         self.splitter.setStretchFactor(0, 5)
-        self.splitter.setStretchFactor(1, 2)
-        self.splitter.setSizes([560, 240])
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setStretchFactor(2, 2)
+        self.splitter.setSizes([520, 180, 240])
 
         file_menu = self.menuBar().addMenu("File")
         load_action = QtGui.QAction("Load CSV(s)...", self)

@@ -419,6 +419,14 @@ class GraphicalTimeSlider(QWidget):
         super().resizeEvent(event)
         self._reaggregate()
 
+    def _cursor_for_handle(self, handle: Optional[str]):
+        """Return an intuitive cursor for the current hover/drag target."""
+        if handle in ("filter_min", "filter_max", "extent_min", "extent_max"):
+            return Qt.SizeHorCursor
+        if handle in ("filter_span", "extent_span"):
+            return Qt.OpenHandCursor
+        return Qt.ArrowCursor
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.RightButton:
             self.resetExtent()
@@ -440,17 +448,17 @@ class GraphicalTimeSlider(QWidget):
         self._drag_initial_max = self._max_value
         self._drag_initial_extent_min = self._extent_min
         self._drag_initial_extent_max = self._extent_max
+        if self._dragging_handle in ("filter_span", "extent_span"):
+            self.setCursor(Qt.ClosedHandCursor)
+        else:
+            self.setCursor(self._cursor_for_handle(self._dragging_handle))
         self._apply_drag(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._dragging_handle is not None:
             self._apply_drag(event)
         else:
-            self.setCursor(
-                Qt.PointingHandCursor
-                if self._handle_at_pos(event.pos())
-                else Qt.ArrowCursor
-            )
+            self.setCursor(self._cursor_for_handle(self._handle_at_pos(event.pos())))
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.LeftButton:
@@ -460,6 +468,7 @@ class GraphicalTimeSlider(QWidget):
             self._drag_initial_max = None
             self._drag_initial_extent_min = None
             self._drag_initial_extent_max = None
+            self.setCursor(self._cursor_for_handle(self._handle_at_pos(event.pos())))
             QToolTip.hideText()
 
     def wheelEvent(self, event) -> None:
