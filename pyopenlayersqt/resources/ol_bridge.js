@@ -1496,7 +1496,7 @@ function fgp_make_canvas_layer(entry) {
       // ---- Ellipses (batched, quadtree-collapsed for unselected points) ----
       const unselectedEllipsesVisible = entry.ellipsesVisible && st.ellipses_visible !== false;
       const selectedEllipsesVisible = entry.selectedEllipsesVisible && st.selected_ellipses_visible !== false;
-      const skipWhileInteracting = (st.skip_ellipses_while_interacting !== false);
+      const skipWhileInteracting = (st.skip_ellipses_while_interacting === true);
       const canDrawEllipses = (unselectedEllipsesVisible || selectedEllipsesVisible) && !(skipWhileInteracting && state.viewInteracting);
       const ellipseStart = performance.now();
       if (canDrawEllipses) {
@@ -2972,19 +2972,32 @@ function cmd_countries_set_visible(msg) {
       });
       
       state.viewInteracting = false;
-      // Redraw FastGeoPoints ellipses after interaction settles. During movement,
-      // the render path skips ellipses for responsiveness; debouncing avoids
-      // immediately starting an expensive ellipse redraw if another pan/zoom begins.
-      if (state.fastGeoPointsIdleRedrawTimer) {
-        clearTimeout(state.fastGeoPointsIdleRedrawTimer);
-      }
-      state.fastGeoPointsIdleRedrawTimer = setTimeout(function() {
-        state.fastGeoPointsIdleRedrawTimer = null;
-        if (state.viewInteracting) return;
-        for (const [lid, e] of state.layers.entries()) {
-          if (e.type === 'fast_geopoints' && e.ellipsesVisible) fgp_redraw(e);
+      // Only force an idle redraw for layers that explicitly opt into skipping
+      // ellipses while interacting.  The default path keeps ellipses visible
+      // during pan/zoom so they do not blink differently from points.
+      let needsSkippedEllipseRedraw = false;
+      for (const e of state.layers.values()) {
+        if (e.type === 'fast_geopoints' && e.ellipsesVisible &&
+            e.style && e.style.skip_ellipses_while_interacting === true) {
+          needsSkippedEllipseRedraw = true;
+          break;
         }
-      }, 120);
+      }
+      if (needsSkippedEllipseRedraw) {
+        if (state.fastGeoPointsIdleRedrawTimer) {
+          clearTimeout(state.fastGeoPointsIdleRedrawTimer);
+        }
+        state.fastGeoPointsIdleRedrawTimer = setTimeout(function() {
+          state.fastGeoPointsIdleRedrawTimer = null;
+          if (state.viewInteracting) return;
+          for (const e of state.layers.values()) {
+            if (e.type === 'fast_geopoints' && e.ellipsesVisible &&
+                e.style && e.style.skip_ellipses_while_interacting === true) {
+              fgp_redraw(e);
+            }
+          }
+        }, 120);
+      }
     });
     fp_install_interactions();
     _install_context_menu_bridge();

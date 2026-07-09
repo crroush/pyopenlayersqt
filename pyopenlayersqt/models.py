@@ -519,6 +519,8 @@ class FastGeoPointsStyle:
       - selected_ellipses_visible toggles drawing of selected ellipses independently.
       - fill_ellipses defaults to False for performance.
       - min_ellipse_px allows culling very small ellipses.
+      - skip_ellipses_while_interacting defaults to False so ellipses remain
+        visible during pan/zoom like point markers.
     """
 
     # point style
@@ -557,7 +559,7 @@ class FastGeoPointsStyle:
     selected_ellipses_visible: bool = True
     min_ellipse_px: float = 0.0
     max_ellipses_per_path: int = 2000
-    skip_ellipses_while_interacting: bool = True
+    skip_ellipses_while_interacting: bool = False
 
     def to_js(self) -> dict:
         # Use *_color if provided, otherwise fall back to *_point_rgba
