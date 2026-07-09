@@ -365,18 +365,6 @@ function rgba_to_css_with_opacity(rgba, opacity) {
     ((a / 255.0) * effectiveOpacity) + ")";
 }
 
-function fp_cell_key(ix, iy) { return ix + "," + iy; }
-
-function fp_index_insert(entry, i) {
-  const cs = entry.cellSize;
-  const ix = Math.floor(entry.x[i] / cs);
-  const iy = Math.floor(entry.y[i] / cs);
-  const k = fp_cell_key(ix, iy);
-  let arr = entry.grid.get(k);
-  if (!arr) { arr = []; entry.grid.set(k, arr); }
-  arr.push(i);
-}
-
 const FP_QT_WORLD = 20037508.342789244;
 const FP_QT_MAX_DEPTH = 18;
 const FP_QT_LEAF_CAPACITY = 32;
@@ -575,45 +563,6 @@ function fp_qt_query_extent(entry, extent) {
     }
   }
   return { indices: out, stats };
-}
-
-function fp_query_extent(entry, extent) {
-  const cs = entry.cellSize;
-  const min_ix = Math.floor(extent[0] / cs);
-  const max_ix = Math.floor(extent[2] / cs);
-  const min_iy = Math.floor(extent[1] / cs);
-  const max_iy = Math.floor(extent[3] / cs);
-  
-  // Performance optimization: limit cell iteration for zoomed-out views
-  // If extent covers too many cells, just return all points
-  const cellsX = max_ix - min_ix + 1;
-  const cellsY = max_iy - min_iy + 1;
-  const totalCells = cellsX * cellsY;
-  
-  // If we'd check more than 1000 cells, it's faster to just iterate all points
-  if (totalCells > 1000) {
-    const out = [];
-    for (let i = 0; i < entry.x.length; i++) {
-      if (entry.deleted[i]) continue;
-      const x = entry.x[i];
-      const y = entry.y[i];
-      if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) {
-        out.push(i);
-      }
-    }
-    return out;
-  }
-  
-  // Normal grid query for zoomed-in views
-  const out = [];
-  for (let ix = min_ix; ix <= max_ix; ix++) {
-    for (let iy = min_iy; iy <= max_iy; iy++) {
-      const arr = entry.grid.get(fp_cell_key(ix, iy));
-      if (!arr) continue;
-      for (let j = 0; j < arr.length; j++) out.push(arr[j]);
-    }
-  }
-  return out;
 }
 
 function fp_pick_nearest(entry, coord3857, radius_m) {
@@ -824,12 +773,6 @@ function fp_make_canvas_layer(entry) {
 
       if (root) {
         traverseNode(root);
-      } else {
-        const cand = fp_query_extent(entry, extent);
-        for (let k = 0; k < cand.length; k++) {
-          scannedLeafPointCount++;
-          addPointToBatch(cand[k], false);
-        }
       }
 
       if (entry.selectedIds.size > 0) {
@@ -915,9 +858,7 @@ function cmd_fast_points_add_layer(msg) {
     color_u32: [],
     deleted: [],
     hidden: [],
-    grid: new Map(),
     qtRoot: null,
-    cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
     idIndex: new Map(),
     style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255] },
@@ -979,7 +920,6 @@ function cmd_fast_points_add_points(msg) {
     entry.deleted.push(false);
     entry.hidden.push(false);
     entry.color_u32.push(colors ? (colors[i] >>> 0) : 0);
-    fp_index_insert(entry, idx);
     fp_qt_insert(entry, idx);
   }
   const convertIndexMs = performance.now() - convertStart;
@@ -1020,7 +960,6 @@ function cmd_fast_points_clear(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== "fast_points") return;
   entry.x = []; entry.y = []; entry.ids = []; entry.color_u32 = []; entry.deleted = []; entry.hidden = [];
-  entry.grid = new Map();
   fp_qt_init(entry);
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
@@ -1703,9 +1642,7 @@ function cmd_fast_geopoints_add_layer(msg) {
     a: [],
     b: [],
     rot: [],
-    grid: new Map(),
     qtRoot: null,
-    cellSize: (msg.cell_size_m || 1000.0),
     selectedIds: new Set(),
     idIndex: new Map(),
     style,
@@ -1774,7 +1711,6 @@ function cmd_fast_geopoints_add_points(msg) {
     entry.b.push((Number(smi_m[i] || 0.0)) * k);
     entry.rot.push((90.0 - Number(tilt_deg[i] || 0.0)) * Math.PI / 180.0);
 
-    fp_index_insert(entry, idx);
     fp_qt_insert(entry, idx);
   }
   const convertIndexMs = performance.now() - convertStart;
@@ -1816,7 +1752,6 @@ function cmd_fast_geopoints_clear(msg) {
   if (entry.type !== 'fast_geopoints') return;
   entry.x = []; entry.y = []; entry.ids = []; entry.color_u32 = []; entry.deleted = []; entry.hidden = [];
   entry.a = []; entry.b = []; entry.rot = [];
-  entry.grid = new Map();
   fp_qt_init(entry);
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
