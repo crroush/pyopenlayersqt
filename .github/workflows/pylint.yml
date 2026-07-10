@@ -9,15 +9,63 @@ jobs:
       matrix:
         python-version: ["3.8", "3.9", "3.10"]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pylint
+        pip install "pylint>=3.2,<3.3"
+    - name: Python 3.8 annotation compatibility check
+      run: |
+        python - <<'PY'
+        import ast
+        from pathlib import Path
+
+        builtin_generics = {"dict", "frozenset", "list", "set", "tuple", "type"}
+        future_import = "from __future__ import annotations"
+        missing = []
+
+        def annotation_requires_future(annotation):
+            for node in ast.walk(annotation):
+                if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+                    return True
+                if (
+                    isinstance(node, ast.Subscript)
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id in builtin_generics
+                ):
+                    return True
+            return False
+
+        def iter_annotations(tree):
+            for node in ast.walk(tree):
+                if isinstance(node, ast.AnnAssign) and node.annotation is not None:
+                    yield node.annotation
+                elif isinstance(node, ast.arg) and node.annotation is not None:
+                    yield node.annotation
+                elif isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
+                    if node.returns is not None:
+                        yield node.returns
+
+        for path in sorted(Path("pyopenlayersqt").rglob("*.py")):
+            source = path.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(path))
+            if future_import in source:
+                continue
+            if any(annotation_requires_future(annotation) for annotation in iter_annotations(tree)):
+                missing.append(str(path))
+
+        if missing:
+            print(
+                "Modules using PEP 604 unions or built-in generic annotations "
+                "must import 'from __future__ import annotations' for Python 3.8:"
+            )
+            print("\n".join(missing))
+            raise SystemExit(1)
+        PY
     - name: Analysing the code with pylint
       run: |
         pylint --rcfile=.pylintrc $(git ls-files '*.py')
