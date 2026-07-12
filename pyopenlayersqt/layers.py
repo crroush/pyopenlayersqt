@@ -794,6 +794,8 @@ class RasterLayer(BaseLayer):
     Bounds are specified as (lat, lon) tuples in the public API.
     """
 
+    _layer_type_prefix = "raster"
+
     def __init__(
         self,
         widget: Any,
