@@ -1,65 +1,54 @@
 # pyopenlayersqt
 
-OpenLayers + Qt (QWebEngine) mapping widget for Python.
+`pyopenlayersqt` is a PySide6 widget library for building desktop mapping applications in Python. It embeds an OpenLayers map in `QWebEngineView` and gives you Python classes for the things a desktop map tool normally needs: layers, styles, feature selection, feature tables, parent/child selection linking, range filters, and time histograms.
 
-A high-performance, feature-rich mapping widget that embeds OpenLayers in a Qt application using QWebEngine. Designed for displaying and interacting with large volumes of geospatial data.
-<img width="803" height="467" alt="image" src="https://github.com/user-attachments/assets/0d607680-b16a-46ed-9562-eeb00525cf02" />
+Use it when your data and application logic live in Python, but you want OpenLayers to handle the browser-grade map rendering and interaction.
 
-## Table of Contents
+<img width="803" height="467" alt="pyopenlayersqt map widget screenshot" src="https://github.com/user-attachments/assets/0d607680-b16a-46ed-9562-eeb00525cf02" />
 
-- [Features](#features)
-- [Installation](#installation)
-  - [Requirements](#requirements)
-- [Quick Start](#quick-start)
-- [Core Components](#core-components)
-  - [OLMapWidget](#olmapwidget)
-  - [Layer Types](#layer-types)
-    - [VectorLayer](#vectorlayer)
-    - [FastPointsLayer](#fastpointslayer)
-    - [FastGeoPointsLayer](#fastgeopointslayer)
-    - [WMSLayer](#wmslayer)
-    - [RasterLayer](#rasterlayer)
-  - [Style Classes](#style-classes)
-  - [Feature Selection](#feature-selection)
-  - [Selection and Recoloring](#selection-and-recoloring)
-  - [Deleting Features](#deleting-features)
-  - [Distance Measurement Mode](#distance-measurement-mode)
-  - [FeatureTableWidget](#featuretablewidget)
-    - [Multi-table linking pattern](#multi-table-linking-pattern)
-  - [RangeSliderWidget](#rangesliderwidget)
-- [Complete Example](#complete-example)
-- [View Extent Tracking](#view-extent-tracking)
-- [Advanced: Direct JavaScript Communication](#advanced-direct-javascript-communication)
-- [Performance Tips](#performance-tips)
-- [Architecture](#architecture)
+## Contents
+
+- [What you can build](#what-you-can-build)
+- [Install](#install)
+- [The mental model](#the-mental-model)
+- [Quick start: put points on a map](#quick-start-put-points-on-a-map)
+- [Feature guide](#feature-guide)
+  - [Map widget](#map-widget)
+  - [Layer system](#layer-system)
+  - [Coordinate order](#coordinate-order)
+  - [Styling](#styling)
+  - [Selection](#selection)
+  - [Feature tables](#feature-tables)
+  - [Parent/child selection linking](#parentchild-selection-linking)
+  - [Filtering](#filtering)
+  - [Tiles, WMS, and raster overlays](#tiles-wms-and-raster-overlays)
+  - [Measurement and view extent callbacks](#measurement-and-view-extent-callbacks)
+- [Public API reference](#public-api-reference)
+- [Examples](#examples)
+- [Performance notes](#performance-notes)
+- [API compatibility](#api-compatibility)
 - [License](#license)
 - [Contributing](#contributing)
 - [Credits](#credits)
 
+## What you can build
 
-## Features
+`pyopenlayersqt` is designed for Qt applications where a map is part of a larger workflow, not a standalone web page. Typical uses include:
 
-- **🗺️ Interactive Map Widget**: Fully-featured OpenLayers map embedded in PySide6/Qt
-- **⚡ High-Performance Rendering**: Fast points layers with spatial indexing for millions of points
-- **🎨 Rich Styling**: Customizable styles for points, custom icon markers, polygons, circles, and ellipses
-- **🎨 QColor Support**: Use `QColor` objects or color names directly in styles - no `.name()` needed
-- **📍 Geolocation Support**: Fast geo-points layer with uncertainty ellipses
-- **🌐 WMS Integration**: Built-in Web Map Service layer support
-- **🖼️ Raster Overlays**: PNG/ overlay support with custom bounds
-- **✅ Feature Selection**: Interactive feature selection with Python ↔ JavaScript sync
-- **🎯 Smart Z-Ordering**: Selected points and ellipses automatically appear on top
-- **📊 Feature Table Widget**: High-performance table widget for displaying and managing features
-- **🔄 Bidirectional Sync**: Seamless selection synchronization between map and table
-- **📏 Distance Measurement**: Interactive measurement mode with geodesic distance calculations and great-circle path visualization
-- **🎚️ Range Slider Widget**: Dual-handle range slider for filtering features by numeric or timestamp ranges
+- Review tools for detections, tracks, assets, incidents, sites, or survey records.
+- Dashboards that display many points and let users select, filter, recolor, or hide them.
+- Parent/child workflows such as regions -> sites, missions -> observations, or devices -> events.
+- Time-window review tools where the user filters map features and table rows together.
+- Desktop viewers for WMS services, XYZ tile services, generated rasters, and local overlays.
+- Geolocation QA tools that show uncertainty ellipses next to point estimates.
 
-## Installation
+## Install
 
 ```bash
 pip install pyopenlayersqt
 ```
 
-### Requirements
+Requirements:
 
 - Python >= 3.8
 - PySide6 >= 6.5
@@ -67,1146 +56,209 @@ pip install pyopenlayersqt
 - pillow >= 10.0
 - matplotlib >= 3.7
 
-## Quick Start
+## The mental model
+
+A `pyopenlayersqt` app usually has four pieces:
+
+1. **The map widget**: `OLMapWidget` owns the embedded OpenLayers page and exposes Qt signals/methods.
+2. **Layers**: you add vector, fast point, WMS, tile, or raster layers to the map. Each selectable feature should have a stable string ID.
+3. **Python-side UI**: optional `FeatureTableWidget`, sliders, context menus, and normal Qt widgets sit next to the map.
+4. **A shared ID contract**: map feature IDs and table row keys use the same `(layer_id, feature_id)` identity. This is what makes selection, filtering, deletion, and parent/child linking predictable.
+
+The library deliberately keeps OpenLayers details behind Python objects. You add features from Python; the widget serializes commands to JavaScript; selection and measurement events come back as typed Python payloads.
+
+## Quick start: put points on a map
 
 ```python
+import sys
 from PySide6 import QtWidgets
 from PySide6.QtGui import QColor
 from pyopenlayersqt import OLMapWidget, PointStyle
-import sys
 
 app = QtWidgets.QApplication(sys.argv)
 
-# Create the map widget with custom initial view
 map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
+points = map_widget.add_vector_layer("cities", selectable=True)
 
-# Add a vector layer
-vector_layer = map_widget.add_vector_layer("my_layer", selectable=True)
-
-# Add some points with QColor styling
-coords = [(37.7749, -122.4194), (34.0522, -118.2437)]  # SF, LA
-vector_layer.add_points(
-    coords,
+points.add_points(
+    [(37.7749, -122.4194), (34.0522, -118.2437)],  # (lat, lon)
     ids=["sf", "la"],
-    style=PointStyle(radius=8.0, fill_color=QColor("red"))
+    style=PointStyle(radius=8, fill_color=QColor("red")),
 )
 
-# Show the map
 map_widget.show()
 sys.exit(app.exec())
 ```
 
-See the [examples directory](examples/) for more working examples:
-- `01_basic_map_with_markers.py` - Basic map with QColor markers (start here!)
-- `02_layer_types_and_styling.py` - All geometry types with QColor
-- `03_fast_points_performance.py` - High-performance rendering (10,000+ points)
-- `04_wms_and_base_layers.py` - WMS integration and opacity control
-- `05_raster_overlay.py` - Raster/heatmap visualization with in-memory PNG bytes
-- `06_geo_uncertainty_ellipses.py` - Geolocation uncertainty with ellipses
-- `07_feature_selection.py` - Interactive selection across layers
-- `08_table_integration.py` - Bidirectional map-table sync (CORE)
-- `09_selection_and_recoloring.py` - Interactive recoloring (CORE)
-- `10_range_slider_filtering.py` - Range slider filtering
-- `11_measurement_tool.py` - Distance measurement tool
-- `12_coordinate_display.py` - Coordinate display toggle
-- `13_dual_table_linking.py` - Two-table parent/child map-table selection workflow (both tables have map objects)
-- `14_delayed_render_interrupt.py` - Debounced, interruptible process-based heatmap rendering
-- `15_load_data_and_zoom.py` - Load features, then click a button to auto-zoom to loaded data
-- `16_metadata_only_table_linking.py` - 100k FastGeo parent map objects linked to metadata-only child rows (3-5 per parent)
-- `17_map_right_click_context_menu.py` - Right-click anywhere on the map for a custom menu (create new points or open dialogs for existing points)
-- `18_gradient_track_speed.py` - Polyline/track speed visualization with segment color gradients from matplotlib colormaps
-- `19_virtual_feature_table.py` - Minimal lazy/virtual `FeatureTableWidget` row-provider example
+That example contains the main pattern used everywhere else:
 
-## Core Components
+- Create one `OLMapWidget`.
+- Add a layer.
+- Add data with stable IDs.
+- Let Qt own the application window and event loop.
 
-### OLMapWidget
+## Feature guide
 
-The main widget class that embeds an OpenLayers map.
+This section describes the main features as product capabilities: what they do, why they exist, and how to use them in an application.
+
+### Map widget
+
+`OLMapWidget` is the object you put in a Qt layout. It owns the embedded browser page, initializes OpenLayers, and gives the rest of your Python code a normal Qt-facing API.
+
+Use it when you need:
+
+- A map inside a desktop Qt application rather than a separate web app.
+- Python methods for adding/removing map data without writing JavaScript.
+- Qt signals for selection, measurement, extent changes, readiness, and low-level JavaScript events.
+- Programmatic control of center, zoom, base map visibility, country boundaries, and map fitting.
+
+The widget is intentionally the integration boundary. Application code should talk to `OLMapWidget` and the layer objects it returns; it should not need to know how commands are serialized to OpenLayers.
 
 ```python
-from pyopenlayersqt import OLMapWidget
-
-# Create with default world view (center at 0,0, zoom level 2)
-map_widget = OLMapWidget()
-
-# Or create with custom initial view
 map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
-
-# Programmatically adjust view later (no mouse interaction needed)
-map_widget.set_center((34.0522, -118.2437))
-map_widget.set_zoom(10)
-# or set both at once
 map_widget.set_view(center=(40.7128, -74.0060), zoom=12)
-
-# Auto-zoom to all currently relevant points/features
-feature_points = [
-    (37.7749, -122.4194),
-    (34.0522, -118.2437),
-    (36.1699, -115.1398),
-]
-map_widget.auto_zoom_to_points(feature_points, padding_px=32, max_zoom=12)
-
-# Or simply fit to all data already loaded in map layers
-map_widget.fit_to_data()
+map_widget.fit_to_data(padding_px=32, max_zoom=14)
 ```
 
-### Programmatic Zoom & Resolution Reference
+### Layer system
 
-OpenLayers uses the standard Web Mercator zoom model. This means zoom levels map
-predictably to resolution (meters per pixel at the equator):
+Layers separate different kinds of data and rendering strategies. Choosing the right layer matters because a small editable geometry layer and a million-point review layer have different performance and interaction needs.
 
-`resolution_m_per_px = 156543.03392804097 / (2 ** zoom)`
-
-You can query this directly in Python with:
-
-```python
-resolution = OLMapWidget.zoom_resolution_m_per_px(zoom)
-```
-
-Approximate full-world horizontal extent represented by each zoom level:
-
-| Zoom | Resolution (m/px) | Approx. horizontal extent on a 256 px tile (km) |
-|------|-------------------:|-------------------------------------------------:|
-| 0    | 156543.0339        | 40075.02 |
-| 1    | 78271.5170         | 20037.51 |
-| 2    | 39135.7585         | 10018.75 |
-| 3    | 19567.8792         | 5009.38  |
-| 4    | 9783.9396          | 2504.69  |
-| 5    | 4891.9698          | 1252.34  |
-| 6    | 2445.9849          | 626.17   |
-| 7    | 1222.9925          | 313.09   |
-| 8    | 611.4962           | 156.54   |
-| 9    | 305.7481           | 78.27    |
-| 10   | 152.8741           | 39.14    |
-| 11   | 76.4370            | 19.57    |
-| 12   | 38.2185            | 9.78     |
-| 13   | 19.1093            | 4.89     |
-| 14   | 9.5546             | 2.45     |
-| 15   | 4.7773             | 1.22     |
-| 16   | 2.3887             | 0.61     |
-
-Notes:
-- "Extent" above is an equatorial approximation and varies with viewport size.
-- For the actual current extent of your map widget, use `get_view_extent(callback)`.
-- For feature-driven workflows (e.g., after adding a batch of points), use `fit_to_data()` for a one-call auto-fit across loaded layers, or `auto_zoom_to_points(...)` / `fit_bounds(...)` when you want explicit control.
-<img width="515" height="401" alt="image" src="https://github.com/user-attachments/assets/6dbe1d15-cb28-4b68-a182-ec677a01e651" />
-
-**Constructor Parameters:**
-
-- `parent` - Optional parent widget
-- `center` - Initial map center as `(lat, lon)` tuple. Defaults to `(0, 0)`.
-- `zoom` - Initial zoom level (integer). Defaults to `2` (world view).
-- `show_coordinates` - If True, displays mouse lat/lon coordinates in the lower right corner. Defaults to `True`.
-- `show_country_boundaries` - If True, enables the built-in countries boundary layer at startup. Defaults to `False`.
-- `country_boundaries_stroke_color` - Optional country boundary stroke color as `QColor` or CSS string (e.g. `"#ffcc00"`). Defaults to `None`.
-- `show_osm_layer` - If True, the OSM base layer is visible on startup. Defaults to `True`.
-- `osm_url` - Optional OSM tile URL template override used for the base layer.
-- `map_background_color` - CSS color rendered behind the OSM layer. Defaults to `"#ffffff"`.
-
-**Key Methods:**
-
-- `add_vector_layer(name, selectable=True)` - Create a vector layer for points, polygons, circles, ellipses
-- `add_fast_points_layer(name, selectable, style, cell_size_m)` - Create a high-performance points layer
-- `add_fast_geopoints_layer(name, selectable, style, cell_size_m)` - Create a geo-points layer with uncertainty ellipses
-- `add_wms(options, name)` - Add a WMS (Web Map Service) layer
-- `add_raster_image(image, bounds, style, name)` - Add a raster image overlay
-- `set_base_opacity(opacity)` - Set OSM base layer opacity (0.0-1.0)
-- `set_base_visible(visible)` - Show/hide the OSM base layer
-- `set_map_background_color(color)` - Set map background color behind OSM tiles
-- `set_country_boundaries_visible(visible, stroke_color=None)` - Show/hide boundaries and optionally set boundary stroke color (`QColor` or CSS string)
-- `set_measure_mode(enabled)` - Enable/disable interactive distance measurement mode
-- `on_measurement_updated(callback)` - Register a typed callback for measurement click updates
-- `clear_measurements()` - Clear all measurement points and lines
-- `set_view(center=None, zoom=None)` - Programmatically set map center and/or zoom
-- `set_center((lat, lon))` - Programmatically set map center
-- `set_zoom(zoom)` - Programmatically set map zoom level
-- `fit_bounds(bounds, padding_px, max_zoom, duration_ms)` - Auto-fit map view to SW/NE bounds
-- `auto_zoom_to_points(points, padding_px, max_zoom, duration_ms)` - Auto-fit map view to a list of feature points
-- `fit_to_data(padding_px, max_zoom, duration_ms, ...)` - Auto-fit map view to data already in map layers
-- `zoom_resolution_m_per_px(zoom)` - Return Web Mercator resolution (m/px) for a zoom level
-- `get_view_extent(callback)` - Get current map extent asynchronously
-- `watch_view_extent(callback, debounce_ms)` - Subscribe to extent changes
-
-**Signals:**
-
-- `ready` - Emitted when the map is ready
-- `selectionChanged` - Emitted when feature selection changes
-- `viewExtentChanged` - Emitted when map extent changes
-- `measurementUpdated` - Emitted when a measurement point is added. Signal(object) carrying a `MeasurementUpdate` instance.
-- `jsEvent` - Emitted for low-level JavaScript events. Signal(str, str) with event type and JSON payload.
-
-### Layer Types
-
-All layer types in pyopenlayersqt inherit from a common `BaseLayer` class, providing consistent functionality across different layer implementations.
-
-#### Common Layer Methods
-
-All layers (VectorLayer, FastPointsLayer, FastGeoPointsLayer, WMSLayer, RasterLayer) support these core methods:
-
-```python
-# Set layer opacity (0.0 = transparent, 1.0 = opaque)
-layer.set_opacity(0.7)
-
-# Remove the layer from the map
-layer.remove()
-```
-
-**Feature-based layers** (VectorLayer, FastPointsLayer, FastGeoPointsLayer) also support:
-
-```python
-# Show/hide the layer
-layer.set_visible(True)
-
-# Enable/disable feature selection
-layer.set_selectable(True)
-
-# Clear all features from the layer
-layer.clear()
-```
-
-Each layer type also has specialized methods for its specific use case, as detailed below.
-
-#### VectorLayer
-
-For standard vector features with full styling control.
-
-```python
-from pyopenlayersqt import PointStyle, IconStyle, PolygonStyle, CircleStyle, EllipseStyle
-
-# Add a vector layer
-vector = map_widget.add_vector_layer("vector", selectable=True)
-
-# Add points
-vector.add_points(
-    coords=[(lat, lon), ...],
-    ids=["id1", "id2", ...],
-    style=PointStyle(
-        radius=6.0,
-        fill_color=QColor("red"),
-        fill_opacity=0.85,
-        stroke_color=QColor("black"),
-        stroke_width=1.0
-    )
-)
-
-# Add custom icon marker points. icon and selected_icon accept the same forms.
-from pathlib import Path
-import base64
-from PySide6.QtCore import QByteArray
-
-icon_path = Path("assets/pin.svg")
-icon_bytes = icon_path.read_bytes()
-icon_sources = {
-    "path_object": icon_path,
-    "path_string": str(icon_path),
-    "bytes": icon_bytes,
-    "bytearray": bytearray(icon_bytes),
-    "memoryview": memoryview(icon_bytes),
-    "qbytearray": QByteArray(icon_bytes),
-    "data_uri": "data:image/svg+xml;base64,"
-                + base64.b64encode(icon_bytes).decode("ascii"),
-    "remote_url": "https://example.com/pin.svg",
-}
-# Supply one (latitude, longitude) coordinate for each source above.
-icon_coords = [(lat, lon), ...]
-
-for index, (source_name, icon_source) in enumerate(icon_sources.items()):
-    vector.add_icon_points(
-        coords=[icon_coords[index]],
-        icon=icon_source,
-        # Optional; accepts any source form listed above.
-        selected_icon=Path("assets/pin-selected.svg") if index == 0 else None,
-        ids=[f"icon_{source_name}"],
-        properties=[{"icon_source": source_name}],
-        scale=1.0,
-        opacity=0.95,
-        anchor=(0.5, 1.0),  # bottom-center sits on the coordinate
-        rotation_deg=45.0,  # clockwise degrees from true north
-        rotate_with_view=False,
-        # Useful for remote URLs when their server permits CORS. Remote icons
-        # without CORS still render, but selection uses a halo instead of tinting.
-        cross_origin="anonymous" if source_name == "remote_url" else None,
-    )
-
-# Add polygons
-vector.add_polygon(
-    ring=[(lat1, lon1), (lat2, lon2), ...],
-    feature_id="poly1",
-    style=PolygonStyle(
-        stroke_color=QColor("dodgerblue"),
-        stroke_width=2.0,
-        fill_color=QColor("dodgerblue"),
-        fill_opacity=0.15
-    )
-)
-
-# Add lines (polylines)
-vector.add_line(
-    coords=[(lat1, lon1), (lat2, lon2), (lat3, lon3)],
-    feature_id="ln1",
-    style=PolygonStyle(
-        stroke_color=QColor("dodgerblue"),
-        stroke_width=2.0
-    )
-)
-
-# Add gradient lines (e.g., speed along a track)
-# per-segment values are converted to smooth per-vertex interpolation
-vector.add_gradient_line(
-    coords=[(lat1, lon1), (lat2, lon2), (lat3, lon3), (lat4, lon4)],
-    values=[8.5, 12.1, 5.9],  # per-segment values (smoothed through vertices)
-    feature_id="track_speed",
-    cmap="turbo",
-    vmin=0.0,
-    vmax=20.0,
-    style=PolygonStyle(stroke_width=4.0),
-    properties={"metric": "speed_mps"},
-    interpolate_steps=64,
-)
-
-# Optional: pass explicit segment colors instead of cmap
-# vector.add_gradient_line(..., segment_colors=["blue", "green", "red"])
-
-
-# Smooth transitions: pass per-vertex values and interpolate between points
-vector.add_gradient_line(
-    coords=[(lat1, lon1), (lat2, lon2), (lat3, lon3)],
-    values=[5.0, 12.0, 20.0],  # per-vertex values
-    cmap="plasma",
-    vmin=0.0,
-    vmax=25.0,
-    interpolate_steps=64,
-)
-
-# Add circles (radius in meters)
-vector.add_circle(
-    center=(lat, lon),
-    radius_m=1000.0,
-    feature_id="circle1",
-    style=CircleStyle(stroke_color=QColor("dodgerblue"), fill_opacity=0.15)
-)
-
-# Add ellipses (semi-major/minor axes in meters, tilt in degrees from north)
-vector.add_ellipse(
-    center=(lat, lon),
-    sma_m=2000.0,  # Semi-major axis
-    smi_m=1200.0,  # Semi-minor axis
-    tilt_deg=45.0,  # Tilt from true north
-    feature_id="ell1",
-    style=EllipseStyle(stroke_color=QColor("gold"), fill_opacity=0.12)
-)
-
-# Update styles of specific features (e.g., selected features)
-feature_ids = ["id1", "id2"]
-new_styles = [
-    PointStyle(radius=8.0, fill_color=QColor("red"), fill_opacity=1.0),
-    PointStyle(radius=8.0, fill_color=QColor("green"), fill_opacity=1.0),
-]
-vector.update_feature_styles(feature_ids, new_styles)
-
-# Remove features
-vector.remove_features(["id1", "poly1"])
-
-# Clear all features
-vector.clear()
-```
-<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/a9ec05ba-717b-494a-abab-eac30adb55fb" />
-
-##### Custom icon API
-
-`VectorLayer.add_icon_points()` accepts these values for both `icon` and
-`selected_icon`:
-
-| Source value | Behavior |
-| --- | --- |
-| `pathlib.Path` or another `os.PathLike` | The local file is copied into the widget's HTTP-served icon cache. |
-| String path to an existing local file | The local file is copied into the widget's HTTP-served icon cache. |
-| `bytes`, `bytearray`, `memoryview`, or `PySide6.QtCore.QByteArray` | The image data is written into the widget's HTTP-served icon cache. |
-| `http://` or `https://` URL | The browser loads the remote image directly. |
-| `data:`, `file:`, or `qrc:` URI | The browser loads the URI directly. |
-
-The icon cache detects PNG, JPEG, GIF, WebP, and SVG image data. A string that
-is neither a recognized URI nor an existing local path is passed through to the
-browser unchanged.
-
-`add_icon_points()` uses the following arguments:
-
-| Argument | Description |
-| --- | --- |
-| `coords` | Sequence of `(latitude, longitude)` coordinates. |
-| `icon` | Required icon source unless `style.icon_src` supplies one. |
-| `selected_icon` | Optional replacement icon shown while selected; accepts every `icon` source form. |
-| `ids` | Optional feature IDs; generated automatically when omitted. |
-| `properties` | Optional property dictionary for each point. |
-| `scale` | Image scale multiplier; defaults to `1.0`. |
-| `opacity` | Image opacity from `0.0` to `1.0`; defaults to `1.0`. |
-| `anchor` | Image anchor fractions; `(0.5, 1.0)` places the bottom-center on the coordinate. |
-| `rotation_deg` | Clockwise rotation in degrees from true north. |
-| `rotate_with_view` | When true, rotates the icon with the map view. |
-| `cross_origin` | Optional OpenLayers cross-origin value, such as `"anonymous"`, for remote images. |
-| `style` | Optional reusable `IconStyle`. When supplied, its style settings take precedence over the direct scale, opacity, anchor, rotation, and cross-origin arguments. The `icon` and `selected_icon` arguments still override `style.icon_src` and `style.selected_icon_src`. |
-
-For a runnable map showing path objects, path strings, each byte-like type, a
-data URI, and a remote URL, see
-[`examples/02_layer_types_and_styling.py`](examples/02_layer_types_and_styling.py).
-
-#### FastPointsLayer
-
-High-performance layer for rendering millions of points using canvas and spatial indexing.
+| Layer/API | What it does | Why you would use it |
+| --- | --- | --- |
+| `add_vector_layer()` / `VectorLayer` | Draws points, icon points, polygons, lines, circles, ellipses, and gradient lines. | Use for mixed geometry, per-feature styling, editable/review-sized datasets, and examples where clarity matters more than raw point volume. |
+| `add_fast_points_layer()` / `FastPointsLayer` | Draws many points with canvas rendering and a spatial index. | Use for large point clouds or event sets where selection, hide/show filtering, and recoloring need to stay responsive. |
+| `add_fast_geopoints_layer()` / `FastGeoPointsLayer` | Draws high-volume points plus uncertainty ellipses. | Use for geolocation estimates, sensor fixes, or QA views where the uncertainty footprint is as important as the point. |
+| `add_wms()` / `WMSLayer` | Adds a server-rendered WMS tile source. | Use when authoritative context comes from a GIS server and individual features are not managed by the widget. |
+| `add_tile_layer()` | Adds an XYZ/OSM-style tile source. | Use for custom basemaps, internal tile servers, or reference layers. |
+| `add_raster_image()` / `RasterLayer` | Places an image over geographic bounds. | Use for generated heatmaps, model output, screenshots, or local raster overlays. |
 
 ```python
 from pyopenlayersqt import FastPointsStyle
 
-# Create fast points layer
 fast = map_widget.add_fast_points_layer(
-    "fast_points",
+    "measurements",
     selectable=True,
-    style=FastPointsStyle(
-        radius=2.5,
-        default_color="green",  # Color name or QColor
-        selected_radius=6.0,
-        selected_color="yellow"
-    ),
-    cell_size_m=750.0  # Spatial index cell size
+    style=FastPointsStyle(radius=3, default_color="steelblue"),
 )
+fast.add_points(coords, ids=measurement_ids)
+```
 
-# Add points (efficient for large datasets)
-coords = [(lat, lon), ...]  # millions of points
-ids = [f"pt{i}" for i in range(len(coords))]
+### Coordinate order
 
-# Option 1: Single color for all points
-fast.add_points(coords, ids=ids)
+Python APIs use `LatLon`, an alias for `(lat, lon)`. OpenLayers internally uses longitude/latitude order, but the Python API keeps the domain-friendly latitude-first convention at its boundary.
 
-# Option 2: Per-point colors using QColor objects
+```python
+from pyopenlayersqt import LatLon
+
+center: LatLon = (37.7749, -122.4194)
+map_widget.set_center(center)
+```
+
+Why it matters: most mistakes in desktop mapping tools come from mixing coordinate order across libraries. Keep application data in `(lat, lon)` for `pyopenlayersqt` calls and let the widget handle the OpenLayers conversion.
+
+### Styling
+
+Style classes describe how data should look when it is sent to OpenLayers. They keep rendering choices close to the Python code that creates the layer.
+
+Use styles to:
+
+- Make categories visually distinct.
+- Emphasize selected features with larger or brighter markers.
+- Show uncertainty with ellipse stroke/fill choices.
+- Reuse one style object for a batch of features.
+- Use Qt-native `QColor` values directly from the rest of your UI.
+
+```python
 from PySide6.QtGui import QColor
-colors = [QColor(255, 0, 0, 180), QColor(0, 255, 0, 180), ...]
-fast.add_points(coords, ids=ids, colors_rgba=colors)
+from pyopenlayersqt import PointStyle, PolygonStyle, FastGeoPointsStyle
 
-# Option 3: Per-point colors using color names
-colors = ["red", "green", "blue", ...]
-fast.add_points(coords, ids=ids, colors_rgba=colors)
-
-# Remove specific points
-fast.remove_points(["pt1", "pt2"])
-
-# Update colors of specific points (e.g., selected points)
-feature_ids = ["pt10", "pt25", "pt50"]
-# Use QColor objects (recommended)
-from PySide6.QtGui import QColor
-new_colors = [QColor("red"), QColor("green"), QColor("blue")]
-fast.set_colors(feature_ids, new_colors)
-# Or color names
-new_colors = ["red", "green", "blue"]
-fast.set_colors(feature_ids, new_colors)
-
-# Temporarily hide/show features (without removing them)
-fast.hide_features(["pt100", "pt200"])
-fast.show_features(["pt100"])
-fast.show_all_features()  # Show all hidden features
-
-# Clear all points
-fast.clear()
-```
-<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/dbff66f1-b649-4232-8afd-5a3b1f619b43" />
-
-#### FastGeoPointsLayer
-
-High-performance layer for geolocation data with uncertainty ellipses.
-
-```python
-from pyopenlayersqt import FastGeoPointsStyle
-
-# Create fast geo points layer
-fast_geo = map_widget.add_fast_geopoints_layer(
-    "fast_geo",
-    selectable=True,
-    style=FastGeoPointsStyle(
-        # Point styling
-        point_radius=2.5,
-        default_color="steelblue",  # Color name or QColor
-        selected_point_radius=6.0,
-        selected_color="white",
-        # Ellipse styling
-        ellipse_stroke_color="steelblue",
-        ellipse_stroke_width=1.2,
-        fill_ellipses=False,
-        ellipse_fill_color=QColor(40, 80, 255, 40),
-        # Behavior
-        ellipses_visible=True,
-        selected_ellipses_visible=True,  # Independent toggle for selected ellipses
-        min_ellipse_px=0.0,  # Cull tiny ellipses
-        max_ellipses_per_path=2000
-    ),
-    cell_size_m=750.0
-)
-
-# Add points with uncertainty ellipses
-coords = [(lat, lon), ...]
-sma_m = [200.0, 300.0, ...]  # Semi-major axes in meters
-smi_m = [100.0, 150.0, ...]  # Semi-minor axes in meters
-tilt_deg = [45.0, 90.0, ...]  # Tilt from north in degrees
-ids = [f"geo{i}" for i in range(len(coords))]
-
-fast_geo.add_points_with_ellipses(
-    coords=coords,
-    sma_m=sma_m,
-    smi_m=smi_m,
-    tilt_deg=tilt_deg,
-    ids=ids
-)
-
-# Toggle ellipse visibility
-fast_geo.set_ellipses_visible(False)
-
-# Toggle selected-ellipse visibility independently
-fast_geo.set_selected_ellipses_visible(False)
-
-# Update colors of specific points (e.g., selected points)
-feature_ids = ["geo5", "geo12", "geo20"]
-# Use QColor objects (recommended)
-from PySide6.QtGui import QColor
-new_colors = [QColor("red"), QColor("green"), QColor("blue")]
-fast_geo.set_colors(feature_ids, new_colors)
-# Or color names
-new_colors = ["red", "green", "blue"]
-fast_geo.set_colors(feature_ids, new_colors)
-
-# Temporarily hide/show features (without removing them)
-fast_geo.hide_features(["geo100", "geo200"])
-fast_geo.show_features(["geo100"])
-fast_geo.show_all_features()  # Show all hidden features
-
-# Remove points
-fast_geo.remove_ids(["geo1", "geo2"])
-
-# Clear all
-fast_geo.clear()
-```
-<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/00098627-e9ec-4e75-9a86-03aeeb3da1e5" />
-
-#### WMSLayer
-
-Web Map Service layer integration.
-
-```python
-from pyopenlayersqt import WMSOptions
-
-# Add WMS layer
-wms_options = WMSOptions(
-    url="https://ahocevar.com/geoserver/wms",
-    params={
-        "LAYERS": "topp:states",
-        "TILED": True,
-        "FORMAT": "image/png",
-        "TRANSPARENT": True
-    },
-    opacity=0.85
-)
-
-wms_layer = map_widget.add_wms(wms_options, name="wms")
-
-# Update WMS parameters
-wms_layer.set_params({"LAYERS": "new:layer"})
-
-# Set opacity
-wms_layer.set_opacity(0.5)
-
-# Remove layer
-wms_layer.remove()
-```
-<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/413956f3-6df8-4141-813d-08419c5da10e" />
-
-#### RasterLayer
-
-Image overlay layer for heatmaps, imagery, etc.
-
-```python
-from pyopenlayersqt import RasterStyle
-
-# Create PNG bytes (example using PIL)
-from PIL import Image
-import io
-
-img = Image.new('RGBA', (512, 512), color=(255, 0, 0, 128))
-buf = io.BytesIO()
-img.save(buf, format='PNG')
-png_bytes = buf.getvalue()
-
-# Add raster overlay
-bounds = [
-    (lat_min, lon_min),  # Southwest corner
-    (lat_max, lon_max)   # Northeast corner
-]
-
-raster = map_widget.add_raster_image(
-    png_bytes,  # Can be bytes, file path, or URL
-    bounds=bounds,
-    style=RasterStyle(opacity=0.6),
-    name="heatmap"
-)
-
-# Update opacity
-raster.set_opacity(0.8)
-
-# Remove layer
-raster.remove()
-```
-<img width="603" height="416" alt="image" src="https://github.com/user-attachments/assets/2ff33448-afcd-42fc-9b0a-91066ee84202" />
-
-### Style Classes
-
-All style classes are immutable dataclasses with sensible defaults:
-
-```python
-from pyopenlayersqt import (
-    PointStyle,
-    IconStyle,
-    PolygonStyle,
-    CircleStyle,
-    EllipseStyle,
-    RasterStyle,
-    FastPointsStyle,
-    FastGeoPointsStyle
-)
-from pathlib import Path
-from PySide6.QtGui import QColor
-
-# Vector styles use QColor objects or color names (recommended)
-point_style = PointStyle(
-    radius=5.0,
-    fill_color=QColor("red"),        # QColor object (recommended)
-    fill_opacity=0.85,
-    stroke_color=QColor("black"),    # QColor object
-    stroke_width=1.0,
-    stroke_opacity=0.9
-)
-
-# For most icon markers, pass style settings directly to add_icon_points().
-# Use IconStyle when you need to reuse settings or use pixel anchor units.
-icon_style = IconStyle(
-    scale=1.0,
-    opacity=0.95,
-    anchor=(16.0, 32.0),
-    anchor_x_units="pixels",
-    anchor_y_units="pixels",
-    rotation_deg=90.0,  # clockwise degrees from true north
-    rotate_with_view=False,
-    cross_origin="anonymous",
-)
-vector.add_icon_points(
-    coords=[(lat, lon)],
-    icon=Path("assets/pin.svg"),
-    selected_icon=Path("assets/pin-selected.svg"),
-    style=icon_style,
-)
-# When style is supplied, its settings take precedence over direct scale, opacity,
-# anchor, rotation_deg, rotate_with_view, and cross_origin arguments.
-
-# You can also use color names directly
-polygon_style = PolygonStyle(
-    stroke_color="red",    # Color name string
-    fill_color="green"     # Color name string
-)
-
-# Fast layer styles support QColor/color names (recommended)
-# Recommended: Using QColor objects or color names
-fast_style_qcolor = FastPointsStyle(
-    radius=3.0,
-    default_color=QColor("steelblue"),  # QColor object
-    selected_radius=6.0,
-    selected_color="orange"              # Color name string
-)
-
-# Legacy (deprecated): Using RGBA tuples
-fast_style = FastPointsStyle(
-    radius=3.0,
-    default_rgba=(255, 51, 51, 204),
-    selected_radius=6.0,
-    selected_rgba=(0, 255, 255, 255)
-)
-
-# Mixed: Both styles (color options take precedence)
-fast_style_mixed = FastPointsStyle(
-    radius=3.0,
-    default_rgba=(255, 51, 51, 204),     # Fallback
-    default_color="purple",               # This takes precedence
-    selected_radius=6.0,
-    selected_color=QColor("yellow")       # This takes precedence
-)
-
-# FastGeoPointsStyle supports QColor for all colors (points and ellipses)
-geo_style = FastGeoPointsStyle(
-    point_radius=4.0,
-    default_color="darkgreen",                    # Point color (QColor or color name)
-    selected_color=QColor("red"),                 # Selected point color
-    ellipse_stroke_color="darkgreen",             # Ellipse stroke color
-    ellipse_fill_color=QColor(0, 100, 0, 40),    # Ellipse fill color (with alpha)
-    selected_ellipse_stroke_color="red",          # Selected ellipse stroke color
-    fill_ellipses=True,
-    ellipses_visible=True,
-    selected_ellipses_visible=True            # Hide/show selected ellipses independently
-)
+point_style = PointStyle(radius=6, fill_color=QColor("orange"), stroke_color="black")
+polygon_style = PolygonStyle(stroke_color="#00aaff", fill_color="#00aaff", fill_opacity=0.15)
+geo_style = FastGeoPointsStyle(default_color="yellow", selected_color="cyan")
 ```
 
-**Key Features:**
-- **QColor Support in ALL Styles**: Pass `QColor` objects directly to any color parameter in PointStyle, CircleStyle, PolygonStyle, EllipseStyle, FastPointsStyle, and FastGeoPointsStyle - no need for `.name()`
-- **Color Names Everywhere**: Use color names like `"red"`, `"Green"`, `"steelblue"` directly in all Style classes
-- **Custom Icon Markers**: Use `VectorLayer.add_icon_points(icon=..., selected_icon=...)` to place points rendered with a local image path, URL, data URI, or image bytes; local files and bytes-like values (including QByteArray) are served to the embedded browser automatically, selected_icon overrides selection rendering when provided, and selected icons otherwise use the vector selection color (tinting for same-origin/data/CORS-enabled icons, halo fallback for other remote URLs)
-- **Multiple Formats**: Color styles accept QColor objects, color names, hex strings, and CSS strings (RGBA tuples are deprecated)
-- **Backward Compatible**: Existing code using RGBA tuples or hex colors continues to work
-- **Z-Ordering**: Selected points and ellipses are automatically drawn on top in dense areas
+`QColor`, CSS color strings, hex strings, and color names are supported by the style classes. Legacy RGBA tuple fields remain available for fast-layer compatibility, but new code should prefer `QColor` or strings.
 
-### Feature Selection
+### Selection
 
-Selection is synchronized between the map and Python:
+Selection is the main bridge between the map and the rest of the UI. Every selectable feature should have a stable feature ID. When users select on the map, `OLMapWidget.selectionChanged` emits a `FeatureSelection` containing the layer ID and selected feature IDs.
 
 ```python
-# Set selection programmatically
-map_widget.set_vector_selection(layer_id, ["feature1", "feature2"])
-map_widget.set_fast_points_selection(layer_id, ["pt1", "pt2"])
-map_widget.set_fast_geopoints_selection(layer_id, ["geo1", "geo2"])
+from pyopenlayersqt import FeatureSelection
 
-# Listen to selection changes from map
-def on_selection_changed(selection):
-    print(f"Layer: {selection.layer_id}")
-    print(f"Selected IDs: {selection.feature_ids}")
-    print(f"Count: {selection.count}")
 
-map_widget.selectionChanged.connect(on_selection_changed)
-```
-
-### Selection and Recoloring
-
-For updating styles of selected features, see the layer-specific methods documented above:
-- `VectorLayer.update_feature_styles()` - Update styles for vector features
-- `FastPointsLayer.set_colors()` - Update colors for fast points
-- `FastGeoPointsLayer.set_colors()` - Update colors for fast geo-points
-- `FastGeoPointsLayer.set_selected_ellipses_visible()` - Toggle selected ellipse outlines independently from unselected ellipses
-
-**Multi-layer selection workflow example:**
-```python
-# Track selections for all layers (layer_id -> list of feature_ids)
-selections = {}
-
-def on_selection_changed(selection):
-    global selections
-    # Update selections for this layer
-    if len(selection.feature_ids) > 0:
-        selections[selection.layer_id] = selection.feature_ids
-    elif selection.layer_id in selections:
-        # Clear selection for this layer
-        del selections[selection.layer_id]
-    
-    total = sum(len(ids) for ids in selections.values())
-    print(f"Total selected: {total} features across {len(selections)} layer(s)")
-
-map_widget.selectionChanged.connect(on_selection_changed)
-
-# Recolor all selected items across all layers
-def recolor_selected_red():
-    from PySide6.QtGui import QColor
-    for layer_id, feature_ids in selections.items():
-        if layer_id == vector_layer.id:
-            styles = [PointStyle(fill_color="red") for _ in feature_ids]
-            vector_layer.update_feature_styles(feature_ids, styles)
-        elif layer_id == fast_layer.id:
-            colors = [QColor("red") for _ in feature_ids]
-            fast_layer.set_colors(feature_ids, colors)
-        elif layer_id == fast_geo_layer.id:
-            colors = [QColor("red") for _ in feature_ids]
-            fast_geo_layer.set_colors(feature_ids, colors)
-```
-
-See [examples/09_selection_and_recoloring.py](examples/09_selection_and_recoloring.py) for a complete interactive example.
-
-### Deleting Features
-
-Each layer type provides methods to remove features, either individually, in batches, or all at once.
-
-#### VectorLayer Deletion
-
-```python
-# Remove specific features by ID
-vector_layer.remove_features(["point1", "polygon2", "circle3"])
-
-# Clear all features from the layer
-vector_layer.clear()
-```
-
-#### FastPointsLayer Deletion
-
-```python
-# Remove specific points by ID
-fast_layer.remove_points(["pt1", "pt2", "pt100"])
-
-# Clear all points from the layer
-fast_layer.clear()
-```
-
-#### FastGeoPointsLayer Deletion
-
-```python
-# Remove specific geo-points by ID
-geo_layer.remove_ids(["geo1", "geo2", "geo50"])
-
-# Clear all geo-points from the layer
-geo_layer.clear()
-```
-
-#### Deleting Selected Features
-
-A common pattern is to delete features that the user has selected interactively:
-
-```python
-from PySide6.QtGui import QShortcut, QKeySequence
-
-# Track selections across all layers
-selections = {}
-
-def on_selection_changed(selection):
-    """Update the selections dictionary when selection changes."""
-    if len(selection.feature_ids) > 0:
-        selections[selection.layer_id] = selection.feature_ids
-    elif selection.layer_id in selections:
-        del selections[selection.layer_id]
-
-map_widget.selectionChanged.connect(on_selection_changed)
-
-def delete_selected():
-    """Delete all currently selected features across all layers."""
-    for layer_id, feature_ids in list(selections.items()):
-        if layer_id == vector_layer.id:
-            vector_layer.remove_features(feature_ids)
-        elif layer_id == fast_layer.id:
-            fast_layer.remove_points(feature_ids)
-        elif layer_id == geo_layer.id:
-            geo_layer.remove_ids(feature_ids)
-    
-    # Clear selections after deletion
-    selections.clear()
-    print(f"Deleted features")
-
-# Connect to a button
-delete_button.clicked.connect(delete_selected)
-
-# Or add keyboard shortcut (Delete key)
-delete_shortcut = QShortcut(QKeySequence.Delete, map_widget)
-delete_shortcut.activated.connect(delete_selected)
-```
-
-#### Removing Entire Layers
-
-To remove an entire layer from the map:
-
-```python
-# Remove the layer (also removes all its features)
-vector_layer.remove()
-fast_layer.remove()
-geo_layer.remove()
-```
-
-**Complete CRUD Example:** See [examples/08_table_integration.py](examples/08_table_integration.py) for a full working example demonstrating Create, Read, Update, and Delete operations with interactive add/delete buttons and keyboard shortcuts across all layer types.
-
-### Distance Measurement Mode
-
-Interactive distance measurement with geodesic calculations and a clean callback API:
-
-```python
-from pyopenlayersqt import MeasurementUpdate
-
-# Enable measurement mode
-map_widget.set_measure_mode(True)
-
-# Listen for typed measurement updates
-def on_measurement(update: MeasurementUpdate):
-    if update.segment_distance_m is not None:
-        print(f"Segment: {update.segment_distance_m:.1f} m")
-    print(f"Total: {update.cumulative_distance_m:.1f} m")
-    print(f"Point at ({update.lat:.5f}, {update.lon:.5f})")
-
-handle = map_widget.on_measurement_updated(on_measurement)
-# (Optional) also available as a Qt signal:
-# map_widget.measurementUpdated.connect(on_measurement)
-
-# Clear all measurements
-map_widget.clear_measurements()
-
-# Stop callback if needed
-handle.cancel()
-
-# Disable measurement mode
-map_widget.set_measure_mode(False)
-```
-
-**Features:**
-- Click on map to create measurement anchor points
-- Live polyline drawn from last point to cursor
-- Tooltip displays segment and cumulative distances
-- Uses Haversine formula for accurate great-circle distances
-- **Lines follow great-circle paths** - measurement lines curve to represent the true shortest path on Earth's surface
-- Curved paths are especially visible for long distances (e.g., New York to London)
-- Press `Escape` to exit measurement mode
-- Measurement updates emitted to Python as `MeasurementUpdate` objects with distances and coordinates
-
-See [examples/11_measurement_tool.py](examples/11_measurement_tool.py) for a complete working example.
-<img width="653" height="416" alt="image" src="https://github.com/user-attachments/assets/90479971-749a-43e2-8534-58b3cb0ecd6c" />
-
-### FeatureTableWidget
-
-High-performance table widget for displaying and managing features:
-
-```python
-from pyopenlayersqt.features_table import FeatureTableWidget, ColumnSpec
-
-# Define columns
-columns = [
-    ColumnSpec("Layer", lambda r: r.get("layer_kind", "")),
-    ColumnSpec("Type", lambda r: r.get("geom_type", "")),
-    ColumnSpec("ID", lambda r: r.get("feature_id", "")),
-    ColumnSpec(
-        "Latitude",
-        lambda r: r.get("center_lat", ""),
-        fmt=lambda v: f"{float(v):.6f}" if v != "" else ""
-    ),
-    ColumnSpec(
-        "Longitude",
-        lambda r: r.get("center_lon", ""),
-        fmt=lambda v: f"{float(v):.6f}" if v != "" else ""
-    ),
-]
-
-# Create table
-table = FeatureTableWidget(
-    columns=columns,
-    key_fn=lambda r: (str(r.get("layer_id", "")), str(r.get("feature_id", ""))),
-    debounce_ms=90
-)
-
-# Add rows
-rows = [
-    {
-        "layer_kind": "vector",
-        "layer_id": "v1",
-        "feature_id": "pt1",
-        "geom_type": "point",
-        "center_lat": 37.7749,
-        "center_lon": -122.4194
-    }
-]
-table.append_rows(rows)
-
-# Sync selection: table -> map
-def on_table_selection(keys):
-    # keys is list of (layer_id, feature_id) tuples
-    for layer_id, feature_id in keys:
-        # Update map selection based on layer type
-        pass
-
-table.selectionKeysChanged.connect(on_table_selection)
-
-# Sync selection: map -> table
-def on_map_selection(selection):
-    keys = [(selection.layer_id, fid) for fid in selection.feature_ids]
-    table.select_keys(keys, clear_first=True)
+def on_map_selection(selection: FeatureSelection) -> None:
+    print(selection.layer_id, selection.feature_ids)
 
 map_widget.selectionChanged.connect(on_map_selection)
-
-# Optional: built-in right-click menu actions
-from pyopenlayersqt.features_table import ContextMenuActionSpec
-
-
-def view_metadata(event):
-    # event.keys -> [(layer_id, feature_id), ...]
-    # event.rows -> underlying row objects for selected rows
-    print("Metadata:", event.rows)
-
-
-def delete_selected(event):
-    if event.keys:
-        table.remove_keys(event.keys)
-
-
-table.set_context_menu_actions([
-    ContextMenuActionSpec("View Metadata", view_metadata),
-    ContextMenuActionSpec("Delete Selected", delete_selected),
-])
-
-# Optional hook for custom menus owned by your GUI code
-# table.contextMenuRequested.connect(on_context_menu_requested)
 ```
 
+Why this design: IDs are cheap to pass across the Python/JavaScript boundary and they compose naturally with tables, deletion, filtering, and parent/child relationships. Instead of moving full row objects through map events, the map reports identity and your Python data model resolves the details.
 
-#### Virtual/lazy row providers
-
-For very large datasets, use a row provider instead of appending one Python row
-object per table row. A provider implements the small `TableRowProvider` protocol:
-`row_count()`, `data(source_row, column, column_spec)`, `key(source_row)`,
-`row_for_key(key)`, and `row_data(source_row)`. The table keeps the same
-selection API (`selectionKeysChanged`, `select_keys()`, `select_feature_ids()`,
-and `set_visible_row_indices()`), but resolves display values and selection keys
-lazily through the provider.
+Programmatic selection uses layer-specific methods on `OLMapWidget`:
 
 ```python
-from pyopenlayersqt.features_table import ColumnSpec, FeatureTableWidget
+map_widget.set_vector_selection(vector_layer.id, ["sf"], emit=False)
+map_widget.set_fast_points_selection(fast_layer.id, ["pt_1", "pt_2"], emit=False)
+map_widget.set_fast_geopoints_selection(geo_layer.id, ["gps_1"], emit=False)
+```
 
+### Feature tables
 
-class ArrayBackedProvider:
-    def __init__(self, layer_id, names, values):
-        self.layer_id = layer_id
-        self.names = names
-        self.values = values
+`FeatureTableWidget` gives users a non-map view of the same objects. It is useful for sorting, inspecting attributes, right-click actions, batch selection, and filtering results that are hard to express spatially.
 
-    def row_count(self):
-        return len(self.names)
+The table uses the same identity model as the map: each row has a `(layer_id, feature_id)` key.
 
-    def data(self, source_row, column, column_spec):
-        if column_spec.name == "ID":
-            return f"pt_{source_row}"
-        if column_spec.name == "Name":
-            return self.names[source_row]
-        if column_spec.name == "Value":
-            return self.values[source_row]
-        return ""
-
-    def key(self, source_row):
-        return (self.layer_id, f"pt_{source_row}")
-
-    def row_for_key(self, key):
-        layer_id, feature_id = key
-        if layer_id != self.layer_id or not feature_id.startswith("pt_"):
-            return None
-        row = int(feature_id[3:])
-        return row if 0 <= row < self.row_count() else None
-
-    def row_data(self, source_row):
-        return {
-            "feature_id": f"pt_{source_row}",
-            "name": self.names[source_row],
-            "value": self.values[source_row],
-        }
-
+```python
+from pyopenlayersqt import ColumnSpec, FeatureTableWidget
 
 table = FeatureTableWidget(
     columns=[
-        ColumnSpec("ID", lambda row: row.get("feature_id", "")),
-        ColumnSpec("Name", lambda row: row.get("name", "")),
-        ColumnSpec("Value", lambda row: row.get("value", "")),
+        ColumnSpec("Name", lambda row: row["name"]),
+        ColumnSpec("Value", lambda row: row["value"], fmt=lambda value: f"{value:.1f}"),
     ],
-    sorting_enabled=False,
+    key_fn=lambda row: (fast_layer.id, row["id"]),
 )
-table.set_row_provider(ArrayBackedProvider("measurements", names, values))
+table.append_rows(rows)
 ```
 
-See [examples/19_virtual_feature_table.py](examples/19_virtual_feature_table.py)
-for a minimal runnable example.
+Use table helpers for common application actions:
 
-#### Multi-table linking pattern
+- `selected_keys()` returns selected `(layer_id, feature_id)` pairs for map operations.
+- `select_feature_ids(layer_id, ids)` mirrors map selection into the table.
+- `hide_rows_by_keys(keys)`, `show_rows_by_keys(keys)`, and `show_all_rows()` implement filtering without rebuilding the model.
+- `remove_keys(keys)` removes known feature rows; `remove_where(predicate)` removes rows by row data.
+- `set_row_provider(provider)` enables virtual/lazy row access for large tables.
 
-For parent/child selection workflows (including **one parent + many child tables**), use
-`TableLink` + `MultiSelectLink` from `pyopenlayersqt.selection_linking`.
+Context menus are built around `TableContextMenuEvent`, so callbacks receive both identity (`keys`) and data (`rows`):
+
+```python
+from PySide6.QtWidgets import QMenu
+from pyopenlayersqt import TableContextMenuEvent
+
+
+def open_menu(event: TableContextMenuEvent) -> None:
+    menu = QMenu()
+    inspect = menu.addAction(f"Inspect {len(event.keys)} selected row(s)")
+    if menu.exec(event.global_pos) == inspect:
+        print(event.keys, event.rows)
+
+table.contextMenuRequested.connect(open_menu)
+```
+
+### Parent/child selection linking
+
+Many applications do not have one flat feature list. A user selects a region and expects sites to select; a user selects a device and expects related events to appear; a user clicks child records and expects the parent context to update. The linking helpers implement this pattern with explicit mapping dictionaries instead of ad hoc signal chains.
+
+- `TableLink` says which table belongs to which map layer or metadata key space.
+- `MultiSelectLink` is the general implementation: one parent table/layer can drive any number of named child table/layer pairs. Use it when a parent selection fans out to multiple child collections, or when the workflow may grow that way.
+- `DualSelectLink` is intentionally smaller: it is a thin one-child wrapper around `MultiSelectLink` with `child=` and `parent_by_child=` arguments instead of a `kids={...}` dictionary. It is not a separate synchronization model; it exists to make the common two-view case easier to read.
+
+`DualSelectLink` is redundant in capability but useful in ergonomics. Use it when you know there is exactly one child table/layer. Use `MultiSelectLink` when there is more than one child, when children are metadata-only, or when the UI is likely to expand.
 
 ```python
 from pyopenlayersqt import MultiSelectLink, TableLink
-
-# parent table/layer
-parent = TableLink(table=regions_table, layer=region_layer)
-
-# any number of child table/layers
-kids = {
-    "sites": TableLink(table=sites_table, layer=sites_layer),
-    "assets": TableLink(table=assets_table, layer=assets_layer),
-    "tickets": TableLink(table=tickets_table, layer=tickets_layer),
-}
-
-# mapping for each child table: child_feature_id -> parent_feature_id
-parent_by_kid = {
-    "sites": site_to_region,
-    "assets": asset_to_region,
-    "tickets": ticket_to_region,
-}
-
-link = MultiSelectLink(
-    map_widget=map_widget,
-    parent=parent,
-    kids=kids,
-    parent_by_kid=parent_by_kid,
-    clear_parent_on_kid_subset=True,
-)
-
-# If mappings change later (e.g., data reload)
-link.set_links(parent_by_kid)
-
-# Programmatic parent selection fans out to all child tables/layers
-link.set_parent(["region_1", "region_5"])
-```
-
-For metadata-only child rows (no map layer), use `key_layer_id`:
-
-```python
-metadata_table = FeatureTableWidget(
-    columns=[...],
-    key_fn=lambda r: (region_layer.id, str(r["site_uuid"])),
-)
-
-link = MultiSelectLink(
-    map_widget=map_widget,
-    parent=TableLink(table=regions_table, layer=region_layer),
-    kids={
-        "site_metadata": TableLink(
-            table=metadata_table,
-            key_layer_id=region_layer.id,
-        )
-    },
-    parent_by_kid={"site_metadata": site_to_region},
-)
-```
-
-**Design pattern:**
-- Keep one authoritative parent entity (e.g., Region).
-- For each child table, maintain a lightweight `child_id -> parent_id` dict.
-- Feed all child mappings into one `MultiSelectLink` instance.
-- Let the link own Qt signal wiring and map/table sync logic (instead of per-view glue code).
-
-**How to choose the linking field (id/uuid/etc):**
-- `MultiSelectLink` matches on **feature IDs** (the second value in each table key tuple).
-- Use the same canonical ID string in 3 places:
-  1. table key (`key_fn`),
-  2. map feature `ids=[...]`,
-  3. mapping dict (`child_id -> parent_id`).
-- Example rule of thumb: **`region_uuid` in your data becomes the map/table `region_id`**.
-
-```python
-# 3+ table example with explicit UUID -> ID mapping
-# parent entity = Region
-# canonical parent ID used by linking = str(region["region_uuid"])
-
-regions_table = FeatureTableWidget(
-    columns=[...],
-    key_fn=lambda r: (region_layer.id, str(r["region_uuid"])),
-)
-sites_table = FeatureTableWidget(
-    columns=[...],
-    key_fn=lambda r: (sites_layer.id, str(r["site_uuid"])),
-)
-assets_table = FeatureTableWidget(
-    columns=[...],
-    key_fn=lambda r: (assets_layer.id, str(r["asset_uuid"])),
-)
-tickets_table = FeatureTableWidget(
-    columns=[...],
-    key_fn=lambda r: (tickets_layer.id, str(r["ticket_uuid"])),
-)
-
-# Map feature IDs must match table key IDs
-region_layer.add_points(region_coords, ids=[str(r["region_uuid"]) for r in region_rows])
-sites_layer.add_points(site_coords, ids=[str(r["site_uuid"]) for r in site_rows])
-assets_layer.add_points(asset_coords, ids=[str(r["asset_uuid"]) for r in asset_rows])
-tickets_layer.add_points(ticket_coords, ids=[str(r["ticket_uuid"]) for r in ticket_rows])
-
-# Child -> parent mappings (child UUID -> parent Region UUID)
-site_to_region = {str(x["site_uuid"]): str(x["region_uuid"]) for x in site_rows}
-asset_to_region = {str(x["asset_uuid"]): str(x["region_uuid"]) for x in asset_rows}
-ticket_to_region = {str(x["ticket_uuid"]): str(x["region_uuid"]) for x in ticket_rows}
 
 link = MultiSelectLink(
     map_widget=map_widget,
@@ -1214,238 +266,254 @@ link = MultiSelectLink(
     kids={
         "sites": TableLink(table=sites_table, layer=sites_layer),
         "assets": TableLink(table=assets_table, layer=assets_layer),
-        "tickets": TableLink(table=tickets_table, layer=tickets_layer),
     },
     parent_by_kid={
-        "sites": site_to_region,
-        "assets": asset_to_region,
-        "tickets": ticket_to_region,
+        "sites": site_id_to_region_id,
+        "assets": asset_id_to_region_id,
     },
 )
+
+link.set_parent(["region_1"])
 ```
 
-As long as that ID contract is consistent, the original field names can be anything
-(`id`, `uuid`, `pk`, etc.).
-
-**About fan-out chains (Table1 -> Table2 -> Table3):**
-- A single `MultiSelectLink` supports **one level** of fan-out (parent -> many children).
-- For deeper cascades, compose multiple links:
-  - Link A: `Table1` parent -> `Table2` children
-  - Link B: `Table2` parent -> `Table3` children
-- In other words: yes, this pattern supports that workflow by chaining links per level.
-
-See [examples/13_dual_table_linking.py](examples/13_dual_table_linking.py) for the map-to-map version and [examples/16_metadata_only_table_linking.py](examples/16_metadata_only_table_linking.py) for the map-to-metadata-only version.
-
-#### Row removal APIs: `remove_keys` vs `remove_where`
-
-`FeatureTableWidget` provides two row-removal methods for different use cases:
-
-- `table.remove_keys(keys)`
-  - Use when you already know the exact `(layer_id, feature_id)` keys to remove.
-  - Best for map-driven actions like deleting selected features from one or more
-    layers, because keys are already available from selection events.
-  - Example:
-
-    ```python
-    selected_keys = table.selected_keys()  # [(layer_id, feature_id), ...]
-    if selected_keys:
-        table.remove_keys(selected_keys)
-    ```
-
-- `table.remove_where(predicate)`
-  - Use when removal logic depends on arbitrary row attributes/conditions rather
-    than known keys.
-  - Example:
-
-    ```python
-    # Remove all rows from a specific layer kind
-    table.remove_where(lambda row: row.get("layer_kind") == "geo_points")
-    ```
-
-In short: prefer `remove_keys` for explicit feature-ID removals (typical CRUD
-flows), and `remove_where` for ad-hoc, attribute-based filtering/removal.
-
-### RangeSliderWidget
-
-Dual-handle range slider for filtering features by numeric or timestamp ranges:
+For one parent and one child, the same relationship can be written with `DualSelectLink` without inventing a child name:
 
 ```python
-from pyopenlayersqt.range_slider import RangeSliderWidget
-from pyopenlayersqt import FastPointsStyle
+from pyopenlayersqt import DualSelectLink, TableLink
 
-# Create a fast points layer (required for hide/show features)
-fast_layer = map_widget.add_fast_points_layer(
-    "filterable_points",
-    selectable=True,
-    style=FastPointsStyle(radius=3.0, default_color="green")
+link = DualSelectLink(
+    map_widget=map_widget,
+    parent=TableLink(table=regions_table, layer=region_layer),
+    child=TableLink(table=sites_table, layer=sites_layer),
+    parent_by_child=site_id_to_region_id,
+)
+link.set_child(["site_1", "site_2"], clear_parent=True)
+```
+
+The important rule is that IDs must match in three places: the map feature ID, the table key, and the child-to-parent mapping dictionary.
+
+### Filtering
+
+Filtering should not require rebuilding the map on every user interaction. The fast layers and table widget expose hide/show APIs so sliders can adjust visibility while preserving selection and row identity.
+
+Use `RangeSliderWidget` for numeric ranges or simple timestamp ranges:
+
+```python
+from pyopenlayersqt import RangeSliderWidget
+
+slider = RangeSliderWidget(min_val=0.0, max_val=100.0, step=1.0, label="Value")
+
+
+def apply_value_filter(lo: float, hi: float) -> None:
+    visible = [row["id"] for row in rows if lo <= row["value"] <= hi]
+    visible_set = set(visible)
+    hidden = [row["id"] for row in rows if row["id"] not in visible_set]
+    fast_layer.show_features(visible)
+    fast_layer.hide_features(hidden)
+    table.show_rows_by_keys([(fast_layer.id, fid) for fid in visible])
+    table.hide_rows_by_keys([(fast_layer.id, fid) for fid in hidden])
+
+slider.rangeChanged.connect(apply_value_filter)
+```
+
+Use `TimeHistogramSliderWidget` when users need to see the time distribution before choosing a window. It inherits the same range signal and adds histogram distribution methods:
+
+```python
+from pyopenlayersqt import TimeHistogramSliderWidget
+
+slider = TimeHistogramSliderWidget(label="Observation time", show_x_axis=True)
+slider.set_available_range("2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z")
+slider.set_distribution_values([row["timestamp"] for row in rows])
+slider.rangeChanged.connect(apply_time_filter)
+```
+
+### Tiles, WMS, and raster overlays
+
+Feature layers show your application data. Tile, WMS, and raster layers provide map context or generated imagery.
+
+Use them when you need:
+
+- A custom basemap or internal tile service.
+- Authoritative GIS context from a WMS server.
+- A generated overlay such as a heatmap, model output image, or local PNG.
+
+```python
+from pyopenlayersqt import TileLayerOptions, WMSOptions, RasterStyle
+
+tiles = map_widget.add_tile_layer(
+    TileLayerOptions(
+        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        opacity=0.8,
+        attribution="© OpenStreetMap contributors",
+    ),
+    name="reference",
 )
 
-# Numeric range slider
-value_slider = RangeSliderWidget(
-    min_val=0.0,
-    max_val=100.0,
-    step=1.0,
-    label="Filter by Value"
+wms = map_widget.add_wms(
+    WMSOptions(
+        url="https://example.com/geoserver/wms",
+        params={"LAYERS": "workspace:layer", "TILED": True},
+        opacity=0.6,
+    ),
+    name="wms",
 )
 
-# Connect to filter function
-def on_value_range_changed(min_val, max_val):
-    # Filter features based on value range
-    visible_ids = [f["id"] for f in features if min_val <= f["value"] <= max_val]
-    hidden_ids = [f["id"] for f in features if not (min_val <= f["value"] <= max_val)]
-    
-    # Hide/show features on map (FastPointsLayer and FastGeoPointsLayer only)
-    if hidden_ids:
-        fast_layer.hide_features(hidden_ids)
-    if visible_ids:
-        fast_layer.show_features(visible_ids)
-    
-    # Hide/show rows in table
-    layer_id = fast_layer.id
-    table.hide_rows_by_keys([(layer_id, fid) for fid in hidden_ids])
-    table.show_rows_by_keys([(layer_id, fid) for fid in visible_ids])
-
-value_slider.rangeChanged.connect(on_value_range_changed)
-
-# ISO8601 timestamp range slider (can be created before values are available)
-timestamp_slider = RangeSliderWidget(
-    is_iso8601=True,
-    label="Filter by Timestamp"
+raster = map_widget.add_raster_image(
+    image_url=png_bytes,
+    bounds=[(34.0, -119.0), (35.0, -118.0)],  # southwest, northeast
+    style=RasterStyle(opacity=0.7),
+    name="heatmap",
 )
-
-# Later, after loading data:
-timestamp_slider.set_range("2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z")
-
-timestamp_slider.rangeChanged.connect(on_timestamp_range_changed)
-
-# Reset filters - show all features again
-fast_layer.show_all_features()  # Show all on map
-table.show_all_rows()  # Show all in table
 ```
 
-See [examples/10_range_slider_filtering.py](examples/10_range_slider_filtering.py) for a complete working example with map and table filtering.
-<img width="703" height="467" alt="image" src="https://github.com/user-attachments/assets/e3462ace-cc19-44fc-8200-42a6bcd7ad26" />
+These image-based layers can be shown, hidden, updated, and removed. They do not emit per-feature selections because they do not expose individual feature IDs to the widget.
 
-## Complete Example
+### Measurement and view extent callbacks
 
-For a comprehensive demonstration of all features, see the complete working example at [examples/08_table_integration.py](examples/08_table_integration.py). This example includes:
-- Vector and fast points layers
-- Feature table with bidirectional selection sync
-- Sample data generation
-- Layer management
-
-## View Extent Tracking
-
-Monitor map extent changes for dynamic data loading:
+Measurement mode is for applications where the user needs quick map-derived distances without leaving the workflow. Each click emits a `MeasurementUpdate` with the clicked coordinate and cumulative distance.
 
 ```python
-# One-time extent request
-def on_extent(extent):
-    print(f"Extent: {extent['lon_min']}, {extent['lat_min']} to "
-          f"{extent['lon_max']}, {extent['lat_max']}")
-    print(f"Zoom: {extent['zoom']}, Resolution: {extent['resolution']}")
+from pyopenlayersqt import MeasurementUpdate
 
-map_widget.get_view_extent(on_extent)
 
-# Watch extent changes (debounced)
-def on_extent_changed(extent):
-    # Load data for current extent
-    load_data_for_extent(extent)
+def on_measurement(update: MeasurementUpdate) -> None:
+    print(update.point_index, update.lat, update.lon, update.cumulative_distance_m)
 
-handle = map_widget.watch_view_extent(on_extent_changed, debounce_ms=150)
-
-# Stop watching
-handle.cancel()
+map_widget.on_measurement_updated(on_measurement)
+map_widget.set_measure_mode(True)
 ```
 
-## Advanced: Direct JavaScript Communication
-
-For advanced use cases, you can send custom messages to the JavaScript bridge:
+Extent callbacks are for dynamic loading and viewport-aware refreshes. Use a one-shot extent request when you need the current bounds, or a debounced watcher when panning/zooming should trigger data loading.
 
 ```python
-# Send custom message to JavaScript
-map_widget.send({
-    "type": "custom_command",
-    "param1": "value1",
-    "param2": 123
-})
+map_widget.get_view_extent(lambda extent: print(extent))
 
-# Listen to JavaScript events
-def on_js_event(event_type, payload_json):
-    print(f"Event: {event_type}, Payload: {payload_json}")
-
-map_widget.jsEvent.connect(on_js_event)
+handle = map_widget.watch_view_extent(load_data_for_extent, debounce_ms=150)
+# later: handle.close()
 ```
 
-### Right-click map context menu (custom app actions)
+## Public API reference
 
-The map emits a `contextmenu` JavaScript event when users right-click anywhere on
-the map. The payload includes map coordinates and (if applicable) the clicked
-feature id/layer id, so you can open a custom Qt menu.
+This section lists the package-level public exports from `pyopenlayersqt`. The examples above show how the pieces fit together; this reference explains what each exported symbol is for.
 
-```python
-import json
-from PySide6 import QtCore, QtWidgets
+### Map widget
 
-def on_js_event(event_type, payload_json):
-    if event_type != "contextmenu":
-        return
-    payload = json.loads(payload_json)
-    lat = payload["lat"]
-    lon = payload["lon"]
-    feature_id = payload.get("feature_id")
+| Symbol | Purpose |
+| --- | --- |
+| `OLMapWidget` | Main `QWebEngineView` map widget. Add layers, control the view, receive selection/measurement/extent signals. |
 
-    menu = QtWidgets.QMenu()
-    create_action = menu.addAction("Create point here")
-    if feature_id:
-        open_action = menu.addAction(f"Open dialog for {feature_id}")
+### Styles and options
 
-    # map client coordinates -> global screen coordinates
-    global_pos = map_widget.mapToGlobal(
-        QtCore.QPoint(int(payload["client_x"]), int(payload["client_y"]))
-    )
-    chosen = menu.exec(global_pos)
+| Symbol | Use it for | Key fields |
+| --- | --- | --- |
+| `PointStyle` | Circle marker points in `VectorLayer`. | `radius`, `fill_color`, `fill_opacity`, `stroke_color`, `stroke_width`, `stroke_opacity`. |
+| `IconStyle` | Advanced image-icon point styling. Most callers use `VectorLayer.add_icon_points()` instead of creating it directly. | `icon_src`, `selected_icon_src`, `scale`, `opacity`, `anchor`, `rotation_deg`, `rotate_with_view`. |
+| `PolygonStyle` | Polygons, lines, and gradient lines. | `stroke_color`, `stroke_width`, `stroke_opacity`, `fill_color`, `fill_opacity`, `fill`. |
+| `CircleStyle` | Circle features added by center and radius. | Same outline/fill fields as polygon styles. |
+| `EllipseStyle` | Vector ellipses. | Same outline/fill fields as polygon styles. |
+| `RasterStyle` | Image overlay styling. | `opacity`. |
+| `WMSOptions` | WMS layer configuration. | `url`, `params`, `opacity`. |
+| `TileLayerOptions` | Generic XYZ/OSM tile layer configuration. | `url`, `opacity`, `attribution`. |
+| `FastPointsStyle` | Fast point layer styling. | `radius`, `default_color`, `selected_color`, `selected_radius`; legacy RGBA tuple fields are still accepted. |
+| `FastGeoPointsStyle` | Fast point + uncertainty ellipse styling. | Point color/radius fields plus ellipse stroke/fill visibility and color fields. |
 
-    if chosen == create_action:
-        create_point(lat, lon)
-    elif feature_id and chosen == open_action:
-        open_point_dialog(feature_id)
+### Payloads and type aliases
 
-map_widget.jsEvent.connect(on_js_event)
-```
+| Symbol | Purpose | Fields/shape |
+| --- | --- | --- |
+| `LatLon` | Public coordinate alias. | `(lat: float, lon: float)`. |
+| `FeatureSelection` | Emitted by `OLMapWidget.selectionChanged`. | `layer_id`, `feature_ids`, `count`, `raw`. |
+| `MeasurementUpdate` | Emitted by measurement callbacks. | `point_index`, `lat`, `lon`, `segment_distance_m`, `cumulative_distance_m`. |
 
-For a complete runnable demo, see
-[examples/17_map_right_click_context_menu.py](examples/17_map_right_click_context_menu.py).
+### Layers
 
-## Performance Tips
+| Symbol | Created by | Main use |
+| --- | --- | --- |
+| `FastPointsLayer` | `OLMapWidget.add_fast_points_layer()` | High-volume selectable points with fast hide/show and recoloring. |
+| `FastGeoPointsLayer` | `OLMapWidget.add_fast_geopoints_layer()` | High-volume points with uncertainty ellipses. |
 
-1. **Use Fast Layers for Large Datasets**: For > 1000 points, use `FastPointsLayer` or `FastGeoPointsLayer` instead of vector layers
-2. **Tune Cell Size**: Adjust `cell_size_m` parameter based on your data density (larger = faster, but less precise selection)
-3. **Chunk Large Additions**: `FastGeoPointsLayer.add_points_with_ellipses()` automatically chunks data (default 50k points per chunk)
-4. **Debounce Extent Watching**: Use appropriate `debounce_ms` when watching extent changes to avoid excessive updates
-5. **Cull Tiny Ellipses**: Set `min_ellipse_px` in `FastGeoPointsStyle` to skip rendering very small ellipses
+`VectorLayer`, `WMSLayer`, `TileLayer`, and `RasterLayer` are returned by map methods but are not currently exported at package level. Use the objects returned from `OLMapWidget` methods rather than importing those classes directly.
 
-## Architecture
+### Tables and linking
 
-- **Python → JavaScript**: Commands sent via `window.pyolqt_send()` 
-- **JavaScript → Python**: Events sent via Qt Web Channel (`qtBridge.emitEvent()`)
-- **Static Assets**: Served by embedded HTTP server (wheel-safe)
-- **Raster Overlays**: Written to user cache directory and served dynamically
+| Symbol | Purpose |
+| --- | --- |
+| `ColumnSpec` | Defines one `FeatureTableWidget` column: label, getter, optional formatter, tooltip, sort key, and edit setter. |
+| `FeatureTableWidget` | Reusable Qt table for feature rows and selection keys. |
+| `ContextMenuActionSpec` | Declarative table context-menu action: label, callback, and whether it is enabled with no selection. |
+| `TableContextMenuEvent` | Context-menu payload with selected keys, row indices, row data, and click positions. |
+| `TableRowProvider` | Protocol for virtual/lazy table data sources. Implement it for very large tables. |
+| `TableLink` | Binds one table to one layer or to a metadata-only `key_layer_id`. |
+| `MultiSelectLink` | General parent/child synchronizer. Use for one parent linked to multiple named child table/layer pairs, or when the workflow may grow beyond one child. |
+| `DualSelectLink` | One-child convenience wrapper around `MultiSelectLink`. Equivalent capability for the simple two-view case, but with clearer `child` / `parent_by_child` arguments. |
+
+### Filter widgets
+
+| Symbol | Purpose |
+| --- | --- |
+| `RangeSliderWidget` | Dual-handle numeric or ISO8601 timestamp range filter. Emits `rangeChanged(min_value, max_value)`. |
+| `TimeHistogramSliderWidget` | ISO8601 range filter with a histogram. Inherits the `RangeSliderWidget` contract and adds distribution methods. |
+
+### Version
+
+`__version__` is exported at package level and resolves to the installed package version, with a local `pyproject.toml` fallback for editable checkouts.
+
+## Examples
+
+The `examples/` directory is the best next stop after the Quick Start:
+
+- `01_basic_map_with_markers.py` - Basic map with styled markers.
+- `02_layer_types_and_styling.py` - Vector geometry and style classes.
+- `03_fast_points_performance.py` - Large point rendering.
+- `04_wms_and_base_layers.py` - WMS and base-layer controls.
+- `05_raster_overlay.py` - In-memory PNG/raster overlays.
+- `06_geo_uncertainty_ellipses.py` - Fast geo-points with uncertainty ellipses.
+- `07_feature_selection.py` - Map selection callbacks.
+- `08_table_integration.py` - Map/table selection synchronization.
+- `09_selection_and_recoloring.py` - Selection-driven recoloring.
+- `10_range_slider_filtering.py` - Slider-based filtering.
+- `11_measurement_tool.py` - Distance measurement mode.
+- `12_coordinate_display.py` - Coordinate display toggle.
+- `13_dual_table_linking.py` - `DualSelectLink` parent/child workflow.
+- `16_metadata_only_table_linking.py` - Large parent layer linked to metadata-only child rows.
+- `17_map_right_click_context_menu.py` - Map right-click context menus.
+- `18_gradient_track_speed.py` - Segment color gradients for tracks.
+- `19_virtual_feature_table.py` - Lazy/virtual table provider.
+
+## Performance notes
+
+- Prefer `FastPointsLayer` or `FastGeoPointsLayer` for large point sets.
+- Keep feature IDs as short stable strings; they are used for selection, table keys, and mapping dictionaries.
+- Use hide/show methods for interactive filtering instead of removing and re-adding features on every slider movement.
+- Use `FeatureTableWidget.set_row_provider()` for very large tables so rows can be resolved lazily.
+- Use `watch_view_extent(..., debounce_ms=...)` for dynamic loading instead of loading on every raw map movement.
+- Raster overlays can be passed as bytes, which is useful for generated heatmaps.
+
+## API compatibility
+
+The package-level symbols listed in [Public API reference](#public-api-reference) are the documented public surface for application code. The important compatibility contracts are:
+
+- Coordinates passed to Python APIs use `LatLon` / `(lat, lon)`.
+- Selectable map objects are identified by caller-provided string feature IDs.
+- Map/table synchronization uses `(layer_id, feature_id)` keys.
+- `FeatureSelection`, `MeasurementUpdate`, `RangeSliderWidget.rangeChanged`, and `FeatureTableWidget.selectionKeysChanged` are the recommended callback contracts.
+- Prefer documented widget, layer, and style classes over private JavaScript bridge details.
+
+Legacy RGBA tuple style fields are still accepted for fast-layer styles. For new code, prefer `QColor`, color names, hex strings, or CSS strings where supported.
 
 ## License
 
-MIT License
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues or pull requests.
-
-For maintainers, see [CONTRIBUTING.md](CONTRIBUTING.md) for information on creating releases and publishing to PyPI.
+Contributions are welcome. Please feel free to submit a Pull Request.
 
 ## Credits
 
 Built with:
-- [OpenLayers](https://openlayers.org/) - High-performance web mapping library
-- [PySide6](https://doc.qt.io/qtforpython/) - Qt for Python
-- [NumPy](https://numpy.org/) - Numerical computing
-- [Matplotlib](https://matplotlib.org/) - Plotting and colormaps
+
+- [OpenLayers](https://openlayers.org/) - Maps and geospatial rendering
+- [PySide6](https://doc.qt.io/qtforpython/) - Qt bindings for Python
+- [NumPy](https://numpy.org/) - High-performance numerical operations
+- [Pillow](https://python-pillow.org/) - Image processing for raster overlays
