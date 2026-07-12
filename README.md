@@ -389,7 +389,7 @@ Extent callbacks are for dynamic loading and viewport-aware refreshes. Use a one
 map_widget.get_view_extent(lambda extent: print(extent))
 
 handle = map_widget.watch_view_extent(load_data_for_extent, debounce_ms=150)
-# later: handle.close()
+# later: handle.cancel()
 ```
 
 ## Public API reference
