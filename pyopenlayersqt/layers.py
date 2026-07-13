@@ -764,6 +764,14 @@ class WMSLayer(BaseLayer):
             {"type": "wms.set_params", "layer_id": self.id, "params": dict(params)}
         )
 
+    def set_selectable(self, selectable: bool) -> None:
+        """WMS layers do not expose selectable features."""
+        raise NotImplementedError("WMSLayer does not support set_selectable()")
+
+    def clear(self) -> None:
+        """WMS layers do not contain client-side features to clear."""
+        raise NotImplementedError("WMSLayer does not support clear()")
+
 
 class TileLayer(BaseLayer):
     _layer_type_prefix = "tile"
@@ -786,6 +794,14 @@ class TileLayer(BaseLayer):
                 "attribution": self.opt.attribution,
             }
         )
+
+    def set_selectable(self, selectable: bool) -> None:
+        """Tile layers do not expose selectable features."""
+        raise NotImplementedError("TileLayer does not support set_selectable()")
+
+    def clear(self) -> None:
+        """Tile layers do not contain client-side features to clear."""
+        raise NotImplementedError("TileLayer does not support clear()")
 
 
 class RasterLayer(BaseLayer):
@@ -833,6 +849,16 @@ class RasterLayer(BaseLayer):
     def set_style(self, style: RasterStyle) -> None:
         self.style = style
         self.set_opacity(style.opacity)
+
+    def set_visible(self, visible: bool) -> None:
+        """Set the visibility of this raster layer."""
+        self._map_widget._send(
+            {
+                "type": "raster.set_visible",
+                "layer_id": self.id,
+                "visible": bool(visible),
+            }
+        )
 
 
 class FastPointsLayer(BaseLayer):
