@@ -28,6 +28,12 @@ const state = {
     qtBridge: null,
     selectInteraction: null,
     dragBox: null,
+    vertexMoveInteraction: null,
+    vertexModifyInteraction: null,
+    translateInteraction: null,
+    vertexMoveFeatures: null,
+    vertexModifyFeatures: null,
+    gradientTranslateDeltas: new Map(),
     base_layer: null,
     viewInteracting: false,
     // Measurement mode state
@@ -2865,6 +2871,184 @@ function cmd_countries_set_visible(msg) {
 }
 
 
+  function normalize_vertex_editing_mode(value, fallback) {
+    const raw = (value == null) ? fallback : value;
+    if (raw === true) return "move";
+    if (raw === false) return "none";
+    const mode = String(raw == null ? "move" : raw).toLowerCase();
+    if (["none", "off", "false", "disabled"].includes(mode)) return "none";
+    if (["move", "vertices", "existing", "existing_vertices"].includes(mode)) return "move";
+    if (["modify", "full", "insert", "insert_delete", "all"].includes(mode)) return "modify";
+    return "move";
+  }
+
+  function vector_feature_is_movable(feature, layer) {
+    if (!feature || feature.get("_pyolqt_handle")) return false;
+    const layer_id = feature.get("_layer_id") || (layer ? state.layerByObj.get(layer) : null);
+    if (!layer_id) return false;
+    const e = state.layers.get(layer_id);
+    if (!e || e.type !== "vector" || !e.movable) return false;
+    return feature.get("_pyolqt_movable") !== false;
+  }
+
+  function vector_feature_vertex_mode(feature) {
+    if (!feature || feature.get("_pyolqt_handle")) return "none";
+    if (feature.get("_gradient_parent")) return "none";
+    const shapeKind = feature.get("_pyolqt_shape_kind") || "";
+    if (shapeKind === "circle" || shapeKind === "ellipse") return "none";
+    const layer_id = feature.get("_layer_id") || "";
+    const e = state.layers.get(layer_id);
+    if (!e || e.type !== "vector" || !e.movable) return "none";
+    if (feature.get("_pyolqt_movable") === false) return "none";
+    return normalize_vertex_editing_mode(feature.get("_pyolqt_vertex_editing"), e.vertex_editing);
+  }
+
+  function collection_has(coll, feature) {
+    return coll && coll.getArray().indexOf(feature) !== -1;
+  }
+
+  function update_vector_edit_collection_for_feature(feature) {
+    if (!state.vertexMoveFeatures || !state.vertexModifyFeatures || !feature) return;
+    if (collection_has(state.vertexMoveFeatures, feature)) state.vertexMoveFeatures.remove(feature);
+    if (collection_has(state.vertexModifyFeatures, feature)) state.vertexModifyFeatures.remove(feature);
+    const mode = vector_feature_vertex_mode(feature);
+    if (mode === "move") state.vertexMoveFeatures.push(feature);
+    else if (mode === "modify") state.vertexModifyFeatures.push(feature);
+  }
+
+  function update_vector_edit_collections_for_layer(entry) {
+    if (!entry || entry.type !== "vector") return;
+    entry.source.forEachFeature(update_vector_edit_collection_for_feature);
+  }
+
+  function set_vector_edit_metadata(feature, msg, movableValue) {
+    if (movableValue !== undefined && movableValue !== null) feature.set("_pyolqt_movable", !!movableValue);
+    if (msg.vertex_editing !== undefined && msg.vertex_editing !== null) {
+      feature.set("_pyolqt_vertex_editing", normalize_vertex_editing_mode(msg.vertex_editing, null));
+    }
+  }
+
+  function lonlatlat(coord3857) {
+    const ll = ol.proj.toLonLat(coord3857);
+    return [ll[1], ll[0]];
+  }
+
+  function gradient_parent_geometry_payload(feature) {
+    const parent = feature.get("_gradient_parent");
+    const layer_id = feature.get("_layer_id") || "";
+    const e = state.layers.get(layer_id);
+    if (!parent || !e || e.type !== "vector") return null;
+
+    const segments = [];
+    e.source.forEachFeature((candidate) => {
+      if (candidate.get("_gradient_parent") !== parent) return;
+      const geom = candidate.getGeometry();
+      if (!geom || geom.getType() !== "LineString") return;
+      segments.push({
+        index: Number(candidate.get("_gradient_segment_index") || 0),
+        coords: geom.getCoordinates(),
+      });
+    });
+    segments.sort((a, b) => a.index - b.index);
+    if (!segments.length) return null;
+
+    const coords = [];
+    for (let i = 0; i < segments.length; i++) {
+      const segCoords = segments[i].coords;
+      if (!segCoords.length) continue;
+      if (coords.length === 0) coords.push(segCoords[0]);
+      if (segCoords.length > 1) coords.push(segCoords[segCoords.length - 1]);
+    }
+    return { type: "LineString", coordinates: coords.map(lonlatlat) };
+  }
+
+  function vector_geometry_payload(feature) {
+    const gradientPayload = gradient_parent_geometry_payload(feature);
+    if (gradientPayload) return gradientPayload;
+
+    const geom = feature.getGeometry();
+    const shapeKind = feature.get("_pyolqt_shape_kind") || "";
+    const params = feature.get("_pyolqt_shape_params") || {};
+    if (shapeKind === "circle" || shapeKind === "ellipse") {
+      const center = ol.extent.getCenter(geom.getExtent());
+      if (shapeKind === "circle") return { type: "Circle", center: lonlatlat(center), radius_m: params.radius_m, segments: params.segments };
+      return { type: "Ellipse", center: lonlatlat(center), sma_m: params.sma_m, smi_m: params.smi_m, tilt_deg: params.tilt_deg, segments: params.segments };
+    }
+    const type = geom.getType();
+    if (type === "Point") return { type: "Point", coordinates: lonlatlat(geom.getCoordinates()) };
+    if (type === "LineString") return { type: "LineString", coordinates: geom.getCoordinates().map(lonlatlat) };
+    if (type === "Polygon") return { type: "Polygon", coordinates: geom.getCoordinates().map((ring) => ring.map(lonlatlat)) };
+    return { type };
+  }
+
+  function emit_vector_feature_changed(feature, reason) {
+    if (!feature) return;
+    emitToPython("vector_feature_changed", {
+      layer_id: feature.get("_layer_id") || "",
+      feature_id: vector_logical_feature_id(feature),
+      reason,
+      geometry: vector_geometry_payload(feature),
+    });
+  }
+
+  function install_vector_edit_interactions() {
+    if (!state.map || state.translateInteraction) return;
+    state.vertexMoveFeatures = new ol.Collection();
+    state.vertexModifyFeatures = new ol.Collection();
+    state.translateInteraction = new ol.interaction.Translate({
+      layers: (layer) => {
+        const layer_id = state.layerByObj.get(layer);
+        const e = layer_id ? state.layers.get(layer_id) : null;
+        return !!(e && e.type === "vector" && e.movable);
+      },
+      filter: vector_feature_is_movable,
+    });
+    state.map.addInteraction(state.translateInteraction);
+    state.translateInteraction.on("translatestart", () => state.gradientTranslateDeltas.clear());
+    state.translateInteraction.on("translating", (evt) => translate_gradient_siblings(evt.features, evt.coordinate, evt.startCoordinate));
+    state.translateInteraction.on("translateend", (evt) => {
+      const emitted = new Set();
+      evt.features.forEach((f) => {
+        const fid = vector_logical_feature_id(f);
+        if (emitted.has(fid)) return;
+        emitted.add(fid);
+        emit_vector_feature_changed(f, "translate");
+      });
+      state.gradientTranslateDeltas.clear();
+    });
+    state.vertexMoveInteraction = new ol.interaction.Modify({
+      features: state.vertexMoveFeatures,
+      insertVertexCondition: () => false,
+      deleteCondition: () => false,
+    });
+    state.vertexModifyInteraction = new ol.interaction.Modify({ features: state.vertexModifyFeatures });
+    state.map.addInteraction(state.vertexMoveInteraction);
+    state.map.addInteraction(state.vertexModifyInteraction);
+    state.vertexMoveInteraction.on("modifyend", (evt) => evt.features.forEach((f) => emit_vector_feature_changed(f, "vertex_move")));
+    state.vertexModifyInteraction.on("modifyend", (evt) => evt.features.forEach((f) => emit_vector_feature_changed(f, "vertex_modify")));
+  }
+
+  function translate_gradient_siblings(features, coordinate, startCoordinate) {
+    if (!features || !coordinate || !startCoordinate) return;
+    const totalDx = coordinate[0] - startCoordinate[0];
+    const totalDy = coordinate[1] - startCoordinate[1];
+    features.forEach((f) => {
+      const parent = f.get("_gradient_parent");
+      if (!parent) return;
+      const key = `${f.get("_layer_id")}::${parent}`;
+      const prev = state.gradientTranslateDeltas.get(key) || [0, 0];
+      const dx = totalDx - prev[0], dy = totalDy - prev[1];
+      state.gradientTranslateDeltas.set(key, [totalDx, totalDy]);
+      const e = state.layers.get(f.get("_layer_id"));
+      if (!e) return;
+      e.source.forEachFeature((sib) => {
+        if (sib === f || sib.get("_gradient_parent") !== parent) return;
+        if (features.getArray().indexOf(sib) !== -1) return;
+        const g = sib.getGeometry();
+        if (g) g.translate(dx, dy);
+      });
+    });
+  }
 
 
   function initMap() {
@@ -2984,6 +3168,7 @@ function cmd_countries_set_visible(msg) {
       // no post-interaction clear/redraw cycle is needed.
     });
     fp_install_interactions();
+    install_vector_edit_interactions();
     _install_context_menu_bridge();
     emitReadyIfNeeded();
   }
@@ -2999,7 +3184,7 @@ function cmd_countries_set_visible(msg) {
     const layer = new ol.layer.Vector({ source });
     layer.setOpacity(1.0);
     state.map.addLayer(layer);
-    state.layers.set(msg.layer_id, { type: "vector", layer, source, selectable: !!msg.selectable });
+    state.layers.set(msg.layer_id, { type: "vector", layer, source, selectable: !!msg.selectable, movable: !!msg.movable, vertex_editing: normalize_vertex_editing_mode(msg.vertex_editing, "move") });
     state.layerByObj.set(layer, msg.layer_id);
   }
 
@@ -3056,6 +3241,12 @@ function cmd_countries_set_visible(msg) {
   function cmd_layer_remove(msg) {
     const e = state.layers.get(msg.layer_id);
     if (!e) return;
+    if (e.type === "vector") {
+      e.source.forEachFeature((f) => {
+        if (state.vertexMoveFeatures && collection_has(state.vertexMoveFeatures, f)) state.vertexMoveFeatures.remove(f);
+        if (state.vertexModifyFeatures && collection_has(state.vertexModifyFeatures, f)) state.vertexModifyFeatures.remove(f);
+      });
+    }
     state.map.removeLayer(e.layer);
     state.layerByObj.delete(e.layer);
     state.layers.delete(msg.layer_id);
@@ -3076,6 +3267,9 @@ function cmd_countries_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
     e.source.clear();
+    if (state.vertexMoveFeatures) state.vertexMoveFeatures.clear();
+    if (state.vertexModifyFeatures) state.vertexModifyFeatures.clear();
+    for (const entry of state.layers.values()) update_vector_edit_collections_for_layer(entry);
     if (state.selectInteraction) state.selectInteraction.getFeatures().clear();
   }
 
@@ -3129,8 +3323,10 @@ function cmd_countries_set_visible(msg) {
       f.set("_layer_id", msg.layer_id);
       if (props[i]) for (const [k, v] of Object.entries(props[i])) f.set(k, v);
       f.set("_pyolqt_style", msg.style || {});
+      set_vector_edit_metadata(f, msg, Array.isArray(msg.movable) ? msg.movable[i] : msg.movable);
       f.setStyle(style);
       e.source.addFeature(f);
+      update_vector_edit_collection_for_feature(f);
     }
   }
 
@@ -3145,8 +3341,10 @@ function cmd_countries_set_visible(msg) {
     f.set("_layer_id", msg.layer_id);
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
     f.set("_pyolqt_style", msg.style || {});
+    set_vector_edit_metadata(f, msg, msg.movable);
     f.setStyle(style_from_simple(msg.style || {}));
     e.source.addFeature(f);
+    update_vector_edit_collection_for_feature(f);
   }
 
   function cmd_vector_add_circle(msg) {
@@ -3158,8 +3356,12 @@ function cmd_countries_set_visible(msg) {
     f.set("_layer_id", msg.layer_id);
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
     f.set("_pyolqt_style", msg.style || {});
+    set_vector_edit_metadata(f, msg, msg.movable);
+    f.set("_pyolqt_shape_kind", "circle");
+    f.set("_pyolqt_shape_params", { radius_m: msg.radius_m, segments: msg.segments || 72 });
     f.setStyle(style_from_simple(msg.style || {}));
     e.source.addFeature(f);
+    update_vector_edit_collection_for_feature(f);
   }
 
   function cmd_vector_add_line(msg) {
@@ -3174,8 +3376,10 @@ function cmd_countries_set_visible(msg) {
     f.set("_layer_id", msg.layer_id);
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
     f.set("_pyolqt_style", msg.style || {});
+    set_vector_edit_metadata(f, msg, msg.movable);
     f.setStyle(style_from_simple(msg.style || {}));
     e.source.addFeature(f);
+    update_vector_edit_collection_for_feature(f);
   }
 
 
@@ -3221,10 +3425,12 @@ function cmd_countries_set_visible(msg) {
       const rgba = rgba_from_u32(packedColor);
       rgba[3] = Math.round(rgba[3] * baseStrokeAlpha);
       const color = rgba_to_css(rgba);
+      set_vector_edit_metadata(segFeature, msg, msg.movable);
       segFeature.setStyle(new ol.style.Style({
         stroke: new ol.style.Stroke({ color: color, width: strokeWidth })
       }));
       e.source.addFeature(segFeature);
+      update_vector_edit_collection_for_feature(segFeature);
     }
   }
 
@@ -3237,8 +3443,12 @@ function cmd_countries_set_visible(msg) {
     f.set("_layer_id", msg.layer_id);
     if (msg.properties) for (const [k, v] of Object.entries(msg.properties)) f.set(k, v);
     f.set("_pyolqt_style", msg.style || {});
+    set_vector_edit_metadata(f, msg, msg.movable);
+    f.set("_pyolqt_shape_kind", "ellipse");
+    f.set("_pyolqt_shape_params", { sma_m: msg.sma_m, smi_m: msg.smi_m, tilt_deg: msg.tilt_deg || 0, segments: msg.segments || 96 });
     f.setStyle(style_from_simple(msg.style || {}));
     e.source.addFeature(f);
+    update_vector_edit_collection_for_feature(f);
   }
 
   function cmd_vector_set_opacity(msg) {
@@ -3257,6 +3467,44 @@ function cmd_countries_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
     e.selectable = !!msg.selectable;
+  }
+
+
+  function cmd_vector_set_movable(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "vector") return;
+    e.movable = !!msg.movable;
+    update_vector_edit_collections_for_layer(e);
+  }
+
+  function cmd_vector_set_vertex_editing(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "vector") return;
+    e.vertex_editing = normalize_vertex_editing_mode(msg.vertex_editing, e.vertex_editing);
+    update_vector_edit_collections_for_layer(e);
+  }
+
+  function cmd_vector_set_features_movable(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "vector") return;
+    for (const id of (msg.feature_ids || [])) {
+      for (const f of vector_features_for_id(e.source, id)) {
+        f.set("_pyolqt_movable", !!msg.movable);
+        update_vector_edit_collection_for_feature(f);
+      }
+    }
+  }
+
+  function cmd_vector_set_features_vertex_editing(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "vector") return;
+    const mode = normalize_vertex_editing_mode(msg.vertex_editing, e.vertex_editing);
+    for (const id of (msg.feature_ids || [])) {
+      for (const f of vector_features_for_id(e.source, id)) {
+        f.set("_pyolqt_vertex_editing", mode);
+        update_vector_edit_collection_for_feature(f);
+      }
+    }
   }
 
   function cmd_wms_set_params(msg) {
@@ -3361,6 +3609,10 @@ function cmd_countries_set_visible(msg) {
       case "vector.set_opacity": return cmd_vector_set_opacity(msg);
       case "vector.set_visible": return cmd_vector_set_visible(msg);
       case "vector.set_selectable": return cmd_vector_set_selectable(msg);
+      case "vector.set_movable": return cmd_vector_set_movable(msg);
+      case "vector.set_vertex_editing": return cmd_vector_set_vertex_editing(msg);
+      case "vector.set_features_movable": return cmd_vector_set_features_movable(msg);
+      case "vector.set_features_vertex_editing": return cmd_vector_set_features_vertex_editing(msg);
 
       case "wms.set_params": return cmd_wms_set_params(msg);
       case "wms.set_opacity": return cmd_wms_set_opacity(msg);
@@ -3501,7 +3753,11 @@ function cmd_vector_remove_features(msg) {
   const ids = msg.feature_ids || msg.ids || [];
   for (let i = 0; i < ids.length; i++) {
     const features = vector_features_for_id(e.source, ids[i]);
-    for (const f of features) e.source.removeFeature(f);
+    for (const f of features) {
+      if (state.vertexMoveFeatures && collection_has(state.vertexMoveFeatures, f)) state.vertexMoveFeatures.remove(f);
+      if (state.vertexModifyFeatures && collection_has(state.vertexModifyFeatures, f)) state.vertexModifyFeatures.remove(f);
+      e.source.removeFeature(f);
+    }
   }
 }
 

@@ -116,6 +116,8 @@ See the [examples directory](examples/) for more working examples:
 - `17_map_right_click_context_menu.py` - Right-click anywhere on the map for a custom menu (create new points or open dialogs for existing points)
 - `18_gradient_track_speed.py` - Polyline/track speed visualization with segment color gradients from matplotlib colormaps
 - `19_virtual_feature_table.py` - Minimal lazy/virtual `FeatureTableWidget` row-provider example
+- `20_time_histogram_slider.py` - Demonstrates the time histogram slider
+- `21_movable_vector_features.py` - Movable and vertex-editable vector features, including icon points
 
 ## Core Components
 
@@ -205,7 +207,7 @@ Notes:
 
 **Key Methods:**
 
-- `add_vector_layer(name, selectable=True)` - Create a vector layer for points, polygons, circles, ellipses
+- `add_vector_layer(name, selectable=True, movable=False, vertex_editing=VectorVertexEditing.MOVE)` - Create a vector layer for points, polygons, circles, ellipses; optionally allow whole-feature movement and default vertex editing
 - `add_fast_points_layer(name, selectable, style, cell_size_m)` - Create a high-performance points layer
 - `add_fast_geopoints_layer(name, selectable, style, cell_size_m)` - Create a geo-points layer with uncertainty ellipses
 - `add_wms(options, name)` - Add a WMS (Web Map Service) layer
@@ -271,10 +273,23 @@ Each layer type also has specialized methods for its specific use case, as detai
 For standard vector features with full styling control.
 
 ```python
-from pyopenlayersqt import PointStyle, IconStyle, PolygonStyle, CircleStyle, EllipseStyle
+from pyopenlayersqt import (
+    CircleStyle,
+    EllipseStyle,
+    IconStyle,
+    PointStyle,
+    PolygonStyle,
+    VectorVertexEditing,
+)
 
-# Add a vector layer
-vector = map_widget.add_vector_layer("vector", selectable=True)
+# Add a vector layer. Movement is opt-in; vertex editing only applies to
+# movable line/polygon-like features.
+vector = map_widget.add_vector_layer(
+    "vector",
+    selectable=True,
+    movable=True,
+    vertex_editing=VectorVertexEditing.MOVE,
+)
 
 # Add points
 vector.add_points(
@@ -326,7 +341,15 @@ for index, (source_name, icon_source) in enumerate(icon_sources.items()):
         # Useful for remote URLs when their server permits CORS. Remote icons
         # without CORS still render, but selection uses a halo instead of tinting.
         cross_origin="anonymous" if source_name == "remote_url" else None,
+        movable=True,
     )
+
+# Per-feature movement can be controlled when points are added.
+vector.add_points(
+    coords=[(lat1, lon1), (lat2, lon2)],
+    ids=["movable_point", "fixed_point"],
+    movable=[True, False],
+)
 
 # Add polygons
 vector.add_polygon(
@@ -337,7 +360,9 @@ vector.add_polygon(
         stroke_width=2.0,
         fill_color=QColor("dodgerblue"),
         fill_opacity=0.15
-    )
+    ),
+    movable=True,
+    vertex_editing=VectorVertexEditing.MODIFY,
 )
 
 # Add lines (polylines)
@@ -347,7 +372,9 @@ vector.add_line(
     style=PolygonStyle(
         stroke_color=QColor("dodgerblue"),
         stroke_width=2.0
-    )
+    ),
+    movable=True,
+    vertex_editing=VectorVertexEditing.MOVE,
 )
 
 # Add gradient lines (e.g., speed along a track)
@@ -445,10 +472,69 @@ browser unchanged.
 | `rotate_with_view` | When true, rotates the icon with the map view. |
 | `cross_origin` | Optional OpenLayers cross-origin value, such as `"anonymous"`, for remote images. |
 | `style` | Optional reusable `IconStyle`. When supplied, its style settings take precedence over the direct scale, opacity, anchor, rotation, and cross-origin arguments. The `icon` and `selected_icon` arguments still override `style.icon_src` and `style.selected_icon_src`. |
+| `movable` | Optional bool or bool sequence controlling whether icon point features can be dragged when the layer is movable. |
 
 For a runnable map showing path objects, path strings, each byte-like type, a
 data URI, and a remote URL, see
 [`examples/02_layer_types_and_styling.py`](examples/02_layer_types_and_styling.py).
+
+##### Movable and vertex-editable vector features
+
+Movement/editing is disabled by default for backward compatibility. Opt in at
+the layer level with `movable=True`, then override individual features as needed.
+Use `VectorVertexEditing` enum values instead of strings:
+
+- `VectorVertexEditing.NONE` — movable as a whole object only; vertices are not editable.
+- `VectorVertexEditing.MOVE` — existing vertices can move; vertices are not inserted or deleted.
+- `VectorVertexEditing.MODIFY` — OpenLayers full modify mode for supported geometries.
+
+```python
+from pyopenlayersqt import VectorVertexEditing
+
+vector = map_widget.add_vector_layer(
+    "editable",
+    movable=True,
+    vertex_editing=VectorVertexEditing.MOVE,
+)
+
+vector.add_line(
+    [(37.0, -122.0), (37.5, -121.5), (38.0, -122.0)],
+    feature_id="route",
+    movable=True,
+    vertex_editing=VectorVertexEditing.MODIFY,
+)
+
+vector.add_circle(
+    (37.25, -121.75),
+    radius_m=10_000,
+    feature_id="safe_circle",
+    movable=True,
+)
+
+# Runtime controls are available at layer and feature granularity.
+vector.set_movable(True)
+vector.set_vertex_editing(VectorVertexEditing.NONE)
+vector.set_features_movable(["route"], False)
+vector.set_features_vertex_editing(["route"], VectorVertexEditing.MOVE)
+```
+
+Circles and ellipses remain shape-safe: they can be translated as whole objects
+when movable, but they are not exposed for arbitrary polygon vertex editing.
+Gradient lines are rendered as segment features; dragging one segment translates
+its sibling segments as the same logical gradient line.
+
+Applications can listen for completed translate/vertex-edit operations via
+`OLMapWidget.vectorFeatureChanged`:
+
+```python
+def on_vector_feature_changed(payload):
+    print(payload["layer_id"], payload["feature_id"], payload["reason"])
+    print(payload["geometry"])
+
+map_widget.vectorFeatureChanged.connect(on_vector_feature_changed)
+```
+
+See `examples/20_movable_vector_features.py` for a complete demonstration.
 
 #### FastPointsLayer
 
@@ -796,7 +882,7 @@ def on_selection_changed(selection):
     elif selection.layer_id in selections:
         # Clear selection for this layer
         del selections[selection.layer_id]
-    
+
     total = sum(len(ids) for ids in selections.values())
     print(f"Total selected: {total} features across {len(selections)} layer(s)")
 
@@ -881,7 +967,7 @@ def delete_selected():
             fast_layer.remove_points(feature_ids)
         elif layer_id == geo_layer.id:
             geo_layer.remove_ids(feature_ids)
-    
+
     # Clear selections after deletion
     selections.clear()
     print(f"Deleted features")
@@ -1293,13 +1379,13 @@ def on_value_range_changed(min_val, max_val):
     # Filter features based on value range
     visible_ids = [f["id"] for f in features if min_val <= f["value"] <= max_val]
     hidden_ids = [f["id"] for f in features if not (min_val <= f["value"] <= max_val)]
-    
+
     # Hide/show features on map (FastPointsLayer and FastGeoPointsLayer only)
     if hidden_ids:
         fast_layer.hide_features(hidden_ids)
     if visible_ids:
         fast_layer.show_features(visible_ids)
-    
+
     # Hide/show rows in table
     layer_id = fast_layer.id
     table.hide_rows_by_keys([(layer_id, fid) for fid in hidden_ids])
@@ -1427,7 +1513,7 @@ For a complete runnable demo, see
 
 ## Architecture
 
-- **Python → JavaScript**: Commands sent via `window.pyolqt_send()` 
+- **Python → JavaScript**: Commands sent via `window.pyolqt_send()`
 - **JavaScript → Python**: Events sent via Qt Web Channel (`qtBridge.emitEvent()`)
 - **Static Assets**: Served by embedded HTTP server (wheel-safe)
 - **Raster Overlays**: Written to user cache directory and served dynamically

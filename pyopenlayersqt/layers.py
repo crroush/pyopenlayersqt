@@ -19,6 +19,7 @@ from .models import (
     RasterStyle,
     WMSOptions,
     TileLayerOptions,
+    VectorVertexEditing,
 )
 
 
@@ -386,6 +387,74 @@ class VectorLayer(BaseLayer):
 
     _layer_type_prefix = "vector"
 
+    @staticmethod
+    def _vertex_editing_value(
+        mode: Optional[VectorVertexEditing],
+    ) -> Optional[str]:
+        if mode is None:
+            return None
+        if isinstance(mode, VectorVertexEditing):
+            return mode.value
+        raise TypeError(
+            "vertex_editing must be a VectorVertexEditing enum value "
+            "(VectorVertexEditing.NONE, MOVE, or MODIFY)"
+        )
+
+    @staticmethod
+    def _movable_flags(
+        movable: Optional[Union[bool, Sequence[bool]]], count: int
+    ) -> Optional[list[bool]]:
+        if movable is None:
+            return None
+        if isinstance(movable, bool):
+            return [bool(movable) for _ in range(count)]
+        flags = [bool(x) for x in movable]
+        if len(flags) != count:
+            raise ValueError("movable sequence must match number of features")
+        return flags
+
+    def set_movable(self, movable: bool) -> None:
+        self._map_widget._send(
+            {
+                "type": "vector.set_movable",
+                "layer_id": self.id,
+                "movable": bool(movable),
+            }
+        )
+
+    def set_vertex_editing(self, mode: VectorVertexEditing) -> None:
+        self._map_widget._send(
+            {
+                "type": "vector.set_vertex_editing",
+                "layer_id": self.id,
+                "vertex_editing": self._vertex_editing_value(mode),
+            }
+        )
+
+    def set_features_movable(
+        self, feature_ids: Sequence[str], movable: bool
+    ) -> None:
+        self._map_widget._send(
+            {
+                "type": "vector.set_features_movable",
+                "layer_id": self.id,
+                "feature_ids": [str(x) for x in feature_ids],
+                "movable": bool(movable),
+            }
+        )
+
+    def set_features_vertex_editing(
+        self, feature_ids: Sequence[str], mode: VectorVertexEditing
+    ) -> None:
+        self._map_widget._send(
+            {
+                "type": "vector.set_features_vertex_editing",
+                "layer_id": self.id,
+                "feature_ids": [str(x) for x in feature_ids],
+                "vertex_editing": self._vertex_editing_value(mode),
+            }
+        )
+
     def remove_features(self, feature_ids: Sequence[str]) -> None:
         """Remove vector features by id."""
         self._map_widget._send(
@@ -433,6 +502,7 @@ class VectorLayer(BaseLayer):
         ids: Optional[Sequence[str]] = None,
         style: Optional[PointStyle | IconStyle] = None,
         properties: Optional[Sequence[Dict[str, Any]]] = None,
+        movable: Optional[Union[bool, Sequence[bool]]] = None,
     ) -> None:
         """Add point features to the layer.
 
@@ -449,6 +519,7 @@ class VectorLayer(BaseLayer):
             if properties is not None
             else [{} for _ in range(len(coords))]
         )
+        movable_flags = self._movable_flags(movable, len(coords))
         # Swap lat,lon (public API) to lon,lat (internal format)
         self._map_widget._send(
             {
@@ -458,6 +529,7 @@ class VectorLayer(BaseLayer):
                 "ids": list(ids),
                 "style": style.to_js(),
                 "properties": props,
+                "movable": movable_flags,
             }
         )
 
@@ -476,6 +548,7 @@ class VectorLayer(BaseLayer):
         rotation_deg: float = 0.0,
         rotate_with_view: bool = False,
         cross_origin: Optional[str] = None,
+        movable: Optional[Union[bool, Sequence[bool]]] = None,
     ) -> None:
         """Add point features rendered with a custom icon.
 
@@ -533,6 +606,7 @@ class VectorLayer(BaseLayer):
             ids=ids,
             style=icon_style,
             properties=properties,
+            movable=movable,
         )
 
     def add_polygon(
@@ -541,6 +615,8 @@ class VectorLayer(BaseLayer):
         feature_id: str = "poly0",
         style: Optional[PolygonStyle] = None,
         properties: Optional[Dict[str, Any]] = None,
+        movable: Optional[bool] = None,
+        vertex_editing: Optional[VectorVertexEditing] = None,
     ) -> None:
         """Add a polygon feature to the layer.
 
@@ -560,6 +636,8 @@ class VectorLayer(BaseLayer):
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},
+                "movable": movable,
+                "vertex_editing": self._vertex_editing_value(vertex_editing),
             }
         )
 
@@ -571,6 +649,7 @@ class VectorLayer(BaseLayer):
         style: Optional[CircleStyle] = None,
         properties: Optional[Dict[str, Any]] = None,
         segments: int = 72,
+        movable: Optional[bool] = None,
     ) -> None:
         """Add a circle feature to the layer.
 
@@ -595,6 +674,7 @@ class VectorLayer(BaseLayer):
                 "style": style.to_js(),
                 "properties": properties or {},
                 "segments": int(segments),
+                "movable": movable,
             }
         )
 
@@ -604,6 +684,8 @@ class VectorLayer(BaseLayer):
         feature_id: str = "line0",
         style: Optional[PolygonStyle] = None,
         properties: Optional[Dict[str, Any]] = None,
+        movable: Optional[bool] = None,
+        vertex_editing: Optional[VectorVertexEditing] = None,
     ) -> None:
         """Add a polyline (non-closed) feature to this vector layer.
 
@@ -623,6 +705,8 @@ class VectorLayer(BaseLayer):
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},
+                "movable": movable,
+                "vertex_editing": self._vertex_editing_value(vertex_editing),
             }
         )
 
@@ -641,6 +725,8 @@ class VectorLayer(BaseLayer):
         ] = None,
         properties: Optional[Dict[str, Any]] = None,
         interpolate_steps: int = 64,
+        movable: Optional[bool] = None,
+        vertex_editing: Optional[VectorVertexEditing] = None,
     ) -> None:
         """Add a polyline rendered with per-segment colors (useful for speed tracks).
 
@@ -704,6 +790,8 @@ class VectorLayer(BaseLayer):
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},
+                "movable": movable,
+                "vertex_editing": self._vertex_editing_value(vertex_editing),
             }
         )
 
@@ -717,6 +805,7 @@ class VectorLayer(BaseLayer):
         style: Optional[EllipseStyle] = None,
         properties: Optional[Dict[str, Any]] = None,
         segments: int = 96,
+        movable: Optional[bool] = None,
     ) -> None:
         """Add an ellipse feature to the layer.
 
@@ -745,6 +834,7 @@ class VectorLayer(BaseLayer):
                 "style": style.to_js(),
                 "properties": properties or {},
                 "segments": int(segments),
+                "movable": movable,
             }
         )
 
