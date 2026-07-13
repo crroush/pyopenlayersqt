@@ -116,7 +116,8 @@ See the [examples directory](examples/) for more working examples:
 - `17_map_right_click_context_menu.py` - Right-click anywhere on the map for a custom menu (create new points or open dialogs for existing points)
 - `18_gradient_track_speed.py` - Polyline/track speed visualization with segment color gradients from matplotlib colormaps
 - `19_virtual_feature_table.py` - Minimal lazy/virtual `FeatureTableWidget` row-provider example
-- `20_movable_vector_features.py` - Movable and vertex-editable vector features, including icon points
+- `20_time_histogram_slider.py` - Demonstrates the time histogram slider
+- `21_movable_vector_features.py` - Movable and vertex-editable vector features, including icon points
 
 ## Core Components
 
@@ -881,7 +882,7 @@ def on_selection_changed(selection):
     elif selection.layer_id in selections:
         # Clear selection for this layer
         del selections[selection.layer_id]
-    
+
     total = sum(len(ids) for ids in selections.values())
     print(f"Total selected: {total} features across {len(selections)} layer(s)")
 
@@ -966,7 +967,7 @@ def delete_selected():
             fast_layer.remove_points(feature_ids)
         elif layer_id == geo_layer.id:
             geo_layer.remove_ids(feature_ids)
-    
+
     # Clear selections after deletion
     selections.clear()
     print(f"Deleted features")
@@ -1378,13 +1379,13 @@ def on_value_range_changed(min_val, max_val):
     # Filter features based on value range
     visible_ids = [f["id"] for f in features if min_val <= f["value"] <= max_val]
     hidden_ids = [f["id"] for f in features if not (min_val <= f["value"] <= max_val)]
-    
+
     # Hide/show features on map (FastPointsLayer and FastGeoPointsLayer only)
     if hidden_ids:
         fast_layer.hide_features(hidden_ids)
     if visible_ids:
         fast_layer.show_features(visible_ids)
-    
+
     # Hide/show rows in table
     layer_id = fast_layer.id
     table.hide_rows_by_keys([(layer_id, fid) for fid in hidden_ids])
@@ -1512,7 +1513,7 @@ For a complete runnable demo, see
 
 ## Architecture
 
-- **Python → JavaScript**: Commands sent via `window.pyolqt_send()` 
+- **Python → JavaScript**: Commands sent via `window.pyolqt_send()`
 - **JavaScript → Python**: Events sent via Qt Web Channel (`qtBridge.emitEvent()`)
 - **Static Assets**: Served by embedded HTTP server (wheel-safe)
 - **Raster Overlays**: Written to user cache directory and served dynamically
