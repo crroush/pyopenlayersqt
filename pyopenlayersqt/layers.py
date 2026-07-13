@@ -794,8 +794,6 @@ class RasterLayer(BaseLayer):
     Bounds are specified as (lat, lon) tuples in the public API.
     """
 
-    _layer_type_prefix = "raster"
-
     def __init__(
         self,
         widget: Any,
@@ -835,6 +833,16 @@ class RasterLayer(BaseLayer):
     def set_style(self, style: RasterStyle) -> None:
         self.style = style
         self.set_opacity(style.opacity)
+
+    def set_visible(self, visible: bool) -> None:
+        """Set the visibility of this raster layer."""
+        self._map_widget._send(
+            {
+                "type": "raster.set_visible",
+                "layer_id": self.id,
+                "visible": bool(visible),
+            }
+        )
 
 
 class FastPointsLayer(BaseLayer):

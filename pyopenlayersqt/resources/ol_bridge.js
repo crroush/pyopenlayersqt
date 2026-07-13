@@ -3293,12 +3293,6 @@ function cmd_countries_set_visible(msg) {
     img.src = msg.url;
   }
 
-  function cmd_raster_set_opacity(msg) {
-    const e = getLayerEntry(msg.layer_id);
-    if (e.type !== "raster") return;
-    if (typeof msg.opacity === "number") e.layer.setOpacity(msg.opacity);
-  }
-
   function cmd_raster_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "raster") return;
@@ -3381,7 +3375,6 @@ function cmd_countries_set_visible(msg) {
       case "tile.set_opacity": return cmd_tile_set_opacity(msg);
       case "tile.set_visible": return cmd_tile_set_visible(msg);
       case "raster.set_image": return cmd_raster_set_image(msg);
-      case "raster.set_opacity": return cmd_raster_set_opacity(msg);
       case "raster.set_visible": return cmd_raster_set_visible(msg);
 
       case "select.set": return cmd_select_set(msg);
