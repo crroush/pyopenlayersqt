@@ -459,9 +459,11 @@ Constructor highlights: `center=(lat, lon)`, `zoom=2`, `show_coordinates=True`, 
 
 Layer factory methods:
 
+Fast layers default to `selectable=False`; pass `selectable=True` when map clicks or map/table selection sync should include those layers.
+
 - `add_vector_layer(name, selectable=True, movable=False, vertex_editing=VectorVertexEditing.MOVE)`
-- `add_fast_points_layer(name, selectable=True, style=None, cell_size_m=...)`
-- `add_fast_geopoints_layer(name, selectable=True, style=None, cell_size_m=...)`
+- `add_fast_points_layer(name, selectable=False, style=None, cell_size_m=1000.0)`
+- `add_fast_geopoints_layer(name, selectable=False, style=None, cell_size_m=1000.0, show_ellipses=True)`
 - `add_wms(options, name="wms")`
 - `add_tile_layer(options, name="tile")`
 - `add_raster_image(image, bounds, style=None, name="raster")`
