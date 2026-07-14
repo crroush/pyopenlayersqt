@@ -6,7 +6,7 @@ OpenLayers + Qt (QWebEngine) mapping widgets for Python desktop apps.
 
 Use it when your Qt app needs more than static plots or a handful of markers: high-volume point rendering, uncertainty ellipses, editable vectors, lazy tables, linked parent/child selections, WMS/tile/raster overlays, time filtering, measurement tools, and a packaged CSV viewer that demonstrates the whole stack.
 
-<img width="803" height="467" alt="pyopenlayersqt map widget" src="https://github.com/user-attachments/assets/0d607680-b16a-46ed-9562-eeb00525cf02" />
+<img width="1280" height="764" alt="image" src="https://github.com/user-attachments/assets/192c3261-b479-43fb-8159-708024439289" />
 
 ## Contents
 
@@ -30,7 +30,7 @@ Use it when your Qt app needs more than static plots or a handful of markers: hi
 
 | Capability | What it gives you |
 | --- | --- |
-| 🗺️ **OpenLayers in Qt** | A browser-grade map engine inside `QWebEngineView`, packaged with wheel-safe static assets and a Python API. |
+| 🗺️ **OpenLayers in Qt** | A browser-grade map engine inside `QWebEngineView`. |
 | ⚡ **Large interactive point datasets** | Fast canvas layers, spatial indexing, binary/base64 payload transfer, index/range visibility APIs, and per-point recoloring. |
 | 📍 **Geospatial uncertainty** | `FastGeoPointsLayer` renders points plus semi-major/semi-minor/tilted uncertainty ellipses with independent selected-ellipse visibility. |
 | 🎨 **Rich vector overlays** | Points, image icons, lines, gradient tracks, polygons, circles, ellipses, movement controls, and vertex editing. |
