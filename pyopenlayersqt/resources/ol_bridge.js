@@ -88,6 +88,39 @@ function pyolqt_b64_to_uint32(b64) {
   return new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
 }
 
+function pyolqt_b64_to_uint8(b64) {
+  const bytes = pyolqt_b64_to_bytes(b64);
+  return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
+function pyolqt_lonlat_pair_from_msg(msg, key) {
+  const b64 = msg[key + "_b64"];
+  if (b64) {
+    const flat = pyolqt_b64_to_float64(b64);
+    return [flat[0] || 0, flat[1] || 0];
+  }
+  return msg[key] || [0, 0];
+}
+
+function pyolqt_lonlat_array_from_msg(msg, key, countKey) {
+  const b64 = msg[key + "_b64"];
+  if (b64) {
+    const flat = pyolqt_b64_to_float64(b64);
+    return { flat, count: msg[countKey] || Math.floor(flat.length / 2) };
+  }
+  const coords = msg[key] || [];
+  return { coords, count: coords.length };
+}
+
+function pyolqt_lonlat_at(payload, i) {
+  if (payload.flat) return [payload.flat[i * 2], payload.flat[i * 2 + 1]];
+  return payload.coords[i];
+}
+
+function pyolqt_float64_values_from_msg(msg, key) {
+  return msg[key + "_b64"] ? pyolqt_b64_to_float64(msg[key + "_b64"]) : (msg[key] || []);
+}
+
 function pyolqt_b64_to_strings(b64) {
   if (!b64) return null;
   const text = new TextDecoder("utf-8").decode(pyolqt_b64_to_bytes(b64));
@@ -3313,17 +3346,19 @@ function cmd_countries_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
     const style = style_from_simple(msg.style || {});
-    const coords = msg.coords || [];
-    const ids = msg.ids || [];
+    const coordsPayload = pyolqt_lonlat_array_from_msg(msg, "coords", "point_count");
+    const ids = pyolqt_ids_from_msg(msg);
     const props = msg.properties || [];
-    for (let i = 0; i < coords.length; i++) {
-      const lon = coords[i][0], lat = coords[i][1];
+    const movableFlags = msg.movable_b64 ? pyolqt_b64_to_uint8(msg.movable_b64) : null;
+    for (let i = 0; i < coordsPayload.count; i++) {
+      const coord = pyolqt_lonlat_at(coordsPayload, i);
+      const lon = coord[0], lat = coord[1];
       const f = new ol.Feature({ geometry: new ol.geom.Point(lonlat_to_3857(lon, lat)) });
       f.setId(ids[i] || ("pt" + i));
       f.set("_layer_id", msg.layer_id);
       if (props[i]) for (const [k, v] of Object.entries(props[i])) f.set(k, v);
       f.set("_pyolqt_style", msg.style || {});
-      set_vector_edit_metadata(f, msg, Array.isArray(msg.movable) ? msg.movable[i] : msg.movable);
+      set_vector_edit_metadata(f, msg, movableFlags ? !!movableFlags[i] : (Array.isArray(msg.movable) ? msg.movable[i] : msg.movable));
       f.setStyle(style);
       e.source.addFeature(f);
       update_vector_edit_collection_for_feature(f);
@@ -3333,8 +3368,12 @@ function cmd_countries_set_visible(msg) {
   function cmd_vector_add_polygon(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
-    const ring = msg.ring || [];
-    const coords = ring.map((p) => lonlat_to_3857(p[0], p[1]));
+    const ringPayload = pyolqt_lonlat_array_from_msg(msg, "ring", "ring_count");
+    const coords = [];
+    for (let i = 0; i < ringPayload.count; i++) {
+      const p = pyolqt_lonlat_at(ringPayload, i);
+      coords.push(lonlat_to_3857(p[0], p[1]));
+    }
     if (coords.length > 0) coords.push(coords[0]);
     const f = new ol.Feature({ geometry: new ol.geom.Polygon([coords]) });
     f.setId(msg.id || "poly0");
@@ -3350,7 +3389,7 @@ function cmd_countries_set_visible(msg) {
   function cmd_vector_add_circle(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
-    const geom = circle_polygon_lonlat(msg.center, msg.radius_m, msg.segments || 72);
+    const geom = circle_polygon_lonlat(pyolqt_lonlat_pair_from_msg(msg, "center"), msg.radius_m, msg.segments || 72);
     const f = new ol.Feature({ geometry: geom });
     f.setId(msg.id || "circle0");
     f.set("_layer_id", msg.layer_id);
@@ -3367,9 +3406,12 @@ function cmd_countries_set_visible(msg) {
   function cmd_vector_add_line(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
-    const coords = (msg.coords || []).map(function(c) {
-      return lonlat_to_3857(c[0], c[1]);
-    });
+    const coordsPayload = pyolqt_lonlat_array_from_msg(msg, "coords", "point_count");
+    const coords = [];
+    for (let i = 0; i < coordsPayload.count; i++) {
+      const c = pyolqt_lonlat_at(coordsPayload, i);
+      coords.push(lonlat_to_3857(c[0], c[1]));
+    }
     const geom = new ol.geom.LineString(coords);
     const f = new ol.Feature({ geometry: geom });
     f.setId(msg.id || "line0");
@@ -3387,8 +3429,9 @@ function cmd_countries_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
 
-    const coords = msg.coords || [];
-    const packed = msg.segment_colors || [];
+    const coordsPayload = pyolqt_lonlat_array_from_msg(msg, "coords", "point_count");
+    const packed = msg.segment_colors_b64 ? pyolqt_b64_to_uint32(msg.segment_colors_b64) : (msg.segment_colors || []);
+    const values = pyolqt_float64_values_from_msg(msg, "values");
     const baseStyle = msg.style || {};
     const strokeWidth = Number(baseStyle.stroke_width || 3.0);
     const baseProps = msg.properties || {};
@@ -3407,8 +3450,8 @@ function cmd_countries_set_visible(msg) {
       }
     }
 
-    for (let i = 0; i < coords.length - 1; i++) {
-      const c0 = coords[i], c1 = coords[i + 1];
+    for (let i = 0; i < coordsPayload.count - 1; i++) {
+      const c0 = pyolqt_lonlat_at(coordsPayload, i), c1 = pyolqt_lonlat_at(coordsPayload, i + 1);
       const segGeom = new ol.geom.LineString([
         lonlat_to_3857(c0[0], c0[1]),
         lonlat_to_3857(c1[0], c1[1])
@@ -3419,7 +3462,7 @@ function cmd_countries_set_visible(msg) {
       for (const [k, v] of Object.entries(baseProps)) segFeature.set(k, v);
       segFeature.set("_gradient_parent", baseId);
       segFeature.set("_gradient_segment_index", i);
-      if (msg.values && i < msg.values.length) segFeature.set("_gradient_value", msg.values[i]);
+      if (values && i < values.length) segFeature.set("_gradient_value", values[i]);
 
       const packedColor = (packed[i] ?? 0xff3333ff);
       const rgba = rgba_from_u32(packedColor);
@@ -3437,7 +3480,7 @@ function cmd_countries_set_visible(msg) {
   function cmd_vector_add_ellipse(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
-    const geom = ellipse_polygon_lonlat(msg.center, msg.sma_m, msg.smi_m, msg.tilt_deg || 0, msg.segments || 96);
+    const geom = ellipse_polygon_lonlat(pyolqt_lonlat_pair_from_msg(msg, "center"), msg.sma_m, msg.smi_m, msg.tilt_deg || 0, msg.segments || 96);
     const f = new ol.Feature({ geometry: geom });
     f.setId(msg.id || "ell0");
     f.set("_layer_id", msg.layer_id);
