@@ -13,10 +13,11 @@ WMS allows you to overlay external map data sources onto your map.
 
 import json
 import sys
+import urllib.request
 
 from PySide6 import QtWidgets
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QImage
 
 from pyopenlayersqt import (
     OLMapWidget,
@@ -51,6 +52,7 @@ class WMSExample(QtWidgets.QMainWindow):
         self.wms_layer = None
         self.tile_layer = None
         self.altitude_label = None
+        self._terrain_tile_cache = {}
 
         # Layout
         container = QtWidgets.QWidget()
@@ -84,10 +86,6 @@ class WMSExample(QtWidgets.QMainWindow):
             "AWS Terrain (normal/display)",
             self.AWS_TERRAIN_NORMAL_URL,
         )
-        self.tile_preset_combo.addItem(
-            "AWS Terrain (terrarium/raw RGB)",
-            self.AWS_TERRAIN_TERRARIUM_URL,
-        )
         self.tile_preset_combo.currentIndexChanged.connect(self._on_tile_preset_changed)
         tile_url_layout.addWidget(self.tile_preset_combo)
 
@@ -95,8 +93,8 @@ class WMSExample(QtWidgets.QMainWindow):
         apply_btn.clicked.connect(self._on_apply_tile_url)
         tile_url_layout.addWidget(apply_btn)
         terrain_note = QtWidgets.QLabel(
-            "AWS Terrain: use the normal/display preset for direct rendering; "
-            "terrarium/raw RGB tiles require decoding to recover meters."
+            "AWS Terrain: use the normal/display preset for direct rendering. "
+            "The cursor altitude readout decodes Terrarium RGB tiles separately."
         )
         terrain_note.setWordWrap(True)
         layout.addWidget(terrain_note)
@@ -234,116 +232,105 @@ class WMSExample(QtWidgets.QMainWindow):
         self.tile_layer.set_visible(self.tile_visible_cb.isChecked())
 
     def _install_altitude_probe(self):
-        """Install a Terrarium elevation readout for the current mouse position."""
+        """Install a cursor probe that reports tile/pixel coordinates to Python."""
         if not self.map_widget:
             return
-        terrain_url = self.AWS_TERRAIN_TERRARIUM_URL
-        js = f"""
-(() => {{
+        js = """
+(() => {
   const state = window._pyolqt_state;
   if (!state || !state.map || state.awsTerrainAltitudeProbeInstalled) return;
   state.awsTerrainAltitudeProbeInstalled = true;
-  const terrainUrl = {json.dumps(terrain_url)};
   const tileSize = 256;
-  const cache = new Map();
 
-  function lonLatToTile(lon, lat, z) {{
+  function lonLatToTile(lon, lat, z) {
     const n = Math.pow(2, z);
     const latRad = lat * Math.PI / 180;
     const xFloat = (lon + 180) / 360 * n;
     const yFloat = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
     const x = Math.floor(xFloat);
     const y = Math.floor(yFloat);
-    return {{
+    return {
       z, x, y,
       px: Math.max(0, Math.min(tileSize - 1, Math.floor((xFloat - x) * tileSize))),
       py: Math.max(0, Math.min(tileSize - 1, Math.floor((yFloat - y) * tileSize))),
-    }};
-  }}
+    };
+  }
 
-  function tileUrl(t) {{
-    return terrainUrl
-      .replace('{{z}}', String(t.z))
-      .replace('{{x}}', String(t.x))
-      .replace('{{y}}', String(t.y));
-  }}
-
-  function loadTile(t) {{
-    const key = `${{t.z}}/${{t.x}}/${{t.y}}`;
-    if (cache.has(key)) return cache.get(key);
-    const promise = new Promise((resolve, reject) => {{
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {{
-        const canvas = document.createElement('canvas');
-        canvas.width = tileSize;
-        canvas.height = tileSize;
-        const ctx = canvas.getContext('2d', {{ willReadFrequently: true }});
-        ctx.drawImage(img, 0, 0);
-        resolve(ctx);
-      }};
-      img.onerror = () => reject(new Error('failed to load terrain tile'));
-      img.src = tileUrl(t);
-    }});
-    cache.set(key, promise);
-    if (cache.size > 256) cache.delete(cache.keys().next().value);
-    return promise;
-  }}
-
-  function decodeTerrarium(r, g, b) {{
-    return (r * 256 + g + b / 256) - 32768;
-  }}
-
-  let seq = 0;
   let lastUpdate = 0;
-  state.map.on('pointermove', async (evt) => {{
+  state.map.on('pointermove', (evt) => {
     const now = Date.now();
-    if (now - lastUpdate < 150) return;
+    if (now - lastUpdate < 250) return;
     lastUpdate = now;
-    const current = ++seq;
     const lonLat = ol.proj.toLonLat(evt.coordinate);
     const z = Math.max(0, Math.min(15, Math.round(state.map.getView().getZoom() || 0)));
     const tile = lonLatToTile(lonLat[0], lonLat[1], z);
-    try {{
-      const ctx = await loadTile(tile);
-      if (current !== seq) return;
-      const rgba = ctx.getImageData(tile.px, tile.py, 1, 1).data;
-      const meters = decodeTerrarium(rgba[0], rgba[1], rgba[2]);
-      if (state.qtBridge && typeof state.qtBridge.emitEvent === 'function') {{
-        state.qtBridge.emitEvent('terrain_altitude', JSON.stringify({{
-          lat: lonLat[1],
-          lon: lonLat[0],
-          meters,
-          tile: `${{tile.z}}/${{tile.x}}/${{tile.y}}`,
-        }}));
-      }}
-    }} catch (err) {{
-      if (state.qtBridge && typeof state.qtBridge.emitEvent === 'function') {{
-        state.qtBridge.emitEvent('terrain_altitude', JSON.stringify({{ error: String(err) }}));
-      }}
-    }}
-  }});
-}})();
+    if (state.qtBridge && typeof state.qtBridge.emitEvent === 'function') {
+      state.qtBridge.emitEvent('terrain_probe_request', JSON.stringify({
+        lat: lonLat[1],
+        lon: lonLat[0],
+        z: tile.z,
+        x: tile.x,
+        y: tile.y,
+        px: tile.px,
+        py: tile.py,
+      }));
+    }
+  });
+})();
 """
         self.map_widget.page().runJavaScript(js)
 
+    def _terrain_tile_url(self, z, x, y):
+        """Build the AWS Terrarium URL used for elevation lookups only."""
+        return (
+            self.AWS_TERRAIN_TERRARIUM_URL.replace("{z}", str(z))
+            .replace("{x}", str(x))
+            .replace("{y}", str(y))
+        )
+
+    def _get_terrain_tile(self, z, x, y):
+        """Fetch and cache a Terrarium tile in Python to avoid browser CORS limits."""
+        key = (int(z), int(x), int(y))
+        image = self._terrain_tile_cache.get(key)
+        if image is not None:
+            return image
+
+        request = urllib.request.Request(
+            self._terrain_tile_url(*key),
+            headers={"User-Agent": "pyopenlayersqt-example/terrain-altitude"},
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            data = response.read()
+        image = QImage.fromData(data, "PNG")
+        if image.isNull():
+            raise ValueError("AWS Terrarium tile did not decode as PNG")
+        self._terrain_tile_cache[key] = image
+        if len(self._terrain_tile_cache) > 256:
+            self._terrain_tile_cache.pop(next(iter(self._terrain_tile_cache)))
+        return image
+
+    def _read_terrain_altitude(self, payload):
+        """Decode meters from a Terrarium RGB pixel."""
+        image = self._get_terrain_tile(payload["z"], payload["x"], payload["y"])
+        color = image.pixelColor(int(payload["px"]), int(payload["py"]))
+        return (color.red() * 256 + color.green() + color.blue() / 256.0) - 32768
+
     def _on_map_js_event(self, event_type, payload_json):
-        """Show decoded AWS Terrain altitude reports from the JavaScript probe."""
-        if event_type != "terrain_altitude" or not self.altitude_label:
+        """Decode AWS Terrain altitude requests from map cursor movement."""
+        if event_type != "terrain_probe_request" or not self.altitude_label:
             return
         try:
             payload = json.loads(payload_json or "{}")
-        except json.JSONDecodeError:
-            self.altitude_label.setText("Terrain altitude under cursor: unavailable")
-            return
-        if payload.get("error"):
+            meters = self._read_terrain_altitude(payload)
+        except (KeyError, TypeError, ValueError, OSError, TimeoutError) as err:
             self.altitude_label.setText(
-                f"Terrain altitude under cursor: unavailable ({payload['error']})"
+                f"Terrain altitude under cursor: unavailable ({err})"
             )
             return
+
         self.altitude_label.setText(
             "Terrain altitude under cursor: "
-            f"{payload['meters']:.1f} m at "
+            f"{meters:.1f} m at "
             f"{payload['lat']:.5f}, {payload['lon']:.5f}"
         )
 
