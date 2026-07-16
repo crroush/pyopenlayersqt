@@ -610,7 +610,7 @@ function fp_qt_is_drawable_representative(entry, i, skipSelected, extent) {
     !entry.deleted[i] &&
     !entry.hidden[i] &&
     fp_qt_point_in_extent(entry, i, extent) &&
-    (!skipSelected || !entry.selectedIds.has(entry.ids[i]));
+    (!skipSelected || !fp_selection_has(entry, i));
 }
 
 function fp_qt_pick_representative(entry, node, skipSelected, extent) {
@@ -701,14 +701,92 @@ function fp_selection_visible_ids(entry, ids) {
   return visible;
 }
 
+function fp_ensure_selection_mask(entry) {
+  if (!entry.selectedMask || entry.selectedMask.length !== entry.ids.length) {
+    entry.selectedMask = new Uint8Array(entry.ids.length);
+  }
+  if (!entry.selectedIndices) entry.selectedIndices = [];
+}
+
+function fp_selection_has(entry, i) {
+  return !!(entry.selectedMask && entry.selectedMask[i]);
+}
+
+function fp_apply_selected_indices(entry, indices) {
+  fp_ensure_selection_mask(entry);
+  entry.selectedMask.fill(0);
+  entry.selectedIndices = [];
+  const keepIdSet = indices.length <= 100000;
+  entry.selectedIds = new Set();
+  for (let k = 0; k < indices.length; k++) {
+    const i = indices[k];
+    if (i == null || i < 0 || entry.deleted[i] || entry.hidden[i] || entry.selectedMask[i]) continue;
+    entry.selectedMask[i] = 1;
+    entry.selectedIndices.push(i);
+    if (keepIdSet) entry.selectedIds.add(entry.ids[i]);
+  }
+}
+
+function fp_apply_selected_ids(entry, ids) {
+  fp_ensure_selection_mask(entry);
+  entry.selectedMask.fill(0);
+  entry.selectedIndices = [];
+  const keepIdSet = (ids || []).length <= 100000;
+  entry.selectedIds = new Set();
+  for (const id of ids || []) {
+    const fid = String(id);
+    const i = entry.idIndex.get(fid);
+    if (i == null || entry.deleted[i] || entry.hidden[i] || entry.selectedMask[i]) continue;
+    entry.selectedMask[i] = 1;
+    entry.selectedIndices.push(i);
+    if (keepIdSet) entry.selectedIds.add(fid);
+  }
+}
+
+function fp_remove_selected_index(entry, i) {
+  if (!entry.selectedMask || !entry.selectedMask[i]) return false;
+  entry.selectedMask[i] = 0;
+  entry.selectedIds.delete(entry.ids[i]);
+  entry.selectedIndices = (entry.selectedIndices || []).filter((idx) => idx !== i);
+  return true;
+}
+
+function fp_toggle_selected_index(entry, i) {
+  fp_ensure_selection_mask(entry);
+  const fid = entry.ids[i];
+  if (entry.selectedMask[i]) {
+    fp_remove_selected_index(entry, i);
+  } else {
+    entry.selectedMask[i] = 1;
+    entry.selectedIds.add(fid);
+    entry.selectedIndices.push(i);
+  }
+}
+
+function fp_qt_pick_selected_representative(entry, node, extent) {
+  if (!node || node.visibleCount <= 0) return -1;
+  if (node.children) {
+    for (let c = 0; c < 4; c++) {
+      const child = node.children[c];
+      if (!fp_qt_intersects(child, extent)) continue;
+      const idx = fp_qt_pick_selected_representative(entry, child, extent);
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  }
+  for (let k = 0; k < node.items.length; k++) {
+    const i = node.items[k];
+    if (!entry.deleted[i] && !entry.hidden[i] && fp_selection_has(entry, i) && fp_qt_point_in_extent(entry, i, extent)) return i;
+  }
+  return -1;
+}
+
 function fp_prune_hidden_selection(entry) {
-  if (!entry.selectedIds || entry.selectedIds.size === 0) return false;
+  if (!entry.selectedIndices || entry.selectedIndices.length === 0) return false;
   let changed = false;
-  for (const fid of Array.from(entry.selectedIds)) {
-    const i = entry.idIndex.get(String(fid));
+  for (const i of Array.from(entry.selectedIndices)) {
     if (i == null || entry.deleted[i] || entry.hidden[i]) {
-      entry.selectedIds.delete(fid);
-      changed = true;
+      changed = fp_remove_selected_index(entry, i) || changed;
     }
   }
   return changed;
@@ -716,7 +794,7 @@ function fp_prune_hidden_selection(entry) {
 
 function fp_emit_selection(entry) {
   const perfStart = performance.now();
-  const featureIds = Array.from(entry.selectedIds);
+  const featureIds = (entry.selectedIndices || []).map((i) => entry.ids[i]);
   const arrayMs = performance.now() - perfStart;
   emitToPython("selection", {
     layer_id: entry.layer_id,
@@ -818,7 +896,7 @@ function fp_make_canvas_layer(entry) {
         if (!Number.isFinite(mercX) || !Number.isFinite(mercY)) return;
         if (mercX < extent[0] || mercX > extent[2] || mercY < extent[1] || mercY > extent[3]) return;
         const fid = entry.ids[i];
-        const isSel = selectedOverride || entry.selectedIds.has(fid);
+        const isSel = selectedOverride || fp_selection_has(entry, i);
         if (!selectedOverride && isSel) return;
         const radius = (isSel ? entry.style.selected_radius : entry.style.radius) * pixelRatio;
 
@@ -882,9 +960,8 @@ function fp_make_canvas_layer(entry) {
         traverseNode(root);
       }
 
-      if (entry.selectedIds.size > 0) {
-        for (const fid of entry.selectedIds) {
-          const i = entry.idIndex.get(String(fid));
+      if ((entry.selectedIndices || []).length > 0) {
+        for (const i of entry.selectedIndices) {
           if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
           const x = entry.x[i], y = entry.y[i];
           if (x < extent[0] || x > extent[2] || y < extent[1] || y > extent[3]) continue;
@@ -967,6 +1044,8 @@ function cmd_fast_points_add_layer(msg) {
     hidden: [],
     qtRoot: null,
     selectedIds: new Set(),
+    selectedIndices: [],
+    selectedMask: new Uint8Array(0),
     idIndex: new Map(),
     style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255] },
     source: null,
@@ -1041,6 +1120,8 @@ function cmd_fast_points_clear(msg) {
   fp_qt_init(entry);
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
+  entry.selectedIndices = [];
+  entry.selectedMask = new Uint8Array(entry.ids.length);
   fp_redraw(entry);
   fp_emit_selection(entry);
 }
@@ -1056,7 +1137,7 @@ function cmd_fast_points_remove_ids(msg) {
     if (i == null || entry.deleted[i]) continue;
     if (!entry.hidden[i]) fp_qt_update_visibility(entry, i, -1);
     entry.deleted[i] = true;
-    entry.selectedIds.delete(entry.ids[i]);
+    fp_remove_selected_index(entry, i);
   }
   fp_redraw(entry);
   fp_emit_selection(entry);
@@ -1127,7 +1208,7 @@ function cmd_fast_points_select_set(msg) {
     if (entry.type !== "fast_points") return;
     const ids = fp_selection_visible_ids(entry, pyolqt_ids_from_msg(msg));
     const setStart = performance.now();
-    entry.selectedIds = new Set(ids);
+    fp_apply_selected_ids(entry, ids);
     const setMs = performance.now() - setStart;
     const redrawStart = performance.now();
     fp_redraw(entry);
@@ -1166,7 +1247,7 @@ function cmd_fast_points_hide_ids(msg) {
     const i = entry.idIndex.get(id);
     if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
-    selectionChanged = entry.selectedIds.delete(entry.ids[i]) || selectionChanged;
+    selectionChanged = fp_remove_selected_index(entry, i) || selectionChanged;
     fp_qt_update_visibility(entry, i, -1);
   }
   fp_redraw(entry);
@@ -1205,7 +1286,7 @@ function cmd_fast_points_hide_indices(msg) {
     const i = indices[k];
     if (i == null || i >= entry.hidden.length || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
-    selectionChanged = entry.selectedIds.delete(entry.ids[i]) || selectionChanged;
+    selectionChanged = fp_remove_selected_index(entry, i) || selectionChanged;
     fp_qt_update_visibility(entry, i, -1);
   }
   if (entry.type === "fast_geopoints") fgp_redraw(entry); else fp_redraw(entry);
@@ -1337,7 +1418,7 @@ function fgp_redraw(entry) {
 }
 function fgp_emit_selection(entry) {
   const perfStart = performance.now();
-  const featureIds = Array.from(entry.selectedIds);
+  const featureIds = (entry.selectedIndices || []).map((i) => entry.ids[i]);
   const arrayMs = performance.now() - perfStart;
   emitToPython("selection", {
     layer_id: entry.layer_id,
@@ -1448,7 +1529,7 @@ function fgp_make_canvas_layer(entry) {
       }
 
       function addUnselectedDrawIndex(i, fromCollapsedNode) {
-        if (entry.deleted[i] || entry.hidden[i] || selectedSet.has(entry.ids[i]) || !inExtent(i)) return;
+        if (entry.deleted[i] || entry.hidden[i] || fp_selection_has(entry, i) || !inExtent(i)) return;
         const pixelKey = centerPixelKey(i, false);
         if (seenCenterPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
@@ -1459,17 +1540,37 @@ function fgp_make_canvas_layer(entry) {
         if (fromCollapsedNode) representativeCount++;
       }
 
+      function addSelectedDrawIndex(i) {
+        if (i == null || entry.deleted[i] || entry.hidden[i] || !fp_selection_has(entry, i) || !inExtent(i)) return;
+        const pixelKey = centerPixelKey(i, true);
+        if (seenSelectedCenterPixels.has(pixelKey)) {
+          skippedDuplicatePixels++;
+          return;
+        }
+        seenSelectedCenterPixels.add(pixelKey);
+        selectedDrawIndices.push(i);
+      }
+
       function collectSelectedDrawIndices() {
-        for (const fid of selectedSet) {
-          const i = entry.idIndex.get(String(fid));
-          if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
-          const pixelKey = centerPixelKey(i, true);
-          if (seenSelectedCenterPixels.has(pixelKey)) {
-            skippedDuplicatePixels++;
+        const selectedIndices = entry.selectedIndices || [];
+        if (selectedIndices.length <= 100000 || !root) {
+          for (const i of selectedIndices) addSelectedDrawIndex(i);
+          return;
+        }
+        const stack = [root];
+        while (stack.length) {
+          const node = stack.pop();
+          if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) continue;
+          const px = nodePixelSize(node);
+          if (px.w <= collapsePx && px.h <= collapsePx) {
+            addSelectedDrawIndex(fp_qt_pick_selected_representative(entry, node, extent));
             continue;
           }
-          seenSelectedCenterPixels.add(pixelKey);
-          selectedDrawIndices.push(i);
+          if (node.children) {
+            for (let c = 0; c < 4; c++) stack.push(node.children[c]);
+            continue;
+          }
+          for (let k = 0; k < node.items.length; k++) addSelectedDrawIndex(node.items[k]);
         }
       }
 
@@ -1629,7 +1730,7 @@ function fgp_make_canvas_layer(entry) {
 
       function addPointToBatch(i, selectedOverride) {
         const fid = entry.ids[i];
-        const selected = selectedOverride === true || selectedSet.has(fid);
+        const selected = selectedOverride === true || fp_selection_has(entry, i);
         if (!selectedOverride && selected) return;
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
@@ -1723,6 +1824,8 @@ function cmd_fast_geopoints_add_layer(msg) {
     rot: [],
     qtRoot: null,
     selectedIds: new Set(),
+    selectedIndices: [],
+    selectedMask: new Uint8Array(0),
     idIndex: new Map(),
     style,
     source: null,
@@ -1807,6 +1910,8 @@ function cmd_fast_geopoints_clear(msg) {
   fp_qt_init(entry);
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
+  entry.selectedIndices = [];
+  entry.selectedMask = new Uint8Array(entry.ids.length);
   fgp_redraw(entry);
   if (msg.emit !== false) fgp_emit_selection(entry);
 }
@@ -1822,7 +1927,7 @@ function cmd_fast_geopoints_remove_ids(msg) {
     if (i == null || entry.deleted[i]) continue;
     if (!entry.hidden[i]) fp_qt_update_visibility(entry, i, -1);
     entry.deleted[i] = true;
-    entry.selectedIds.delete(entry.ids[i]);
+    fp_remove_selected_index(entry, i);
   }
   fgp_redraw(entry);
   fgp_emit_selection(entry);
@@ -1868,7 +1973,7 @@ function cmd_fast_geopoints_select_set(msg) {
     if (entry.type !== "fast_geopoints") return;
     const ids = fp_selection_visible_ids(entry, pyolqt_ids_from_msg(msg));
     const setStart = performance.now();
-    entry.selectedIds = new Set(ids);
+    fp_apply_selected_ids(entry, ids);
     const setMs = performance.now() - setStart;
     const redrawStart = performance.now();
     fgp_redraw(entry);
@@ -1907,7 +2012,7 @@ function cmd_fast_geopoints_hide_ids(msg) {
     const i = entry.idIndex.get(id);
     if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
-    selectionChanged = entry.selectedIds.delete(entry.ids[i]) || selectionChanged;
+    selectionChanged = fp_remove_selected_index(entry, i) || selectionChanged;
     fp_qt_update_visibility(entry, i, -1);
   }
   fgp_redraw(entry);
@@ -2015,8 +2120,7 @@ function fp_install_interactions() {
       const pickMs = performance.now() - pickStart;
       if (idx < 0) continue;
       const fid = entry.ids[idx];
-      if (entry.selectedIds.has(fid)) entry.selectedIds.delete(fid);
-      else entry.selectedIds.add(fid);
+      fp_toggle_selected_index(entry, idx);
       const redrawStart = performance.now();
       if (entry.type === "fast_geopoints") fgp_redraw(entry);
       else fp_redraw(entry);
@@ -2028,7 +2132,7 @@ function fp_install_interactions() {
         side: "javascript",
         layer_id: entry.layer_id,
         operation: "fast_points_singleclick_selection",
-        selection_count: entry.selectedIds.size,
+        selection_count: (entry.selectedIndices || []).length,
         times: {
           pick_ms: pickMs.toFixed(2),
           redraw_request_ms: redrawMs.toFixed(2),
@@ -2059,17 +2163,17 @@ function fp_install_interactions() {
       const cand = query.indices;
       const queryMs = performance.now() - queryStart;
       const buildStart = performance.now();
-      const next = new Set();
+      const nextIndices = [];
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
         if (entry.deleted[i] || entry.hidden[i]) continue;
         const x = entry.x[i], y = entry.y[i];
-        if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) next.add(entry.ids[i]);
+        if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) nextIndices.push(i);
       }
       const buildMs = performance.now() - buildStart;
       // Only emit selection if something was selected in this layer or if clearing previous selection
-      if (next.size > 0 || entry.selectedIds.size > 0) {
-        entry.selectedIds = next;
+      if (nextIndices.length > 0 || (entry.selectedIndices || []).length > 0) {
+        fp_apply_selected_indices(entry, nextIndices);
         const redrawStart = performance.now();
         if (entry.type === "fast_geopoints") fgp_redraw(entry);
         else fp_redraw(entry);
@@ -2084,7 +2188,7 @@ function fp_install_interactions() {
           layer_type: entry.type,
           query_index: "quadtree",
           candidate_count: cand.length,
-          selection_count: next.size,
+          selection_count: nextIndices.length,
           visited_node_count: query.stats.visitedNodeCount,
           skipped_node_count: query.stats.skippedNodeCount,
           scanned_leaf_point_count: query.stats.scannedLeafPointCount,
