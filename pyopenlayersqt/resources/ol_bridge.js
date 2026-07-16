@@ -727,14 +727,12 @@ function fp_apply_selected_indices(entry, indices) {
   fp_ensure_selection_mask(entry);
   entry.selectedMask.fill(0);
   entry.selectedIndices = [];
-  const keepIdSet = indices.length <= 100000;
   entry.selectedIds = new Set();
   for (let k = 0; k < indices.length; k++) {
     const i = indices[k];
     if (i == null || i < 0 || entry.deleted[i] || entry.hidden[i] || entry.selectedMask[i]) continue;
     entry.selectedMask[i] = 1;
     entry.selectedIndices.push(i);
-    if (keepIdSet) entry.selectedIds.add(entry.ids[i]);
   }
 }
 
@@ -742,7 +740,6 @@ function fp_apply_selected_ids(entry, ids) {
   fp_ensure_selection_mask(entry);
   entry.selectedMask.fill(0);
   entry.selectedIndices = [];
-  const keepIdSet = (ids || []).length <= 100000;
   entry.selectedIds = new Set();
   for (const id of ids || []) {
     const fid = String(id);
@@ -750,7 +747,6 @@ function fp_apply_selected_ids(entry, ids) {
     if (i == null || entry.deleted[i] || entry.hidden[i] || entry.selectedMask[i]) continue;
     entry.selectedMask[i] = 1;
     entry.selectedIndices.push(i);
-    if (keepIdSet) entry.selectedIds.add(fid);
   }
 }
 
@@ -806,8 +802,7 @@ function fp_prune_hidden_selection(entry) {
 function fp_emit_selection(entry) {
   const perfStart = performance.now();
   const selectedIndices = entry.selectedIndices || [];
-  const includeIds = selectedIndices.length <= 100000;
-  const featureIds = includeIds ? selectedIndices.map((i) => entry.ids[i]) : [];
+  const featureIds = [];
   const indicesB64 = pyolqt_uint32_to_b64(selectedIndices);
   const arrayMs = performance.now() - perfStart;
   emitToPython("selection", {
@@ -816,8 +811,7 @@ function fp_emit_selection(entry) {
     indices_b64: indicesB64,
     count: selectedIndices.length,
   });
-  if (selectedIndices.length > 100 || window.PYOLQT_SELECTION_PERF) {
-    emitPerf({
+  emitPerf({
       side: "javascript",
       layer_id: entry.layer_id,
       operation: "fast_points_emit_selection",
@@ -827,7 +821,6 @@ function fp_emit_selection(entry) {
         total_ms: (performance.now() - perfStart).toFixed(2)
       }
     });
-  }
 }
 
 function fp_emit_singleclick(entry, ctrl_key, meta_key, shift_key, alt_key) {
@@ -1435,8 +1428,7 @@ function fgp_redraw(entry) {
 function fgp_emit_selection(entry) {
   const perfStart = performance.now();
   const selectedIndices = entry.selectedIndices || [];
-  const includeIds = selectedIndices.length <= 100000;
-  const featureIds = includeIds ? selectedIndices.map((i) => entry.ids[i]) : [];
+  const featureIds = [];
   const indicesB64 = pyolqt_uint32_to_b64(selectedIndices);
   const arrayMs = performance.now() - perfStart;
   emitToPython("selection", {
@@ -1445,8 +1437,7 @@ function fgp_emit_selection(entry) {
     indices_b64: indicesB64,
     count: selectedIndices.length,
   });
-  if (selectedIndices.length > 100 || window.PYOLQT_SELECTION_PERF) {
-    emitPerf({
+  emitPerf({
       side: "javascript",
       layer_id: entry.layer_id,
       operation: "fast_geopoints_emit_selection",
@@ -1456,7 +1447,6 @@ function fgp_emit_selection(entry) {
         total_ms: (performance.now() - perfStart).toFixed(2)
       }
     });
-  }
 }
 
 function fgp_make_canvas_layer(entry) {
@@ -1574,7 +1564,7 @@ function fgp_make_canvas_layer(entry) {
 
       function collectSelectedDrawIndices() {
         const selectedIndices = entry.selectedIndices || [];
-        if (selectedIndices.length <= 100000 || !root) {
+        if (!root) {
           for (const i of selectedIndices) addSelectedDrawIndex(i);
           return;
         }
