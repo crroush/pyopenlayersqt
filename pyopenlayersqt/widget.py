@@ -62,6 +62,13 @@ def _uint32_base64_to_list(value: str) -> list[int]:
     return np.frombuffer(base64.b64decode(value), dtype=np.uint32).astype(int).tolist()
 
 
+def _strings_from_base64(value: str) -> list[str]:
+    if not value:
+        return []
+    text = base64.b64decode(value).decode("utf-8")
+    return text.split("\0") if text else []
+
+
 def _to_jsonable(obj: Any) -> Any:
     if is_dataclass(obj):
         return asdict(obj)
@@ -781,7 +788,9 @@ class OLMapWidget(QWebEngineView):
 
     def _handle_selection_event(self, payload_json: str) -> None:
         obj = self._parse_event_payload(payload_json)
-        feature_ids = [str(x) for x in obj.get("feature_ids", [])]
+        feature_ids = _strings_from_base64(str(obj.get("feature_ids_b64", "")))
+        if not feature_ids:
+            feature_ids = [str(x) for x in obj.get("feature_ids", [])]
         indices = _uint32_base64_to_list(str(obj.get("indices_b64", "")))
         sel = FeatureSelection(
             layer_id=str(obj.get("layer_id", "")),

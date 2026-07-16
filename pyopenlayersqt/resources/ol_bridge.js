@@ -127,15 +127,22 @@ function pyolqt_b64_to_strings(b64) {
   return text.length ? text.split("\0") : [];
 }
 
-function pyolqt_uint32_to_b64(values) {
-  const arr = values instanceof Uint32Array ? values : new Uint32Array(values);
-  const bytes = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
+function pyolqt_bytes_to_b64(bytes) {
   let binary = "";
   const chunkSize = 0x8000;
   for (let i = 0; i < bytes.length; i += chunkSize) {
     binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
   }
   return btoa(binary);
+}
+
+function pyolqt_uint32_to_b64(values) {
+  const arr = values instanceof Uint32Array ? values : new Uint32Array(values);
+  return pyolqt_bytes_to_b64(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength));
+}
+
+function pyolqt_strings_to_b64(values) {
+  return pyolqt_bytes_to_b64(new TextEncoder().encode((values || []).join("\0")));
 }
 
 function pyolqt_points_from_msg(msg) {
@@ -802,12 +809,14 @@ function fp_prune_hidden_selection(entry) {
 function fp_emit_selection(entry) {
   const perfStart = performance.now();
   const selectedIndices = entry.selectedIndices || [];
-  const featureIds = [];
+  const featureIds = selectedIndices.map((i) => entry.ids[i]);
+  const featureIdsB64 = pyolqt_strings_to_b64(featureIds);
   const indicesB64 = pyolqt_uint32_to_b64(selectedIndices);
   const arrayMs = performance.now() - perfStart;
   emitToPython("selection", {
     layer_id: entry.layer_id,
-    feature_ids: featureIds,
+    feature_ids: [],
+    feature_ids_b64: featureIdsB64,
     indices_b64: indicesB64,
     count: selectedIndices.length,
   });
@@ -1428,12 +1437,14 @@ function fgp_redraw(entry) {
 function fgp_emit_selection(entry) {
   const perfStart = performance.now();
   const selectedIndices = entry.selectedIndices || [];
-  const featureIds = [];
+  const featureIds = selectedIndices.map((i) => entry.ids[i]);
+  const featureIdsB64 = pyolqt_strings_to_b64(featureIds);
   const indicesB64 = pyolqt_uint32_to_b64(selectedIndices);
   const arrayMs = performance.now() - perfStart;
   emitToPython("selection", {
     layer_id: entry.layer_id,
-    feature_ids: featureIds,
+    feature_ids: [],
+    feature_ids_b64: featureIdsB64,
     indices_b64: indicesB64,
     count: selectedIndices.length,
   });
