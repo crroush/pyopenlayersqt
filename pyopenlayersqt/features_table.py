@@ -188,6 +188,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._sort_order: Qt.SortOrder = Qt.AscendingOrder
         self._hidden_keys: set[FeatureKey] = set()  # Track hidden rows
         self._external_selected_keys: set[FeatureKey] = set()
+        self._external_selected_source_rows: set[int] = set()
         self._visible_row_indices: Optional[List[int]] = None
         self._visible_row_by_source: Dict[int, int] = {}
         self._row_provider: Optional[TableRowProvider] = None
@@ -281,11 +282,14 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
                 result = col.tooltip(row)
             except Exception:
                 result = None
-        elif role == Qt.BackgroundRole and self._external_selected_keys:
+        elif role == Qt.BackgroundRole:
             try:
-                key = self._source_key(source_row)
-                if key in self._external_selected_keys:
+                if source_row in self._external_selected_source_rows:
                     result = QColor(0, 120, 215, 80)
+                elif self._external_selected_keys:
+                    key = self._source_key(source_row)
+                    if key in self._external_selected_keys:
+                        result = QColor(0, 120, 215, 80)
             except Exception:
                 result = None
 
@@ -328,6 +332,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._rows = []
         self._row_by_key = {}
         self._external_selected_keys = set()
+        self._external_selected_source_rows = set()
         self._visible_row_indices = None
         self._visible_row_by_source = {}
         self.endResetModel()
@@ -356,6 +361,7 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
         self._row_provider = None
         self._row_by_key = {}
         self._external_selected_keys = set()
+        self._external_selected_source_rows = set()
         self._visible_row_indices = None
         self._visible_row_by_source = {}
         self.endResetModel()
@@ -426,6 +432,11 @@ class ConfigurableTableModel(QtCore.QAbstractTableModel):
 
     def set_external_selection(self, keys: set[FeatureKey]) -> None:
         self._external_selected_keys = keys
+        self._external_selected_source_rows = set()
+
+    def set_external_selection_rows(self, rows: set[int]) -> None:
+        self._external_selected_source_rows = rows
+        self._external_selected_keys = set()
 
     def remove_where(self, predicate: Callable[[Any], bool]) -> None:
         """Remove rows matching predicate (full reset)."""
@@ -911,6 +922,7 @@ class FeatureTableWidget(QWidget):
         operation: str,
         perf_start: float,
         build_start: float,
+        force_virtual: bool = False,
     ) -> None:
         sm = self.table.selectionModel()
         if sm is None:
@@ -920,44 +932,50 @@ class FeatureTableWidget(QWidget):
             current_rows = self._current_selected_row_indices()
             if current_rows:
                 rows = sorted(set(rows).union(current_rows))
-        rows.sort()
         matched_count = len(rows)
         selection = QtCore.QItemSelection()
-        last_col = max(0, self.model.columnCount() - 1)
         range_count = 0
-        if rows:
-            range_start = rows[0]
-            previous = rows[0]
-            for row in rows[1:]:
-                if row == previous + 1:
+        virtualized = bool(force_virtual)
+        if not virtualized:
+            rows.sort()
+            last_col = max(0, self.model.columnCount() - 1)
+            if rows:
+                range_start = rows[0]
+                previous = rows[0]
+                for row in rows[1:]:
+                    if row == previous + 1:
+                        previous = row
+                        continue
+                    selection.select(
+                        self.model.index(range_start, 0),
+                        self.model.index(previous, last_col),
+                    )
+                    range_count += 1
+                    range_start = row
                     previous = row
-                    continue
                 selection.select(
                     self.model.index(range_start, 0),
                     self.model.index(previous, last_col),
                 )
                 range_count += 1
-                range_start = row
-                previous = row
-            selection.select(
-                self.model.index(range_start, 0),
-                self.model.index(previous, last_col),
-            )
-            range_count += 1
+            virtualized = range_count > self._virtual_selection_range_threshold
         build_ms = (time.perf_counter() - build_start) * 1000.0
 
         self._building_selection = True
         apply_start = time.perf_counter()
-        virtualized = range_count > self._virtual_selection_range_threshold
         self.table.setUpdatesEnabled(False)
         try:
             if virtualized:
-                self._virtual_selected_keys = {
-                    key
-                    for row in rows
-                    if (key := self.model.key_for_row(row)) is not None
-                }
-                self.model.set_external_selection(self._virtual_selected_keys)
+                if force_virtual:
+                    self._virtual_selected_keys = set()
+                    self.model.set_external_selection_rows(set(map(int, rows)))
+                else:
+                    self._virtual_selected_keys = {
+                        key
+                        for row in rows
+                        if (key := self.model.key_for_row(row)) is not None
+                    }
+                    self.model.set_external_selection(self._virtual_selected_keys)
                 sm.clearSelection()
                 self.table.viewport().update()
             else:
@@ -1012,14 +1030,14 @@ class FeatureTableWidget(QWidget):
         """Programmatically select rows by already-resolved row indices."""
         perf_start = time.perf_counter()
         build_start = time.perf_counter()
-        row_list = [int(row) for row in rows]
         self._select_row_indices(
-            row_list,
-            requested_count=len(row_list),
+            rows,
+            requested_count=len(rows),
             clear_first=clear_first,
             operation="feature_table_select_row_indices",
             perf_start=perf_start,
             build_start=build_start,
+            force_virtual=True,
         )
 
     def select_feature_ids(
