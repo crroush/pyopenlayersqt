@@ -717,6 +717,7 @@ class FeatureTableWidget(QWidget):
         self._pending_emit = False
         self._context_menu_actions: List[ContextMenuActionSpec] = []
         self._virtual_selected_keys: set[FeatureKey] = set()
+        self._virtual_selected_source_rows: set[int] = set()
         self._virtual_selection_range_threshold = 5000
 
         self._debounce_timer = QtCore.QTimer(self)
@@ -810,6 +811,27 @@ class FeatureTableWidget(QWidget):
                 }
             )
             return keys
+        if self._virtual_selected_source_rows:
+            keys = [
+                key
+                for row in self._virtual_selected_row_indices()
+                if (key := self.model.key_for_row(row)) is not None
+            ]
+            _perf_print(
+                {
+                    "side": "python",
+                    "operation": "feature_table_selected_keys",
+                    "selection_count": len(keys),
+                    "virtualized": True,
+                    "source_row_virtualized": True,
+                    "times": {
+                        "selected_rows_ms": 0.0,
+                        "build_keys_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                        "total_ms": round((time.perf_counter() - perf_start) * 1000.0, 2),
+                    },
+                }
+            )
+            return keys
         sm = self.table.selectionModel()
         if sm is None:
             return []
@@ -841,8 +863,17 @@ class FeatureTableWidget(QWidget):
         )
         return keys
 
+    def _row_index_for_source_row(self, source_row: int) -> Optional[int]:
+        if self.model._visible_row_indices is None:
+            return source_row if 0 <= source_row < self.model.rowCount() else None
+        return self.model._visible_row_by_source.get(source_row)
+
     def _virtual_selected_row_indices(self) -> List[int]:
         rows: List[int] = []
+        for source_row in self._virtual_selected_source_rows:
+            row_index = self._row_index_for_source_row(source_row)
+            if row_index is not None:
+                rows.append(row_index)
         for key in self._virtual_selected_keys:
             row_index = self.model.row_for_key(key)
             if row_index is not None:
@@ -863,6 +894,16 @@ class FeatureTableWidget(QWidget):
 
     def _filter_virtual_selection_to_model(self) -> None:
         """Drop virtual selection keys that no longer exist in the model."""
+        if self._virtual_selected_source_rows:
+            existing_rows = {
+                row
+                for row in self._virtual_selected_source_rows
+                if self._row_index_for_source_row(row) is not None
+            }
+            if existing_rows != self._virtual_selected_source_rows:
+                self._virtual_selected_source_rows = existing_rows
+                self.model.set_external_selection_rows(existing_rows)
+                self.table.viewport().update()
         if not self._virtual_selected_keys:
             return
         existing_keys = {
@@ -878,7 +919,7 @@ class FeatureTableWidget(QWidget):
 
     def selected_rows_data(self) -> List[Any]:
         """Return underlying row objects for all selected rows."""
-        if self._virtual_selected_keys:
+        if self._virtual_selected_keys or self._virtual_selected_source_rows:
             return [
                 row_data
                 for row_index in self._virtual_selected_row_indices()
@@ -904,6 +945,7 @@ class FeatureTableWidget(QWidget):
 
     def clear_selection(self) -> None:
         self._virtual_selected_keys = set()
+        self._virtual_selected_source_rows = set()
         self.model.set_external_selection(set())
         sm = self.table.selectionModel()
         if sm is None:
@@ -968,7 +1010,8 @@ class FeatureTableWidget(QWidget):
             if virtualized:
                 if force_virtual:
                     self._virtual_selected_keys = set()
-                    self.model.set_external_selection_rows(set(map(int, rows)))
+                    self._virtual_selected_source_rows = set(map(int, rows))
+                    self.model.set_external_selection_rows(self._virtual_selected_source_rows)
                 else:
                     self._virtual_selected_keys = {
                         key
@@ -979,8 +1022,9 @@ class FeatureTableWidget(QWidget):
                 sm.clearSelection()
                 self.table.viewport().update()
             else:
-                had_virtual_selection = bool(self._virtual_selected_keys)
+                had_virtual_selection = bool(self._virtual_selected_keys or self._virtual_selected_source_rows)
                 self._virtual_selected_keys = set()
+                self._virtual_selected_source_rows = set()
                 self.model.set_external_selection(set())
                 if clear_first or had_virtual_selection:
                     sm.clearSelection()
@@ -1064,8 +1108,9 @@ class FeatureTableWidget(QWidget):
     def _on_selection_changed(self, *_args) -> None:
         if self._building_selection:
             return
-        if self._virtual_selected_keys:
+        if self._virtual_selected_keys or self._virtual_selected_source_rows:
             self._virtual_selected_keys = set()
+            self._virtual_selected_source_rows = set()
             self.model.set_external_selection(set())
             self.table.viewport().update()
         self._pending_emit = True
@@ -1112,14 +1157,15 @@ class FeatureTableWidget(QWidget):
         if index.isValid():
             clicked_key = self.model.key_for_row(index.row())
             clicked_is_virtual = (
-                clicked_key is not None and clicked_key in self._virtual_selected_keys
+                (clicked_key is not None and clicked_key in self._virtual_selected_keys)
+                or index.row() in self._virtual_selected_row_indices()
             )
             if not clicked_is_virtual and not sm.isRowSelected(
                 index.row(), QtCore.QModelIndex()
             ):
                 self.table.selectRow(index.row())
 
-        if self._virtual_selected_keys:
+        if self._virtual_selected_keys or self._virtual_selected_source_rows:
             selected_row_indices = self._virtual_selected_row_indices()
         else:
             selected_row_indices = [idx.row() for idx in sm.selectedRows(0)]

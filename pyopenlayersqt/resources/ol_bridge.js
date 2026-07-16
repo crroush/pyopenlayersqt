@@ -721,7 +721,14 @@ function fp_selection_visible_ids(entry, ids) {
 
 function fp_ensure_selection_mask(entry) {
   if (!entry.selectedMask || entry.selectedMask.length !== entry.ids.length) {
-    entry.selectedMask = new Uint8Array(entry.ids.length);
+    const nextMask = new Uint8Array(entry.ids.length);
+    if (entry.selectedMask) {
+      nextMask.set(entry.selectedMask.subarray(0, Math.min(entry.selectedMask.length, nextMask.length)));
+    }
+    for (const i of entry.selectedIndices || []) {
+      if (i >= 0 && i < nextMask.length && !entry.deleted[i] && !entry.hidden[i]) nextMask[i] = 1;
+    }
+    entry.selectedMask = nextMask;
   }
   if (!entry.selectedIndices) entry.selectedIndices = [];
 }
