@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
 import shutil
+import struct
 import threading
 import time
 import uuid
@@ -41,6 +43,15 @@ from .models import (
 )
 
 PKG_DIR = Path(__file__).resolve().parent
+
+
+def _strings_to_base64(values: Sequence[Any]) -> str:
+    data = "\0".join(str(value) for value in values).encode("utf-8")
+    return base64.b64encode(data).decode("ascii")
+
+
+def _float64_pair_to_base64(x: float, y: float) -> str:
+    return base64.b64encode(struct.pack("<2d", float(x), float(y))).decode("ascii")
 
 
 def _to_jsonable(obj: Any) -> Any:
@@ -390,7 +401,7 @@ class OLMapWidget(QWebEngineView):
             {
                 "type": "select.set",
                 "layer_id": layer_id,
-                "feature_ids": feature_ids,
+                "feature_ids_b64": _strings_to_base64(feature_ids),
                 "emit": bool(emit),
             }
         )
@@ -403,7 +414,7 @@ class OLMapWidget(QWebEngineView):
             {
                 "type": "fast_points.select.set",
                 "layer_id": layer_id,
-                "feature_ids": feature_ids,
+                "feature_ids_b64": _strings_to_base64(feature_ids),
                 "emit": bool(emit),
             }
         )
@@ -416,7 +427,7 @@ class OLMapWidget(QWebEngineView):
             {
                 "type": "fast_geopoints.select.set",
                 "layer_id": layer_id,
-                "feature_ids": feature_ids,
+                "feature_ids_b64": _strings_to_base64(feature_ids),
                 "emit": bool(emit),
             }
         )
@@ -477,7 +488,7 @@ class OLMapWidget(QWebEngineView):
         msg: Dict[str, Any] = {"type": "map.set_view"}
         if center is not None:
             lat, lon = center
-            msg["center"] = [float(lon), float(lat)]
+            msg["center_b64"] = _float64_pair_to_base64(lon, lat)
         if zoom is not None:
             msg["zoom"] = int(zoom)
         self._send(msg)
@@ -736,7 +747,7 @@ class OLMapWidget(QWebEngineView):
             self._send_now(
                 {
                     "type": "map.set_view",
-                    "center": [float(lon), float(lat)],
+                    "center_b64": _float64_pair_to_base64(lon, lat),
                     "zoom": int(self._initial_zoom),
                 }
             )

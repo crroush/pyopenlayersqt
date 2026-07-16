@@ -137,7 +137,9 @@ function pyolqt_points_from_msg(msg) {
 }
 
 function pyolqt_ids_from_msg(msg) {
-  return msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.feature_ids || msg.ids || []);
+  if (msg.ids_b64) return pyolqt_b64_to_strings(msg.ids_b64);
+  if (msg.feature_ids_b64) return pyolqt_b64_to_strings(msg.feature_ids_b64);
+  return msg.feature_ids || msg.ids || [];
 }
 
 function pyolqt_indices_from_msg(msg) {
@@ -226,8 +228,9 @@ function cmd_map_set_view(msg) {
   const view = st.map.getView();
   if (!view) return;
   
-  if (msg.center && Array.isArray(msg.center) && msg.center.length === 2) {
-    const center = lonlat_to_3857(msg.center[0], msg.center[1]);
+  const centerLonLat = msg.center_b64 ? pyolqt_lonlat_pair_from_msg(msg, "center") : msg.center;
+  if (centerLonLat && Array.isArray(centerLonLat) && centerLonLat.length === 2) {
+    const center = lonlat_to_3857(centerLonLat[0], centerLonLat[1]);
     view.setCenter(center);
   }
   
@@ -1122,7 +1125,7 @@ function cmd_fast_points_select_set(msg) {
     const perfStart = performance.now();
     const entry = getLayerEntry(msg.layer_id);
     if (entry.type !== "fast_points") return;
-    const ids = fp_selection_visible_ids(entry, msg.feature_ids || []);
+    const ids = fp_selection_visible_ids(entry, pyolqt_ids_from_msg(msg));
     const setStart = performance.now();
     entry.selectedIds = new Set(ids);
     const setMs = performance.now() - setStart;
@@ -3530,7 +3533,7 @@ function cmd_countries_set_visible(msg) {
   function cmd_vector_set_features_movable(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
-    for (const id of (msg.feature_ids || [])) {
+    for (const id of pyolqt_ids_from_msg(msg)) {
       for (const f of vector_features_for_id(e.source, id)) {
         f.set("_pyolqt_movable", !!msg.movable);
         update_vector_edit_collection_for_feature(f);
@@ -3542,7 +3545,7 @@ function cmd_countries_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
     const mode = normalize_vertex_editing_mode(msg.vertex_editing, e.vertex_editing);
-    for (const id of (msg.feature_ids || [])) {
+    for (const id of pyolqt_ids_from_msg(msg)) {
       for (const f of vector_features_for_id(e.source, id)) {
         f.set("_pyolqt_vertex_editing", mode);
         update_vector_edit_collection_for_feature(f);
@@ -3610,7 +3613,7 @@ function cmd_countries_set_visible(msg) {
     selected.clear();
 
     const layer_id = msg.layer_id || "";
-    const ids = msg.feature_ids || [];
+    const ids = pyolqt_ids_from_msg(msg);
     if (!layer_id) return;
 
     const e = state.layers.get(layer_id);
@@ -3793,7 +3796,7 @@ function cmd_countries_set_visible(msg) {
 function cmd_vector_remove_features(msg) {
   const e = getLayerEntry(msg.layer_id);
   if (e.type !== "vector") return;
-  const ids = msg.feature_ids || msg.ids || [];
+  const ids = pyolqt_ids_from_msg(msg);
   for (let i = 0; i < ids.length; i++) {
     const features = vector_features_for_id(e.source, ids[i]);
     for (const f of features) {
@@ -3807,7 +3810,7 @@ function cmd_vector_remove_features(msg) {
 function cmd_vector_update_styles(msg) {
   const e = getLayerEntry(msg.layer_id);
   if (!e || e.type !== "vector") return;
-  const ids = msg.feature_ids || [];
+  const ids = pyolqt_ids_from_msg(msg);
   const styles = msg.styles || [];
   if (ids.length !== styles.length) return;
   

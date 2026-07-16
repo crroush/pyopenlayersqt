@@ -104,6 +104,8 @@ def _normalize_color(
 
 def _latlon_chunk_to_lonlat_array(coords: Sequence[LatLon]) -> np.ndarray:
     arr = np.asarray(coords, dtype=np.float64)
+    if arr.size == 0:
+        return np.empty((0, 2), dtype=np.float64)
     if arr.ndim != 2 or arr.shape[1] != 2:
         raise ValueError("coords must be a sequence of (lat, lon) pairs")
     return np.ascontiguousarray(arr[:, [1, 0]], dtype=np.float64)
@@ -438,7 +440,7 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.set_features_movable",
                 "layer_id": self.id,
-                "feature_ids": [str(x) for x in feature_ids],
+                "feature_ids_b64": _strings_to_base64(feature_ids),
                 "movable": bool(movable),
             }
         )
@@ -450,7 +452,7 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.set_features_vertex_editing",
                 "layer_id": self.id,
-                "feature_ids": [str(x) for x in feature_ids],
+                "feature_ids_b64": _strings_to_base64(feature_ids),
                 "vertex_editing": self._vertex_editing_value(mode),
             }
         )
@@ -461,7 +463,7 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.remove_features",
                 "layer_id": self.id,
-                "feature_ids": [str(x) for x in feature_ids],
+                "feature_ids_b64": _strings_to_base64(feature_ids),
             }
         )
 
@@ -491,7 +493,7 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.update_styles",
                 "layer_id": self.id,
-                "feature_ids": fids,
+                "feature_ids_b64": _strings_to_base64(fids),
                 "styles": styles_js,
             }
         )
