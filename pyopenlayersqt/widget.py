@@ -15,6 +15,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
+import numpy as np
+
 
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtGui import QColor
@@ -52,6 +54,12 @@ def _strings_to_base64(values: Sequence[Any]) -> str:
 
 def _float64_pair_to_base64(x: float, y: float) -> str:
     return base64.b64encode(struct.pack("<2d", float(x), float(y))).decode("ascii")
+
+
+def _uint32_base64_to_list(value: str) -> list[int]:
+    if not value:
+        return []
+    return np.frombuffer(base64.b64decode(value), dtype=np.uint32).astype(int).tolist()
 
 
 def _to_jsonable(obj: Any) -> Any:
@@ -773,10 +781,13 @@ class OLMapWidget(QWebEngineView):
 
     def _handle_selection_event(self, payload_json: str) -> None:
         obj = self._parse_event_payload(payload_json)
+        feature_ids = [str(x) for x in obj.get("feature_ids", [])]
+        indices = _uint32_base64_to_list(str(obj.get("indices_b64", "")))
         sel = FeatureSelection(
             layer_id=str(obj.get("layer_id", "")),
-            feature_ids=[str(x) for x in obj.get("feature_ids", [])],
-            count=int(obj.get("count", len(obj.get("feature_ids", []) or []))),
+            feature_ids=feature_ids,
+            indices=indices,
+            count=int(obj.get("count", len(feature_ids) or len(indices))),
             raw=obj,
         )
         self.selectionChanged.emit(sel)

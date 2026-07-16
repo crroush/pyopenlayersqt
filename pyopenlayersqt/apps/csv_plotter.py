@@ -804,6 +804,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._append_prior_deleted_mask: np.ndarray | None = None
         self._append_prior_keyword_filter: tuple[str, str] | None = None
         self.current_selection_fids: list[str] = []
+        self.current_selection_indices = np.empty(0, dtype=np.uint32)
         self.table_widget: FeatureTableWidget | None = None
         self._map_selection_conn = None
         self._slider_range_conn = None
@@ -1200,6 +1201,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._append_prior_deleted_mask = None
         self._append_prior_keyword_filter = None
         self.current_selection_fids = []
+        self.current_selection_indices = np.empty(0, dtype=np.uint32)
         self._last_chunk_redraw_time = 0.0
         self._table_sort_column = None
         self._table_sort_order = QtCore.Qt.SortOrder.AscendingOrder
@@ -1524,7 +1526,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             self.fast_layer.set_ellipses_visible(self._ellipses_visible)
 
     def show_only_selected_features(self) -> None:
-        indices = self._feature_ids_to_row_indices(self.current_selection_fids)
+        indices = self.current_selection_indices
+        if indices.size == 0:
+            indices = self._feature_ids_to_row_indices(self.current_selection_fids)
         if indices.size:
             if self.df is not None:
                 self._visible_mask = np.zeros(len(self.df), dtype=bool)
@@ -1533,7 +1537,9 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             self._sync_table_visible_rows()
 
     def hide_selected_features(self) -> None:
-        indices = self._feature_ids_to_row_indices(self.current_selection_fids)
+        indices = self.current_selection_indices
+        if indices.size == 0:
+            indices = self._feature_ids_to_row_indices(self.current_selection_fids)
         if indices.size:
             if self.df is not None:
                 if self._visible_mask is None or len(self._visible_mask) != len(
@@ -1551,10 +1557,15 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self._sync_table_visible_rows()
 
     def delete_selected_features(self) -> None:
-        if not self.current_selection_fids:
-            return
-        self.fast_layer.remove_points(self.current_selection_fids)
-        deleted_indices = self._feature_ids_to_row_indices(self.current_selection_fids)
+        deleted_indices = self.current_selection_indices
+        if deleted_indices.size == 0:
+            if not self.current_selection_fids:
+                return
+            deleted_indices = self._feature_ids_to_row_indices(self.current_selection_fids)
+        remove_fids = self.current_selection_fids or [
+            f"pt_{int(i)}" for i in deleted_indices
+        ]
+        self.fast_layer.remove_points(remove_fids)
         if self.df is not None and deleted_indices.size:
             if self._deleted_mask is None or len(self._deleted_mask) != len(self.df):
                 self._deleted_mask = np.zeros(len(self.df), dtype=bool)
@@ -1565,9 +1576,13 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         if self.table_widget is not None:
             self.table_widget.clear_selection()
         self.current_selection_fids = []
+        self.current_selection_indices = np.empty(0, dtype=np.uint32)
 
     def save_selected_csv(self) -> None:
-        if not self.current_selection_fids or self.df is None:
+        if (
+            (self.current_selection_indices.size == 0 and not self.current_selection_fids)
+            or self.df is None
+        ):
             QtWidgets.QMessageBox.information(
                 self,
                 "No Selection",
@@ -1579,8 +1594,12 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         )
         if not path:
             return
-        selected = set(self.current_selection_fids)
-        mask = np.fromiter((fid in selected for fid in self.df["_fid"]), dtype=bool)
+        if self.current_selection_indices.size:
+            mask = np.zeros(len(self.df), dtype=bool)
+            mask[self.current_selection_indices] = True
+        else:
+            selected = set(self.current_selection_fids)
+            mask = np.fromiter((fid in selected for fid in self.df["_fid"]), dtype=bool)
         export_table = self.df.filtered(mask)
         export_table.write_csv(path, excluded_columns={"_fid", self.mapped_epoch_col})
         QtWidgets.QMessageBox.information(
@@ -1822,6 +1841,7 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             else:
                 self.map_widget.set_fast_points_selection(self.fast_layer.id, fids)
             self.current_selection_fids = fids
+            self.current_selection_indices = self._feature_ids_to_row_indices(fids)
             perf(
                 "table_to_map_selection",
                 selection_count=len(fids),
@@ -1838,12 +1858,20 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
                 return
             perf_start = time.perf_counter()
             self.current_selection_fids = selection.feature_ids
-            self.table_widget.select_feature_ids(
-                selection.layer_id, selection.feature_ids, clear_first=True
+            self.current_selection_indices = np.asarray(
+                selection.indices, dtype=np.uint32
             )
+            if self.current_selection_indices.size:
+                self.table_widget.select_row_indices(
+                    self.current_selection_indices, clear_first=True
+                )
+            else:
+                self.table_widget.select_feature_ids(
+                    selection.layer_id, selection.feature_ids, clear_first=True
+                )
             perf(
                 "map_to_table_selection",
-                selection_count=len(selection.feature_ids),
+                selection_count=selection.count,
                 elapsed_ms=round((time.perf_counter() - perf_start) * 1000.0, 2),
             )
 

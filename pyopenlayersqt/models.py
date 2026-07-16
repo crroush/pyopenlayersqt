@@ -458,6 +458,7 @@ class FeatureSelection:
 
     layer_id: str
     feature_ids: List[str] = field(default_factory=list)
+    indices: List[int] = field(default_factory=list)
     count: int = 0
     raw: Dict[str, Any] = field(default_factory=dict)
 

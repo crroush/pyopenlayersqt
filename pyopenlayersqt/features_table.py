@@ -1006,6 +1006,22 @@ class FeatureTableWidget(QWidget):
             build_start=build_start,
         )
 
+    def select_row_indices(
+        self, rows: Sequence[int], clear_first: bool = True
+    ) -> None:
+        """Programmatically select rows by already-resolved row indices."""
+        perf_start = time.perf_counter()
+        build_start = time.perf_counter()
+        row_list = [int(row) for row in rows]
+        self._select_row_indices(
+            row_list,
+            requested_count=len(row_list),
+            clear_first=clear_first,
+            operation="feature_table_select_row_indices",
+            perf_start=perf_start,
+            build_start=build_start,
+        )
+
     def select_feature_ids(
         self, layer_id: str, feature_ids: Sequence[str], clear_first: bool = True
     ) -> None:
