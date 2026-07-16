@@ -88,10 +88,61 @@ function pyolqt_b64_to_uint32(b64) {
   return new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
 }
 
+function pyolqt_b64_to_uint8(b64) {
+  const bytes = pyolqt_b64_to_bytes(b64);
+  return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
+function pyolqt_lonlat_pair_from_msg(msg, key) {
+  const b64 = msg[key + "_b64"];
+  if (b64) {
+    const flat = pyolqt_b64_to_float64(b64);
+    return [flat[0] || 0, flat[1] || 0];
+  }
+  return msg[key] || [0, 0];
+}
+
+function pyolqt_lonlat_array_from_msg(msg, key, countKey) {
+  const b64 = msg[key + "_b64"];
+  if (b64) {
+    const flat = pyolqt_b64_to_float64(b64);
+    return { flat, count: msg[countKey] || Math.floor(flat.length / 2) };
+  }
+  const coords = msg[key] || [];
+  return { coords, count: coords.length };
+}
+
+function pyolqt_lonlat_at(payload, i) {
+  if (payload.flat) return [payload.flat[i * 2], payload.flat[i * 2 + 1]];
+  return payload.coords[i];
+}
+
+function pyolqt_float64_values_from_msg(msg, key) {
+  return msg[key + "_b64"] ? pyolqt_b64_to_float64(msg[key + "_b64"]) : (msg[key] || []);
+}
+
 function pyolqt_b64_to_strings(b64) {
   if (!b64) return null;
   const text = new TextDecoder("utf-8").decode(pyolqt_b64_to_bytes(b64));
   return text.length ? text.split("\0") : [];
+}
+
+function pyolqt_bytes_to_b64(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function pyolqt_uint32_to_b64(values) {
+  const arr = values instanceof Uint32Array ? values : new Uint32Array(values);
+  return pyolqt_bytes_to_b64(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength));
+}
+
+function pyolqt_strings_to_b64(values) {
+  return pyolqt_bytes_to_b64(new TextEncoder().encode((values || []).join("\0")));
 }
 
 function pyolqt_points_from_msg(msg) {
@@ -104,7 +155,9 @@ function pyolqt_points_from_msg(msg) {
 }
 
 function pyolqt_ids_from_msg(msg) {
-  return msg.ids_b64 ? pyolqt_b64_to_strings(msg.ids_b64) : (msg.feature_ids || msg.ids || []);
+  if (msg.ids_b64) return pyolqt_b64_to_strings(msg.ids_b64);
+  if (msg.feature_ids_b64) return pyolqt_b64_to_strings(msg.feature_ids_b64);
+  return msg.feature_ids || msg.ids || [];
 }
 
 function pyolqt_indices_from_msg(msg) {
@@ -193,8 +246,9 @@ function cmd_map_set_view(msg) {
   const view = st.map.getView();
   if (!view) return;
   
-  if (msg.center && Array.isArray(msg.center) && msg.center.length === 2) {
-    const center = lonlat_to_3857(msg.center[0], msg.center[1]);
+  const centerLonLat = msg.center_b64 ? pyolqt_lonlat_pair_from_msg(msg, "center") : msg.center;
+  if (centerLonLat && Array.isArray(centerLonLat) && centerLonLat.length === 2) {
+    const center = lonlat_to_3857(centerLonLat[0], centerLonLat[1]);
     view.setCenter(center);
   }
   
@@ -574,7 +628,7 @@ function fp_qt_is_drawable_representative(entry, i, skipSelected, extent) {
     !entry.deleted[i] &&
     !entry.hidden[i] &&
     fp_qt_point_in_extent(entry, i, extent) &&
-    (!skipSelected || !entry.selectedIds.has(entry.ids[i]));
+    (!skipSelected || !fp_selection_has(entry, i));
 }
 
 function fp_qt_pick_representative(entry, node, skipSelected, extent) {
@@ -665,14 +719,95 @@ function fp_selection_visible_ids(entry, ids) {
   return visible;
 }
 
+function fp_ensure_selection_mask(entry) {
+  if (!entry.selectedMask || entry.selectedMask.length !== entry.ids.length) {
+    const nextMask = new Uint8Array(entry.ids.length);
+    if (entry.selectedMask) {
+      nextMask.set(entry.selectedMask.subarray(0, Math.min(entry.selectedMask.length, nextMask.length)));
+    }
+    for (const i of entry.selectedIndices || []) {
+      if (i >= 0 && i < nextMask.length && !entry.deleted[i] && !entry.hidden[i]) nextMask[i] = 1;
+    }
+    entry.selectedMask = nextMask;
+  }
+  if (!entry.selectedIndices) entry.selectedIndices = [];
+}
+
+function fp_selection_has(entry, i) {
+  return !!(entry.selectedMask && entry.selectedMask[i]);
+}
+
+function fp_apply_selected_indices(entry, indices) {
+  fp_ensure_selection_mask(entry);
+  entry.selectedMask.fill(0);
+  entry.selectedIndices = [];
+  entry.selectedIds = new Set();
+  for (let k = 0; k < indices.length; k++) {
+    const i = indices[k];
+    if (i == null || i < 0 || entry.deleted[i] || entry.hidden[i] || entry.selectedMask[i]) continue;
+    entry.selectedMask[i] = 1;
+    entry.selectedIndices.push(i);
+  }
+}
+
+function fp_apply_selected_ids(entry, ids) {
+  fp_ensure_selection_mask(entry);
+  entry.selectedMask.fill(0);
+  entry.selectedIndices = [];
+  entry.selectedIds = new Set();
+  for (const id of ids || []) {
+    const fid = String(id);
+    const i = entry.idIndex.get(fid);
+    if (i == null || entry.deleted[i] || entry.hidden[i] || entry.selectedMask[i]) continue;
+    entry.selectedMask[i] = 1;
+    entry.selectedIndices.push(i);
+  }
+}
+
+function fp_remove_selected_index(entry, i) {
+  if (!entry.selectedMask || !entry.selectedMask[i]) return false;
+  entry.selectedMask[i] = 0;
+  entry.selectedIds.delete(entry.ids[i]);
+  entry.selectedIndices = (entry.selectedIndices || []).filter((idx) => idx !== i);
+  return true;
+}
+
+function fp_toggle_selected_index(entry, i) {
+  fp_ensure_selection_mask(entry);
+  const fid = entry.ids[i];
+  if (entry.selectedMask[i]) {
+    fp_remove_selected_index(entry, i);
+  } else {
+    entry.selectedMask[i] = 1;
+    entry.selectedIds.add(fid);
+    entry.selectedIndices.push(i);
+  }
+}
+
+function fp_qt_pick_selected_representative(entry, node, extent) {
+  if (!node || node.visibleCount <= 0) return -1;
+  if (node.children) {
+    for (let c = 0; c < 4; c++) {
+      const child = node.children[c];
+      if (!fp_qt_intersects(child, extent)) continue;
+      const idx = fp_qt_pick_selected_representative(entry, child, extent);
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  }
+  for (let k = 0; k < node.items.length; k++) {
+    const i = node.items[k];
+    if (!entry.deleted[i] && !entry.hidden[i] && fp_selection_has(entry, i) && fp_qt_point_in_extent(entry, i, extent)) return i;
+  }
+  return -1;
+}
+
 function fp_prune_hidden_selection(entry) {
-  if (!entry.selectedIds || entry.selectedIds.size === 0) return false;
+  if (!entry.selectedIndices || entry.selectedIndices.length === 0) return false;
   let changed = false;
-  for (const fid of Array.from(entry.selectedIds)) {
-    const i = entry.idIndex.get(String(fid));
+  for (const i of Array.from(entry.selectedIndices)) {
     if (i == null || entry.deleted[i] || entry.hidden[i]) {
-      entry.selectedIds.delete(fid);
-      changed = true;
+      changed = fp_remove_selected_index(entry, i) || changed;
     }
   }
   return changed;
@@ -680,24 +815,28 @@ function fp_prune_hidden_selection(entry) {
 
 function fp_emit_selection(entry) {
   const perfStart = performance.now();
-  const featureIds = Array.from(entry.selectedIds);
+  const selectedIndices = entry.selectedIndices || [];
+  const featureIds = selectedIndices.map((i) => entry.ids[i]);
+  const featureIdsB64 = pyolqt_strings_to_b64(featureIds);
+  const indicesB64 = pyolqt_uint32_to_b64(selectedIndices);
   const arrayMs = performance.now() - perfStart;
   emitToPython("selection", {
     layer_id: entry.layer_id,
-    feature_ids: featureIds,
+    feature_ids: [],
+    feature_ids_b64: featureIdsB64,
+    indices_b64: indicesB64,
+    count: selectedIndices.length,
   });
-  if (featureIds.length > 100 || window.PYOLQT_SELECTION_PERF) {
-    emitPerf({
+  emitPerf({
       side: "javascript",
       layer_id: entry.layer_id,
       operation: "fast_points_emit_selection",
-      selection_count: featureIds.length,
+      selection_count: selectedIndices.length,
       times: {
         array_ms: arrayMs.toFixed(2),
         total_ms: (performance.now() - perfStart).toFixed(2)
       }
     });
-  }
 }
 
 function fp_emit_singleclick(entry, ctrl_key, meta_key, shift_key, alt_key) {
@@ -782,7 +921,7 @@ function fp_make_canvas_layer(entry) {
         if (!Number.isFinite(mercX) || !Number.isFinite(mercY)) return;
         if (mercX < extent[0] || mercX > extent[2] || mercY < extent[1] || mercY > extent[3]) return;
         const fid = entry.ids[i];
-        const isSel = selectedOverride || entry.selectedIds.has(fid);
+        const isSel = selectedOverride || fp_selection_has(entry, i);
         if (!selectedOverride && isSel) return;
         const radius = (isSel ? entry.style.selected_radius : entry.style.radius) * pixelRatio;
 
@@ -846,9 +985,8 @@ function fp_make_canvas_layer(entry) {
         traverseNode(root);
       }
 
-      if (entry.selectedIds.size > 0) {
-        for (const fid of entry.selectedIds) {
-          const i = entry.idIndex.get(String(fid));
+      if ((entry.selectedIndices || []).length > 0) {
+        for (const i of entry.selectedIndices) {
           if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
           const x = entry.x[i], y = entry.y[i];
           if (x < extent[0] || x > extent[2] || y < extent[1] || y > extent[3]) continue;
@@ -931,6 +1069,8 @@ function cmd_fast_points_add_layer(msg) {
     hidden: [],
     qtRoot: null,
     selectedIds: new Set(),
+    selectedIndices: [],
+    selectedMask: new Uint8Array(0),
     idIndex: new Map(),
     style: msg.style || { radius: 3, default_rgba: [255,51,51,204], selected_radius: 6, selected_rgba: [0,255,255,255] },
     source: null,
@@ -1005,6 +1145,8 @@ function cmd_fast_points_clear(msg) {
   fp_qt_init(entry);
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
+  entry.selectedIndices = [];
+  entry.selectedMask = new Uint8Array(entry.ids.length);
   fp_redraw(entry);
   fp_emit_selection(entry);
 }
@@ -1020,7 +1162,7 @@ function cmd_fast_points_remove_ids(msg) {
     if (i == null || entry.deleted[i]) continue;
     if (!entry.hidden[i]) fp_qt_update_visibility(entry, i, -1);
     entry.deleted[i] = true;
-    entry.selectedIds.delete(entry.ids[i]);
+    fp_remove_selected_index(entry, i);
   }
   fp_redraw(entry);
   fp_emit_selection(entry);
@@ -1089,9 +1231,9 @@ function cmd_fast_points_select_set(msg) {
     const perfStart = performance.now();
     const entry = getLayerEntry(msg.layer_id);
     if (entry.type !== "fast_points") return;
-    const ids = fp_selection_visible_ids(entry, msg.feature_ids || []);
+    const ids = fp_selection_visible_ids(entry, pyolqt_ids_from_msg(msg));
     const setStart = performance.now();
-    entry.selectedIds = new Set(ids);
+    fp_apply_selected_ids(entry, ids);
     const setMs = performance.now() - setStart;
     const redrawStart = performance.now();
     fp_redraw(entry);
@@ -1130,7 +1272,7 @@ function cmd_fast_points_hide_ids(msg) {
     const i = entry.idIndex.get(id);
     if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
-    selectionChanged = entry.selectedIds.delete(entry.ids[i]) || selectionChanged;
+    selectionChanged = fp_remove_selected_index(entry, i) || selectionChanged;
     fp_qt_update_visibility(entry, i, -1);
   }
   fp_redraw(entry);
@@ -1169,7 +1311,7 @@ function cmd_fast_points_hide_indices(msg) {
     const i = indices[k];
     if (i == null || i >= entry.hidden.length || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
-    selectionChanged = entry.selectedIds.delete(entry.ids[i]) || selectionChanged;
+    selectionChanged = fp_remove_selected_index(entry, i) || selectionChanged;
     fp_qt_update_visibility(entry, i, -1);
   }
   if (entry.type === "fast_geopoints") fgp_redraw(entry); else fp_redraw(entry);
@@ -1301,24 +1443,28 @@ function fgp_redraw(entry) {
 }
 function fgp_emit_selection(entry) {
   const perfStart = performance.now();
-  const featureIds = Array.from(entry.selectedIds);
+  const selectedIndices = entry.selectedIndices || [];
+  const featureIds = selectedIndices.map((i) => entry.ids[i]);
+  const featureIdsB64 = pyolqt_strings_to_b64(featureIds);
+  const indicesB64 = pyolqt_uint32_to_b64(selectedIndices);
   const arrayMs = performance.now() - perfStart;
   emitToPython("selection", {
     layer_id: entry.layer_id,
-    feature_ids: featureIds,
+    feature_ids: [],
+    feature_ids_b64: featureIdsB64,
+    indices_b64: indicesB64,
+    count: selectedIndices.length,
   });
-  if (featureIds.length > 100 || window.PYOLQT_SELECTION_PERF) {
-    emitPerf({
+  emitPerf({
       side: "javascript",
       layer_id: entry.layer_id,
       operation: "fast_geopoints_emit_selection",
-      selection_count: featureIds.length,
+      selection_count: selectedIndices.length,
       times: {
         array_ms: arrayMs.toFixed(2),
         total_ms: (performance.now() - perfStart).toFixed(2)
       }
     });
-  }
 }
 
 function fgp_make_canvas_layer(entry) {
@@ -1412,7 +1558,7 @@ function fgp_make_canvas_layer(entry) {
       }
 
       function addUnselectedDrawIndex(i, fromCollapsedNode) {
-        if (entry.deleted[i] || entry.hidden[i] || selectedSet.has(entry.ids[i]) || !inExtent(i)) return;
+        if (entry.deleted[i] || entry.hidden[i] || fp_selection_has(entry, i) || !inExtent(i)) return;
         const pixelKey = centerPixelKey(i, false);
         if (seenCenterPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
@@ -1423,17 +1569,37 @@ function fgp_make_canvas_layer(entry) {
         if (fromCollapsedNode) representativeCount++;
       }
 
+      function addSelectedDrawIndex(i) {
+        if (i == null || entry.deleted[i] || entry.hidden[i] || !fp_selection_has(entry, i) || !inExtent(i)) return;
+        const pixelKey = centerPixelKey(i, true);
+        if (seenSelectedCenterPixels.has(pixelKey)) {
+          skippedDuplicatePixels++;
+          return;
+        }
+        seenSelectedCenterPixels.add(pixelKey);
+        selectedDrawIndices.push(i);
+      }
+
       function collectSelectedDrawIndices() {
-        for (const fid of selectedSet) {
-          const i = entry.idIndex.get(String(fid));
-          if (i == null || entry.deleted[i] || entry.hidden[i] || !inExtent(i)) continue;
-          const pixelKey = centerPixelKey(i, true);
-          if (seenSelectedCenterPixels.has(pixelKey)) {
-            skippedDuplicatePixels++;
+        const selectedIndices = entry.selectedIndices || [];
+        if (!root) {
+          for (const i of selectedIndices) addSelectedDrawIndex(i);
+          return;
+        }
+        const stack = [root];
+        while (stack.length) {
+          const node = stack.pop();
+          if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) continue;
+          const px = nodePixelSize(node);
+          if (px.w <= collapsePx && px.h <= collapsePx) {
+            addSelectedDrawIndex(fp_qt_pick_selected_representative(entry, node, extent));
             continue;
           }
-          seenSelectedCenterPixels.add(pixelKey);
-          selectedDrawIndices.push(i);
+          if (node.children) {
+            for (let c = 0; c < 4; c++) stack.push(node.children[c]);
+            continue;
+          }
+          for (let k = 0; k < node.items.length; k++) addSelectedDrawIndex(node.items[k]);
         }
       }
 
@@ -1593,7 +1759,7 @@ function fgp_make_canvas_layer(entry) {
 
       function addPointToBatch(i, selectedOverride) {
         const fid = entry.ids[i];
-        const selected = selectedOverride === true || selectedSet.has(fid);
+        const selected = selectedOverride === true || fp_selection_has(entry, i);
         if (!selectedOverride && selected) return;
         const x = (entry.x[i] - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
@@ -1687,6 +1853,8 @@ function cmd_fast_geopoints_add_layer(msg) {
     rot: [],
     qtRoot: null,
     selectedIds: new Set(),
+    selectedIndices: [],
+    selectedMask: new Uint8Array(0),
     idIndex: new Map(),
     style,
     source: null,
@@ -1771,6 +1939,8 @@ function cmd_fast_geopoints_clear(msg) {
   fp_qt_init(entry);
   entry.idIndex = new Map();
   entry.selectedIds = new Set();
+  entry.selectedIndices = [];
+  entry.selectedMask = new Uint8Array(entry.ids.length);
   fgp_redraw(entry);
   if (msg.emit !== false) fgp_emit_selection(entry);
 }
@@ -1786,7 +1956,7 @@ function cmd_fast_geopoints_remove_ids(msg) {
     if (i == null || entry.deleted[i]) continue;
     if (!entry.hidden[i]) fp_qt_update_visibility(entry, i, -1);
     entry.deleted[i] = true;
-    entry.selectedIds.delete(entry.ids[i]);
+    fp_remove_selected_index(entry, i);
   }
   fgp_redraw(entry);
   fgp_emit_selection(entry);
@@ -1832,7 +2002,7 @@ function cmd_fast_geopoints_select_set(msg) {
     if (entry.type !== "fast_geopoints") return;
     const ids = fp_selection_visible_ids(entry, pyolqt_ids_from_msg(msg));
     const setStart = performance.now();
-    entry.selectedIds = new Set(ids);
+    fp_apply_selected_ids(entry, ids);
     const setMs = performance.now() - setStart;
     const redrawStart = performance.now();
     fgp_redraw(entry);
@@ -1871,7 +2041,7 @@ function cmd_fast_geopoints_hide_ids(msg) {
     const i = entry.idIndex.get(id);
     if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
     entry.hidden[i] = true;
-    selectionChanged = entry.selectedIds.delete(entry.ids[i]) || selectionChanged;
+    selectionChanged = fp_remove_selected_index(entry, i) || selectionChanged;
     fp_qt_update_visibility(entry, i, -1);
   }
   fgp_redraw(entry);
@@ -1979,8 +2149,7 @@ function fp_install_interactions() {
       const pickMs = performance.now() - pickStart;
       if (idx < 0) continue;
       const fid = entry.ids[idx];
-      if (entry.selectedIds.has(fid)) entry.selectedIds.delete(fid);
-      else entry.selectedIds.add(fid);
+      fp_toggle_selected_index(entry, idx);
       const redrawStart = performance.now();
       if (entry.type === "fast_geopoints") fgp_redraw(entry);
       else fp_redraw(entry);
@@ -1992,7 +2161,7 @@ function fp_install_interactions() {
         side: "javascript",
         layer_id: entry.layer_id,
         operation: "fast_points_singleclick_selection",
-        selection_count: entry.selectedIds.size,
+        selection_count: (entry.selectedIndices || []).length,
         times: {
           pick_ms: pickMs.toFixed(2),
           redraw_request_ms: redrawMs.toFixed(2),
@@ -2023,17 +2192,17 @@ function fp_install_interactions() {
       const cand = query.indices;
       const queryMs = performance.now() - queryStart;
       const buildStart = performance.now();
-      const next = new Set();
+      const nextIndices = [];
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
         if (entry.deleted[i] || entry.hidden[i]) continue;
         const x = entry.x[i], y = entry.y[i];
-        if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) next.add(entry.ids[i]);
+        if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) nextIndices.push(i);
       }
       const buildMs = performance.now() - buildStart;
       // Only emit selection if something was selected in this layer or if clearing previous selection
-      if (next.size > 0 || entry.selectedIds.size > 0) {
-        entry.selectedIds = next;
+      if (nextIndices.length > 0 || (entry.selectedIndices || []).length > 0) {
+        fp_apply_selected_indices(entry, nextIndices);
         const redrawStart = performance.now();
         if (entry.type === "fast_geopoints") fgp_redraw(entry);
         else fp_redraw(entry);
@@ -2048,7 +2217,7 @@ function fp_install_interactions() {
           layer_type: entry.type,
           query_index: "quadtree",
           candidate_count: cand.length,
-          selection_count: next.size,
+          selection_count: nextIndices.length,
           visited_node_count: query.stats.visitedNodeCount,
           skipped_node_count: query.stats.skippedNodeCount,
           scanned_leaf_point_count: query.stats.scannedLeafPointCount,
@@ -3313,17 +3482,19 @@ function cmd_countries_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
     const style = style_from_simple(msg.style || {});
-    const coords = msg.coords || [];
-    const ids = msg.ids || [];
+    const coordsPayload = pyolqt_lonlat_array_from_msg(msg, "coords", "point_count");
+    const ids = pyolqt_ids_from_msg(msg);
     const props = msg.properties || [];
-    for (let i = 0; i < coords.length; i++) {
-      const lon = coords[i][0], lat = coords[i][1];
+    const movableFlags = msg.movable_b64 ? pyolqt_b64_to_uint8(msg.movable_b64) : null;
+    for (let i = 0; i < coordsPayload.count; i++) {
+      const coord = pyolqt_lonlat_at(coordsPayload, i);
+      const lon = coord[0], lat = coord[1];
       const f = new ol.Feature({ geometry: new ol.geom.Point(lonlat_to_3857(lon, lat)) });
       f.setId(ids[i] || ("pt" + i));
       f.set("_layer_id", msg.layer_id);
       if (props[i]) for (const [k, v] of Object.entries(props[i])) f.set(k, v);
       f.set("_pyolqt_style", msg.style || {});
-      set_vector_edit_metadata(f, msg, Array.isArray(msg.movable) ? msg.movable[i] : msg.movable);
+      set_vector_edit_metadata(f, msg, movableFlags ? !!movableFlags[i] : (Array.isArray(msg.movable) ? msg.movable[i] : msg.movable));
       f.setStyle(style);
       e.source.addFeature(f);
       update_vector_edit_collection_for_feature(f);
@@ -3333,8 +3504,12 @@ function cmd_countries_set_visible(msg) {
   function cmd_vector_add_polygon(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
-    const ring = msg.ring || [];
-    const coords = ring.map((p) => lonlat_to_3857(p[0], p[1]));
+    const ringPayload = pyolqt_lonlat_array_from_msg(msg, "ring", "ring_count");
+    const coords = [];
+    for (let i = 0; i < ringPayload.count; i++) {
+      const p = pyolqt_lonlat_at(ringPayload, i);
+      coords.push(lonlat_to_3857(p[0], p[1]));
+    }
     if (coords.length > 0) coords.push(coords[0]);
     const f = new ol.Feature({ geometry: new ol.geom.Polygon([coords]) });
     f.setId(msg.id || "poly0");
@@ -3350,7 +3525,7 @@ function cmd_countries_set_visible(msg) {
   function cmd_vector_add_circle(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
-    const geom = circle_polygon_lonlat(msg.center, msg.radius_m, msg.segments || 72);
+    const geom = circle_polygon_lonlat(pyolqt_lonlat_pair_from_msg(msg, "center"), msg.radius_m, msg.segments || 72);
     const f = new ol.Feature({ geometry: geom });
     f.setId(msg.id || "circle0");
     f.set("_layer_id", msg.layer_id);
@@ -3367,9 +3542,12 @@ function cmd_countries_set_visible(msg) {
   function cmd_vector_add_line(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
-    const coords = (msg.coords || []).map(function(c) {
-      return lonlat_to_3857(c[0], c[1]);
-    });
+    const coordsPayload = pyolqt_lonlat_array_from_msg(msg, "coords", "point_count");
+    const coords = [];
+    for (let i = 0; i < coordsPayload.count; i++) {
+      const c = pyolqt_lonlat_at(coordsPayload, i);
+      coords.push(lonlat_to_3857(c[0], c[1]));
+    }
     const geom = new ol.geom.LineString(coords);
     const f = new ol.Feature({ geometry: geom });
     f.setId(msg.id || "line0");
@@ -3387,8 +3565,9 @@ function cmd_countries_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
 
-    const coords = msg.coords || [];
-    const packed = msg.segment_colors || [];
+    const coordsPayload = pyolqt_lonlat_array_from_msg(msg, "coords", "point_count");
+    const packed = msg.segment_colors_b64 ? pyolqt_b64_to_uint32(msg.segment_colors_b64) : (msg.segment_colors || []);
+    const values = pyolqt_float64_values_from_msg(msg, "values");
     const baseStyle = msg.style || {};
     const strokeWidth = Number(baseStyle.stroke_width || 3.0);
     const baseProps = msg.properties || {};
@@ -3407,8 +3586,8 @@ function cmd_countries_set_visible(msg) {
       }
     }
 
-    for (let i = 0; i < coords.length - 1; i++) {
-      const c0 = coords[i], c1 = coords[i + 1];
+    for (let i = 0; i < coordsPayload.count - 1; i++) {
+      const c0 = pyolqt_lonlat_at(coordsPayload, i), c1 = pyolqt_lonlat_at(coordsPayload, i + 1);
       const segGeom = new ol.geom.LineString([
         lonlat_to_3857(c0[0], c0[1]),
         lonlat_to_3857(c1[0], c1[1])
@@ -3419,7 +3598,7 @@ function cmd_countries_set_visible(msg) {
       for (const [k, v] of Object.entries(baseProps)) segFeature.set(k, v);
       segFeature.set("_gradient_parent", baseId);
       segFeature.set("_gradient_segment_index", i);
-      if (msg.values && i < msg.values.length) segFeature.set("_gradient_value", msg.values[i]);
+      if (values && i < values.length) segFeature.set("_gradient_value", values[i]);
 
       const packedColor = (packed[i] ?? 0xff3333ff);
       const rgba = rgba_from_u32(packedColor);
@@ -3437,7 +3616,7 @@ function cmd_countries_set_visible(msg) {
   function cmd_vector_add_ellipse(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
-    const geom = ellipse_polygon_lonlat(msg.center, msg.sma_m, msg.smi_m, msg.tilt_deg || 0, msg.segments || 96);
+    const geom = ellipse_polygon_lonlat(pyolqt_lonlat_pair_from_msg(msg, "center"), msg.sma_m, msg.smi_m, msg.tilt_deg || 0, msg.segments || 96);
     const f = new ol.Feature({ geometry: geom });
     f.setId(msg.id || "ell0");
     f.set("_layer_id", msg.layer_id);
@@ -3487,7 +3666,7 @@ function cmd_countries_set_visible(msg) {
   function cmd_vector_set_features_movable(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
-    for (const id of (msg.feature_ids || [])) {
+    for (const id of pyolqt_ids_from_msg(msg)) {
       for (const f of vector_features_for_id(e.source, id)) {
         f.set("_pyolqt_movable", !!msg.movable);
         update_vector_edit_collection_for_feature(f);
@@ -3499,7 +3678,7 @@ function cmd_countries_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
     const mode = normalize_vertex_editing_mode(msg.vertex_editing, e.vertex_editing);
-    for (const id of (msg.feature_ids || [])) {
+    for (const id of pyolqt_ids_from_msg(msg)) {
       for (const f of vector_features_for_id(e.source, id)) {
         f.set("_pyolqt_vertex_editing", mode);
         update_vector_edit_collection_for_feature(f);
@@ -3567,7 +3746,7 @@ function cmd_countries_set_visible(msg) {
     selected.clear();
 
     const layer_id = msg.layer_id || "";
-    const ids = msg.feature_ids || [];
+    const ids = pyolqt_ids_from_msg(msg);
     if (!layer_id) return;
 
     const e = state.layers.get(layer_id);
@@ -3750,7 +3929,7 @@ function cmd_countries_set_visible(msg) {
 function cmd_vector_remove_features(msg) {
   const e = getLayerEntry(msg.layer_id);
   if (e.type !== "vector") return;
-  const ids = msg.feature_ids || msg.ids || [];
+  const ids = pyolqt_ids_from_msg(msg);
   for (let i = 0; i < ids.length; i++) {
     const features = vector_features_for_id(e.source, ids[i]);
     for (const f of features) {
@@ -3764,7 +3943,7 @@ function cmd_vector_remove_features(msg) {
 function cmd_vector_update_styles(msg) {
   const e = getLayerEntry(msg.layer_id);
   if (!e || e.type !== "vector") return;
-  const ids = msg.feature_ids || [];
+  const ids = pyolqt_ids_from_msg(msg);
   const styles = msg.styles || [];
   if (ids.length !== styles.length) return;
   

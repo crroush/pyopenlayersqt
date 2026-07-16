@@ -104,6 +104,8 @@ def _normalize_color(
 
 def _latlon_chunk_to_lonlat_array(coords: Sequence[LatLon]) -> np.ndarray:
     arr = np.asarray(coords, dtype=np.float64)
+    if arr.size == 0:
+        return np.empty((0, 2), dtype=np.float64)
     if arr.ndim != 2 or arr.shape[1] != 2:
         raise ValueError("coords must be a sequence of (lat, lon) pairs")
     return np.ascontiguousarray(arr[:, [1, 0]], dtype=np.float64)
@@ -438,7 +440,7 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.set_features_movable",
                 "layer_id": self.id,
-                "feature_ids": [str(x) for x in feature_ids],
+                "feature_ids_b64": _strings_to_base64(feature_ids),
                 "movable": bool(movable),
             }
         )
@@ -450,7 +452,7 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.set_features_vertex_editing",
                 "layer_id": self.id,
-                "feature_ids": [str(x) for x in feature_ids],
+                "feature_ids_b64": _strings_to_base64(feature_ids),
                 "vertex_editing": self._vertex_editing_value(mode),
             }
         )
@@ -461,7 +463,7 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.remove_features",
                 "layer_id": self.id,
-                "feature_ids": [str(x) for x in feature_ids],
+                "feature_ids_b64": _strings_to_base64(feature_ids),
             }
         )
 
@@ -491,7 +493,7 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.update_styles",
                 "layer_id": self.id,
-                "feature_ids": fids,
+                "feature_ids_b64": _strings_to_base64(fids),
                 "styles": styles_js,
             }
         )
@@ -520,16 +522,20 @@ class VectorLayer(BaseLayer):
             else [{} for _ in range(len(coords))]
         )
         movable_flags = self._movable_flags(movable, len(coords))
-        # Swap lat,lon (public API) to lon,lat (internal format)
+        coords_arr = _latlon_chunk_to_lonlat_array(coords)
         self._map_widget._send(
             {
                 "type": "vector.add_points",
                 "layer_id": self.id,
-                "coords": [[float(lon), float(lat)] for (lat, lon) in coords],
-                "ids": list(ids),
+                "coords_b64": _array_to_base64(coords_arr),
+                "point_count": int(coords_arr.shape[0]),
+                "ids_b64": _strings_to_base64(ids),
                 "style": style.to_js(),
                 "properties": props,
-                "movable": movable_flags,
+                "movable_b64": _array_to_base64(
+                    np.asarray(movable_flags, dtype=np.uint8)
+                ) if isinstance(movable_flags, list) else None,
+                "movable": movable_flags if not isinstance(movable_flags, list) else None,
             }
         )
 
@@ -632,7 +638,8 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.add_polygon",
                 "layer_id": self.id,
-                "ring": [[float(lon), float(lat)] for (lat, lon) in ring],
+                "ring_b64": _array_to_base64(_latlon_chunk_to_lonlat_array(ring)),
+                "ring_count": int(len(ring)),
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},
@@ -668,7 +675,9 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.add_circle",
                 "layer_id": self.id,
-                "center": [float(lon), float(lat)],
+                "center_b64": _array_to_base64(
+                    np.asarray([float(lon), float(lat)], dtype=np.float64)
+                ),
                 "radius_m": float(radius_m),
                 "id": feature_id,
                 "style": style.to_js(),
@@ -701,7 +710,8 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.add_line",
                 "layer_id": self.id,
-                "coords": [[float(lon), float(lat)] for (lat, lon) in coords],
+                "coords_b64": _array_to_base64(_latlon_chunk_to_lonlat_array(coords)),
+                "point_count": int(len(coords)),
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},
@@ -784,9 +794,12 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.add_gradient_line",
                 "layer_id": self.id,
-                "coords": [[float(lon), float(lat)] for (lat, lon) in expanded_coords],
-                "values": rendered_values if values is not None else [],
-                "segment_colors": _pack_rgba_colors(rgba_colors),
+                "coords_b64": _array_to_base64(_latlon_chunk_to_lonlat_array(expanded_coords)),
+                "point_count": int(len(expanded_coords)),
+                "values_b64": _array_to_base64(
+                    np.asarray(rendered_values, dtype=np.float64)
+                ) if values is not None else None,
+                "segment_colors_b64": _array_to_base64(_pack_rgba_colors_array(rgba_colors)),
                 "id": feature_id,
                 "style": style.to_js(),
                 "properties": properties or {},
@@ -826,7 +839,9 @@ class VectorLayer(BaseLayer):
             {
                 "type": "vector.add_ellipse",
                 "layer_id": self.id,
-                "center": [float(lon), float(lat)],
+                "center_b64": _array_to_base64(
+                    np.asarray([float(lon), float(lat)], dtype=np.float64)
+                ),
                 "sma_m": float(sma_m),
                 "smi_m": float(smi_m),
                 "tilt_deg": float(tilt_deg),
