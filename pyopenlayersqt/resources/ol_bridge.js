@@ -444,11 +444,27 @@ function pyolqt_wrap_x_for_extent(x3857, extent) {
   const centerX = (extent[0] + extent[2]) * 0.5;
   return x3857 + Math.round((centerX - x3857) / _PYOLQT_WORLD_WIDTH) * _PYOLQT_WORLD_WIDTH;
 }
-function pyolqt_query_extent_for_render(extent) {
-  if (!extent) return extent;
+function pyolqt_query_extents_for_render(extent) {
+  if (!extent) return [];
   const centerX = (extent[0] + extent[2]) * 0.5;
   const shift = Math.round(centerX / _PYOLQT_WORLD_WIDTH) * _PYOLQT_WORLD_WIDTH;
-  return [extent[0] - shift, extent[1], extent[2] - shift, extent[3]];
+  const minX = extent[0] - shift;
+  const maxX = extent[2] - shift;
+  const minY = extent[1];
+  const maxY = extent[3];
+  if (minX < -FP_QT_WORLD) {
+    return [
+      [minX + _PYOLQT_WORLD_WIDTH, minY, FP_QT_WORLD, maxY],
+      [-FP_QT_WORLD, minY, maxX, maxY],
+    ];
+  }
+  if (maxX > FP_QT_WORLD) {
+    return [
+      [minX, minY, FP_QT_WORLD, maxY],
+      [-FP_QT_WORLD, minY, maxX - _PYOLQT_WORLD_WIDTH, maxY],
+    ];
+  }
+  return [[minX, minY, maxX, maxY]];
 }
 const FP_QT_MAX_DEPTH = 18;
 const FP_QT_LEAF_CAPACITY = 32;
@@ -673,6 +689,7 @@ function fp_qt_pick_representative(entry, node, skipSelected, extent) {
 
 function fp_qt_query_extent(entry, extent) {
   const out = [];
+  const seen = new Set();
   const stats = {
     visitedNodeCount: 0,
     skippedNodeCount: 0,
@@ -682,24 +699,29 @@ function fp_qt_query_extent(entry, extent) {
   if (!root) {
     return { indices: out, stats };
   }
-  const queryExtent = pyolqt_query_extent_for_render(extent);
-  const stack = [root];
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) {
-      stats.skippedNodeCount++;
-      continue;
-    }
-    stats.visitedNodeCount++;
-    if (node.children) {
-      for (let c = 0; c < 4; c++) stack.push(node.children[c]);
-      continue;
-    }
-    for (let k = 0; k < node.items.length; k++) {
-      const i = node.items[k];
-      stats.scannedLeafPointCount++;
-      if (entry.deleted[i] || entry.hidden[i]) continue;
-      if (fp_qt_point_in_extent(entry, i, queryExtent)) out.push(i);
+  const queryExtents = pyolqt_query_extents_for_render(extent);
+  for (const queryExtent of queryExtents) {
+    const stack = [root];
+    while (stack.length) {
+      const node = stack.pop();
+      if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, queryExtent)) {
+        stats.skippedNodeCount++;
+        continue;
+      }
+      stats.visitedNodeCount++;
+      if (node.children) {
+        for (let c = 0; c < 4; c++) stack.push(node.children[c]);
+        continue;
+      }
+      for (let k = 0; k < node.items.length; k++) {
+        const i = node.items[k];
+        stats.scannedLeafPointCount++;
+        if (entry.deleted[i] || entry.hidden[i] || seen.has(i)) continue;
+        if (fp_qt_point_in_extent(entry, i, queryExtent)) {
+          seen.add(i);
+          out.push(i);
+        }
+      }
     }
   }
   return { indices: out, stats };
@@ -715,7 +737,8 @@ function fp_pick_nearest(entry, coord3857, radius_m) {
   for (let k = 0; k < cand.length; k++) {
     const i = cand[k];
     if (entry.deleted[i] || entry.hidden[i]) continue;
-    const dx = entry.x[i] - coord3857[0];
+    const wrappedX = pyolqt_wrap_x_for_extent(entry.x[i], ext);
+    const dx = wrappedX - coord3857[0];
     const dy = entry.y[i] - coord3857[1];
     const d2 = dx*dx + dy*dy;
     if (d2 <= bestd2) { bestd2 = d2; best = i; }
@@ -900,7 +923,7 @@ function fp_make_canvas_layer(entry) {
 
       const queryStart = performance.now();
       const root = entry.qtRoot || null;
-      const queryExtent = pyolqt_query_extent_for_render(extent);
+      const queryExtents = pyolqt_query_extents_for_render(extent);
       const visiblePointCount = root ? root.visibleCount : entry.x.length;
       const queryTime = performance.now() - queryStart;
 
@@ -980,7 +1003,7 @@ function fp_make_canvas_layer(entry) {
         }
       }
 
-      function traverseNode(node) {
+      function traverseNode(node, queryExtent) {
         if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, queryExtent)) return;
         visitedNodeCount++;
         const pxW = (node.maxX - node.minX) * scaleX;
@@ -994,14 +1017,14 @@ function fp_make_canvas_layer(entry) {
           return;
         }
         if (node.children) {
-          for (let c = 0; c < 4; c++) traverseNode(node.children[c]);
+          for (let c = 0; c < 4; c++) traverseNode(node.children[c], queryExtent);
           return;
         }
         renderLeafItems(node);
       }
 
       if (root) {
-        traverseNode(root);
+        for (const queryExtent of queryExtents) traverseNode(root, queryExtent);
       }
 
       if ((entry.selectedIndices || []).length > 0) {
@@ -1533,7 +1556,7 @@ function fgp_make_canvas_layer(entry) {
 
       const queryStart = performance.now();
       const root = entry.qtRoot;
-      const queryExtent = pyolqt_query_extent_for_render(extent);
+      const queryExtents = pyolqt_query_extents_for_render(extent);
       const queryTime = performance.now() - queryStart;
 
       let visitedNodeCount = 0;
@@ -1607,46 +1630,50 @@ function fgp_make_canvas_layer(entry) {
           for (const i of selectedIndices) addSelectedDrawIndex(i);
           return;
         }
-        const stack = [root];
-        while (stack.length) {
-          const node = stack.pop();
-          if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, queryExtent)) continue;
-          const px = nodePixelSize(node);
-          if (px.w <= collapsePx && px.h <= collapsePx) {
-            addSelectedDrawIndex(fp_qt_pick_selected_representative(entry, node, queryExtent));
-            continue;
+        for (const queryExtent of queryExtents) {
+          const stack = [root];
+          while (stack.length) {
+            const node = stack.pop();
+            if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, queryExtent)) continue;
+            const px = nodePixelSize(node);
+            if (px.w <= collapsePx && px.h <= collapsePx) {
+              addSelectedDrawIndex(fp_qt_pick_selected_representative(entry, node, queryExtent));
+              continue;
+            }
+            if (node.children) {
+              for (let c = 0; c < 4; c++) stack.push(node.children[c]);
+              continue;
+            }
+            for (let k = 0; k < node.items.length; k++) addSelectedDrawIndex(node.items[k]);
           }
-          if (node.children) {
-            for (let c = 0; c < 4; c++) stack.push(node.children[c]);
-            continue;
-          }
-          for (let k = 0; k < node.items.length; k++) addSelectedDrawIndex(node.items[k]);
         }
       }
 
       function collectDrawIndices() {
         if (!root) return;
-        const stack = [root];
-        while (stack.length) {
-          const node = stack.pop();
-          if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, queryExtent)) continue;
-          visitedNodeCount++;
-          const px = nodePixelSize(node);
-          if (px.w <= collapsePx && px.h <= collapsePx) {
-            const rep = fp_qt_pick_representative(entry, node, true, queryExtent);
-            if (rep >= 0) {
-              collapsedNodeCount++;
-              addUnselectedDrawIndex(rep, true);
+        for (const queryExtent of queryExtents) {
+          const stack = [root];
+          while (stack.length) {
+            const node = stack.pop();
+            if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, queryExtent)) continue;
+            visitedNodeCount++;
+            const px = nodePixelSize(node);
+            if (px.w <= collapsePx && px.h <= collapsePx) {
+              const rep = fp_qt_pick_representative(entry, node, true, queryExtent);
+              if (rep >= 0) {
+                collapsedNodeCount++;
+                addUnselectedDrawIndex(rep, true);
+              }
+              continue;
             }
-            continue;
-          }
-          if (node.children) {
-            for (let c = 0; c < 4; c++) stack.push(node.children[c]);
-            continue;
-          }
-          for (let k = 0; k < node.items.length; k++) {
-            scannedLeafPointCount++;
-            addUnselectedDrawIndex(node.items[k], false);
+            if (node.children) {
+              for (let c = 0; c < 4; c++) stack.push(node.children[c]);
+              continue;
+            }
+            for (let k = 0; k < node.items.length; k++) {
+              scannedLeafPointCount++;
+              addUnselectedDrawIndex(node.items[k], false);
+            }
           }
         }
       }
