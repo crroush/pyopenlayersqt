@@ -35,6 +35,7 @@ from .layers import (
 from .utils import clamp
 from .models import (
     FeatureSelection,
+    MapClickEvent,
     MeasurementUpdate,
     RasterStyle,
     WMSOptions,
@@ -209,6 +210,7 @@ class OLMapWidget(QWebEngineView):
     viewExtentChanged = Signal(object)
     jsEvent = Signal(str, str)
     measurementUpdated = Signal(object)
+    mapClicked = Signal(object)  # MapClickEvent
     ready = Signal()
     perfReceived = Signal(object)
     vectorFeatureChanged = Signal(object)
@@ -291,6 +293,7 @@ class OLMapWidget(QWebEngineView):
         self._pending_flush_count = 0
         self._emit_ready_after_flush = False
         self._measurement_callbacks: list[Any] = []
+        self._map_click_callbacks: list[tuple[Any, frozenset[str], frozenset[str]]] = []
 
         # load
         self.loadFinished.connect(self._on_load_finished)
@@ -828,6 +831,38 @@ class OLMapWidget(QWebEngineView):
             except Exception:
                 pass
 
+    def _handle_map_click_event(self, payload_json: str) -> None:
+        obj = self._parse_event_payload(payload_json)
+        event = MapClickEvent(
+            lat=float(obj.get("lat", 0.0)),
+            lon=float(obj.get("lon", 0.0)),
+            ctrl_key=bool(obj.get("ctrl_key", False)),
+            meta_key=bool(obj.get("meta_key", False)),
+            shift_key=bool(obj.get("shift_key", False)),
+            alt_key=bool(obj.get("alt_key", False)),
+            keys=frozenset(str(key).lower() for key in obj.get("keys", [])),
+            layer_id=(str(obj["layer_id"]) if obj.get("layer_id") is not None else None),
+            feature_id=(str(obj["feature_id"]) if obj.get("feature_id") is not None else None),
+            raw=obj,
+        )
+        self.mapClicked.emit(event)
+        active_modifiers = frozenset(
+            name
+            for name, active in (
+                ("ctrl", event.ctrl_key),
+                ("meta", event.meta_key),
+                ("shift", event.shift_key),
+                ("alt", event.alt_key),
+            )
+            if active
+        )
+        for callback, modifiers, keys in list(self._map_click_callbacks):
+            if modifiers.issubset(active_modifiers) and keys.issubset(event.keys):
+                try:
+                    callback(event)
+                except Exception:
+                    pass
+
     def _handle_vector_feature_changed_event(self, payload_json: str) -> None:
         self.vectorFeatureChanged.emit(self._parse_event_payload(payload_json))
 
@@ -849,6 +884,7 @@ class OLMapWidget(QWebEngineView):
             "view_extent_changed": self._handle_view_extent_changed_event,
             "view_extent": self._handle_view_extent_event,
             "measurement": self._handle_measurement_event,
+            "map_click": self._handle_map_click_event,
             "perf": self._handle_perf_event,
             "vector_feature_changed": self._handle_vector_feature_changed_event,
         }
@@ -1092,6 +1128,52 @@ class OLMapWidget(QWebEngineView):
             def cancel(inner_self):
                 try:
                     self._measurement_callbacks.remove(callback)
+                except ValueError:
+                    pass
+
+        return Handle()
+
+    def on_map_click(
+        self,
+        callback: Any,
+        *,
+        modifiers: Union[str, Sequence[str], None] = None,
+        keys: Union[str, Sequence[str], None] = None,
+    ) -> Any:
+        """Register a callback for map clicks, optionally requiring held keys.
+
+        This removes the need to install custom JavaScript just to handle a
+        modified click.  ``modifiers`` accepts ``"ctrl"``, ``"meta"``,
+        ``"shift"``, and ``"alt"``.  ``keys`` accepts ordinary keyboard keys,
+        such as ``"t"``.  All requested modifiers and keys must be held.
+
+        The callback receives a :class:`~pyopenlayersqt.MapClickEvent`.  The
+        returned handle has ``cancel()`` for unregistering the callback.
+        """
+        def normalize(value: Union[str, Sequence[str], None], label: str) -> frozenset[str]:
+            if value is None:
+                return frozenset()
+            values = [value] if isinstance(value, str) else value
+            normalized = frozenset(str(item).lower() for item in values)
+            if not normalized or any(not item for item in normalized):
+                raise ValueError(f"{label} must contain non-empty key names")
+            return normalized
+
+        required_modifiers = normalize(modifiers, "modifiers")
+        valid_modifiers = frozenset({"ctrl", "meta", "shift", "alt"})
+        invalid_modifiers = required_modifiers - valid_modifiers
+        if invalid_modifiers:
+            raise ValueError(
+                "modifiers must be drawn from ctrl, meta, shift, alt; got "
+                + ", ".join(sorted(invalid_modifiers))
+            )
+        registration = (callback, required_modifiers, normalize(keys, "keys"))
+        self._map_click_callbacks.append(registration)
+
+        class Handle:
+            def cancel(inner_self):
+                try:
+                    self._map_click_callbacks.remove(registration)
                 except ValueError:
                     pass
 
