@@ -60,6 +60,7 @@ const state = {
     perfEnabled: false,
     readyEmitted: false,
     heldKeys: new Set(),
+    mapClickKeySnapshots: new WeakMap(),
   };
 
 
@@ -2328,6 +2329,15 @@ function _install_map_click_bridge() {
   window.addEventListener('keydown', (evt) => st.heldKeys.add(String(evt.key || '').toLowerCase()), true);
   window.addEventListener('keyup', (evt) => st.heldKeys.delete(String(evt.key || '').toLowerCase()), true);
   window.addEventListener('blur', () => st.heldKeys.clear());
+
+  // OpenLayers waits briefly before emitting ``singleclick`` to distinguish it
+  // from a double click.  Snapshot now, at the immediate map ``click`` event,
+  // so a key released during that delay remains associated with this click.
+  st.map.on('click', function(evt) {
+    if (evt.originalEvent) {
+      st.mapClickKeySnapshots.set(evt.originalEvent, Array.from(st.heldKeys));
+    }
+  });
   st.map.on('singleclick', function(evt) {
     const original = evt.originalEvent || {};
     const lonlat = p3857_to_lonlat(evt.coordinate);
@@ -2336,7 +2346,7 @@ function _install_map_click_bridge() {
       lon: lonlat[0], lat: lonlat[1],
       ctrl_key: !!original.ctrlKey, meta_key: !!original.metaKey,
       shift_key: !!original.shiftKey, alt_key: !!original.altKey,
-      keys: Array.from(st.heldKeys),
+      keys: st.mapClickKeySnapshots.get(original) || Array.from(st.heldKeys),
       layer_id: picked.layer_id || null, feature_id: picked.feature_id || null,
     });
   });
