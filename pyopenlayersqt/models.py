@@ -39,6 +39,28 @@ class MeasurementUpdate:
     cumulative_distance_m: float
 
 
+@dataclass(frozen=True)
+class MapClickEvent:
+    """Structured payload for a click on the map.
+
+    ``lat`` and ``lon`` use the package's public latitude-first convention.
+    The modifier booleans describe the pointer event, while ``keys`` contains
+    additional keyboard keys held when the click occurred (for example,
+    ``"t"``).  Feature fields are populated when a vector feature was clicked.
+    """
+
+    lat: float
+    lon: float
+    ctrl_key: bool = False
+    meta_key: bool = False
+    shift_key: bool = False
+    alt_key: bool = False
+    keys: frozenset[str] = field(default_factory=frozenset)
+    layer_id: Optional[str] = None
+    feature_id: Optional[str] = None
+    raw: Dict[str, Any] = field(default_factory=dict)
+
+
 def _qcolor_to_rgba(color: Any) -> tuple[int, int, int, int]:
     """Convert a QColor object to an RGBA tuple.
 

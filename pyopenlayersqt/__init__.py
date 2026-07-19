@@ -10,6 +10,7 @@ from .models import (
     TileLayerOptions,
     FeatureSelection,
     MeasurementUpdate,
+    MapClickEvent,
     VectorVertexEditing,
     LatLon,
     # Fast layers styles
@@ -45,6 +46,7 @@ __all__ = [
     "TileLayerOptions",
     "FeatureSelection",
     "MeasurementUpdate",
+    "MapClickEvent",
     "VectorVertexEditing",
     "LatLon",
     # Fast layers styles + layers

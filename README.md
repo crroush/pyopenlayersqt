@@ -121,7 +121,7 @@ Map widget capability table:
 | Base map | `set_base_visible`, `set_base_opacity`, `set_map_background_color` | Control visual context behind overlays. |
 | Extent tracking | `get_view_extent`, `watch_view_extent` | Load or summarize data for the visible map area. |
 | Measurement | `set_measure_mode`, `on_measurement_updated`, `clear_measurements` | Let users measure distances interactively. |
-| Events | `selectionChanged`, `viewExtentChanged`, `jsEvent`, `vectorFeatureChanged` | Keep the rest of the Qt application synchronized with the map. |
+| Events | `selectionChanged`, `mapClicked`, `viewExtentChanged`, `jsEvent`, `vectorFeatureChanged` | Keep the rest of the Qt application synchronized with the map. |
 
 ### 2. Pick the right layer
 
@@ -309,6 +309,20 @@ geo.remove_ids(["geo-1"])
 
 For right-click app actions, listen to `map_widget.jsEvent` for `"contextmenu"`; payloads include map coordinates and the clicked feature/layer when available.
 
+For regular clicks, use `mapClicked` or `on_map_click()` instead of injecting JavaScript.  The callback can require standard modifiers and arbitrary held keys:
+
+```python
+from pyopenlayersqt import MapClickEvent
+
+def add_target(event: MapClickEvent) -> None:
+    print(event.lat, event.lon)
+
+# Invoke only while the map has focus and T is held during the click.
+map_widget.on_map_click(add_target, keys="t")
+# Standard modifiers can be combined with ordinary keys.
+map_widget.on_map_click(add_target, modifiers=("ctrl", "shift"), keys="t")
+```
+
 ### 5. Tables
 
 `FeatureTableWidget` is designed to mirror feature rows and keep table selection in sync with map selection.
@@ -432,6 +446,7 @@ Start with the examples that match the application you are building. The example
 | Virtual tables | `examples/19_virtual_feature_table.py` | Lazy `TableRowProvider` over 250k logical rows. |
 | Time filtering | `examples/20_time_histogram_slider.py` | Histogram-backed time-range filtering. |
 | Editable vectors | `examples/21_movable_vector_features.py` | Movable and vertex-editable points, icons, lines, polygons, circles, ellipses, and gradient lines. |
+| Modified clicks | `examples/22_modified_map_clicks.py` | Typed click events plus Ctrl/Shift/Alt/Meta and ordinary held-key callbacks without custom JavaScript. |
 
 ## Public API reference
 
@@ -468,9 +483,9 @@ Fast layers default to `selectable=False`; pass `selectable=True` when map click
 - `add_tile_layer(options, name="tile")`
 - `add_raster_image(image, bounds, style=None, name="raster")`
 
-Important methods: `set_base_opacity`, `set_base_visible`, `set_map_background_color`, `set_country_boundaries_visible`, `set_view`, `set_center`, `set_zoom`, `fit_bounds`, `auto_zoom_to_points`, `fit_to_data`, `zoom_resolution_m_per_px`, `get_view_extent`, `watch_view_extent`, `set_measure_mode`, `on_measurement_updated`, `clear_measurements`, `send`.
+Important methods: `set_base_opacity`, `set_base_visible`, `set_map_background_color`, `set_country_boundaries_visible`, `set_view`, `set_center`, `set_zoom`, `fit_bounds`, `auto_zoom_to_points`, `fit_to_data`, `zoom_resolution_m_per_px`, `get_view_extent`, `watch_view_extent`, `set_measure_mode`, `on_measurement_updated`, `on_map_click`, `clear_measurements`, `send`.
 
-Signals: `ready`, `selectionChanged`, `viewExtentChanged`, `measurementUpdated`, `vectorFeatureChanged`, `jsEvent`.
+Signals: `ready`, `selectionChanged`, `mapClicked`, `viewExtentChanged`, `measurementUpdated`, `vectorFeatureChanged`, `jsEvent`.
 
 ### Layer APIs
 
