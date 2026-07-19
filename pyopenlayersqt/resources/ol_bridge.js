@@ -435,6 +435,37 @@ function rgba_to_css_with_opacity(rgba, opacity) {
 }
 
 const FP_QT_WORLD = 20037508.342789244;
+const _PYOLQT_WORLD_WIDTH = 2 * FP_QT_WORLD;
+function pyolqt_wrap_x_for_extent(x3857, extent) {
+  // OpenLayers can render wrapped worlds with extents shifted by multiples of
+  // the WebMercator world width.  Draw each fast-layer object in the world copy
+  // nearest the current viewport so objects crossing +/-180 remain visible.
+  if (!extent || !Number.isFinite(x3857)) return x3857;
+  const centerX = (extent[0] + extent[2]) * 0.5;
+  return x3857 + Math.round((centerX - x3857) / _PYOLQT_WORLD_WIDTH) * _PYOLQT_WORLD_WIDTH;
+}
+function pyolqt_query_extents_for_render(extent) {
+  if (!extent) return [];
+  const centerX = (extent[0] + extent[2]) * 0.5;
+  const shift = Math.round(centerX / _PYOLQT_WORLD_WIDTH) * _PYOLQT_WORLD_WIDTH;
+  const minX = extent[0] - shift;
+  const maxX = extent[2] - shift;
+  const minY = extent[1];
+  const maxY = extent[3];
+  if (minX < -FP_QT_WORLD) {
+    return [
+      [minX + _PYOLQT_WORLD_WIDTH, minY, FP_QT_WORLD, maxY],
+      [-FP_QT_WORLD, minY, maxX, maxY],
+    ];
+  }
+  if (maxX > FP_QT_WORLD) {
+    return [
+      [minX, minY, FP_QT_WORLD, maxY],
+      [-FP_QT_WORLD, minY, maxX - _PYOLQT_WORLD_WIDTH, maxY],
+    ];
+  }
+  return [[minX, minY, maxX, maxY]];
+}
 const FP_QT_MAX_DEPTH = 18;
 const FP_QT_LEAF_CAPACITY = 32;
 
@@ -658,6 +689,7 @@ function fp_qt_pick_representative(entry, node, skipSelected, extent) {
 
 function fp_qt_query_extent(entry, extent) {
   const out = [];
+  const seen = new Set();
   const stats = {
     visitedNodeCount: 0,
     skippedNodeCount: 0,
@@ -667,23 +699,29 @@ function fp_qt_query_extent(entry, extent) {
   if (!root) {
     return { indices: out, stats };
   }
-  const stack = [root];
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) {
-      stats.skippedNodeCount++;
-      continue;
-    }
-    stats.visitedNodeCount++;
-    if (node.children) {
-      for (let c = 0; c < 4; c++) stack.push(node.children[c]);
-      continue;
-    }
-    for (let k = 0; k < node.items.length; k++) {
-      const i = node.items[k];
-      stats.scannedLeafPointCount++;
-      if (entry.deleted[i] || entry.hidden[i]) continue;
-      if (fp_qt_point_in_extent(entry, i, extent)) out.push(i);
+  const queryExtents = pyolqt_query_extents_for_render(extent);
+  for (const queryExtent of queryExtents) {
+    const stack = [root];
+    while (stack.length) {
+      const node = stack.pop();
+      if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, queryExtent)) {
+        stats.skippedNodeCount++;
+        continue;
+      }
+      stats.visitedNodeCount++;
+      if (node.children) {
+        for (let c = 0; c < 4; c++) stack.push(node.children[c]);
+        continue;
+      }
+      for (let k = 0; k < node.items.length; k++) {
+        const i = node.items[k];
+        stats.scannedLeafPointCount++;
+        if (entry.deleted[i] || entry.hidden[i] || seen.has(i)) continue;
+        if (fp_qt_point_in_extent(entry, i, queryExtent)) {
+          seen.add(i);
+          out.push(i);
+        }
+      }
     }
   }
   return { indices: out, stats };
@@ -699,7 +737,8 @@ function fp_pick_nearest(entry, coord3857, radius_m) {
   for (let k = 0; k < cand.length; k++) {
     const i = cand[k];
     if (entry.deleted[i] || entry.hidden[i]) continue;
-    const dx = entry.x[i] - coord3857[0];
+    const wrappedX = pyolqt_wrap_x_for_extent(entry.x[i], ext);
+    const dx = wrappedX - coord3857[0];
     const dy = entry.y[i] - coord3857[1];
     const d2 = dx*dx + dy*dy;
     if (d2 <= bestd2) { bestd2 = d2; best = i; }
@@ -884,6 +923,7 @@ function fp_make_canvas_layer(entry) {
 
       const queryStart = performance.now();
       const root = entry.qtRoot || null;
+      const queryExtents = pyolqt_query_extents_for_render(extent);
       const visiblePointCount = root ? root.visibleCount : entry.x.length;
       const queryTime = performance.now() - queryStart;
 
@@ -919,11 +959,14 @@ function fp_make_canvas_layer(entry) {
         const mercX = entry.x[i];
         const mercY = entry.y[i];
         if (!Number.isFinite(mercX) || !Number.isFinite(mercY)) return;
-        if (mercX < extent[0] || mercX > extent[2] || mercY < extent[1] || mercY > extent[3]) return;
         const fid = entry.ids[i];
         const isSel = selectedOverride || fp_selection_has(entry, i);
         if (!selectedOverride && isSel) return;
         const radius = (isSel ? entry.style.selected_radius : entry.style.radius) * pixelRatio;
+        const radiusMap = radius / Math.max(pixelRatio, 1e-9) * resolution;
+        const wrappedX = pyolqt_wrap_x_for_extent(mercX, extent);
+        if (wrappedX < extent[0] - radiusMap || wrappedX > extent[2] + radiusMap ||
+            mercY < extent[1] - radiusMap || mercY > extent[3] + radiusMap) return;
 
         let fill = defCss;
         const u = entry.color_u32[i];
@@ -934,10 +977,9 @@ function fp_make_canvas_layer(entry) {
         if (isSel) fill = selCss;
 
         const key = fill + "|" + radius;
-        const pixel = fp_pixel_dedupe_key(entry, i, extent, scaleX, scaleY, () => key);
-        const x = pixel.x;
-        const y = pixel.y;
-        const pixelKey = pixel.key;
+        const x = (wrappedX - extent[0]) * scaleX;
+        const y = (extent[3] - mercY) * scaleY;
+        const pixelKey = key + "|" + Math.round(x) + "|" + Math.round(y);
         if (seenDrawPixels.has(pixelKey)) {
           skippedDuplicatePixels++;
           return;
@@ -961,13 +1003,13 @@ function fp_make_canvas_layer(entry) {
         }
       }
 
-      function traverseNode(node) {
-        if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) return;
+      function traverseNode(node, queryExtent) {
+        if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, queryExtent)) return;
         visitedNodeCount++;
         const pxW = (node.maxX - node.minX) * scaleX;
         const pxH = (node.maxY - node.minY) * scaleY;
         if (pxW <= 1.0 && pxH <= 1.0) {
-          const i = fp_qt_pick_representative(entry, node, true, extent);
+          const i = fp_qt_pick_representative(entry, node, true, queryExtent);
           if (i >= 0) {
             collapsedNodeCount++;
             addPointToBatch(i, false);
@@ -975,21 +1017,19 @@ function fp_make_canvas_layer(entry) {
           return;
         }
         if (node.children) {
-          for (let c = 0; c < 4; c++) traverseNode(node.children[c]);
+          for (let c = 0; c < 4; c++) traverseNode(node.children[c], queryExtent);
           return;
         }
         renderLeafItems(node);
       }
 
       if (root) {
-        traverseNode(root);
+        for (const queryExtent of queryExtents) traverseNode(root, queryExtent);
       }
 
       if ((entry.selectedIndices || []).length > 0) {
         for (const i of entry.selectedIndices) {
           if (i == null || entry.deleted[i] || entry.hidden[i]) continue;
-          const x = entry.x[i], y = entry.y[i];
-          if (x < extent[0] || x > extent[2] || y < extent[1] || y > extent[3]) continue;
           addPointToBatch(i, true);
         }
       }
@@ -1516,6 +1556,7 @@ function fgp_make_canvas_layer(entry) {
 
       const queryStart = performance.now();
       const root = entry.qtRoot;
+      const queryExtents = pyolqt_query_extents_for_render(extent);
       const queryTime = performance.now() - queryStart;
 
       let visitedNodeCount = 0;
@@ -1527,8 +1568,10 @@ function fgp_make_canvas_layer(entry) {
       let pointDrawCount = 0;
 
       function inExtent(i) {
-        return entry.x[i] >= extent[0] && entry.x[i] <= extent[2] &&
-               entry.y[i] >= extent[1] && entry.y[i] <= extent[3];
+        const wrappedX = pyolqt_wrap_x_for_extent(entry.x[i], extent);
+        const ellipseRadius = Math.max(entry.a[i] || 0, entry.b[i] || 0);
+        return wrappedX >= extent[0] - ellipseRadius && wrappedX <= extent[2] + ellipseRadius &&
+               entry.y[i] >= extent[1] - ellipseRadius && entry.y[i] <= extent[3] + ellipseRadius;
       }
 
       function nodePixelSize(node) {
@@ -1552,9 +1595,10 @@ function fgp_make_canvas_layer(entry) {
       function centerPixelKey(i, selected) {
         const radius = (selected ? (st.selected_point_radius || 6.0) : (st.point_radius || 3.0)) * pixelRatio;
         const colorKey = pointCssForIndex(i, selected);
-        return fp_pixel_dedupe_key(
-          entry, i, extent, scaleX, scaleY, () => colorKey + '|' + radius
-        ).key;
+        const wrappedX = pyolqt_wrap_x_for_extent(entry.x[i], extent);
+        const x = (wrappedX - extent[0]) * scaleX;
+        const y = (extent[3] - entry.y[i]) * scaleY;
+        return colorKey + '|' + radius + '|' + Math.round(x) + '|' + Math.round(y);
       }
 
       function addUnselectedDrawIndex(i, fromCollapsedNode) {
@@ -1586,46 +1630,50 @@ function fgp_make_canvas_layer(entry) {
           for (const i of selectedIndices) addSelectedDrawIndex(i);
           return;
         }
-        const stack = [root];
-        while (stack.length) {
-          const node = stack.pop();
-          if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) continue;
-          const px = nodePixelSize(node);
-          if (px.w <= collapsePx && px.h <= collapsePx) {
-            addSelectedDrawIndex(fp_qt_pick_selected_representative(entry, node, extent));
-            continue;
+        for (const queryExtent of queryExtents) {
+          const stack = [root];
+          while (stack.length) {
+            const node = stack.pop();
+            if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, queryExtent)) continue;
+            const px = nodePixelSize(node);
+            if (px.w <= collapsePx && px.h <= collapsePx) {
+              addSelectedDrawIndex(fp_qt_pick_selected_representative(entry, node, queryExtent));
+              continue;
+            }
+            if (node.children) {
+              for (let c = 0; c < 4; c++) stack.push(node.children[c]);
+              continue;
+            }
+            for (let k = 0; k < node.items.length; k++) addSelectedDrawIndex(node.items[k]);
           }
-          if (node.children) {
-            for (let c = 0; c < 4; c++) stack.push(node.children[c]);
-            continue;
-          }
-          for (let k = 0; k < node.items.length; k++) addSelectedDrawIndex(node.items[k]);
         }
       }
 
       function collectDrawIndices() {
         if (!root) return;
-        const stack = [root];
-        while (stack.length) {
-          const node = stack.pop();
-          if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, extent)) continue;
-          visitedNodeCount++;
-          const px = nodePixelSize(node);
-          if (px.w <= collapsePx && px.h <= collapsePx) {
-            const rep = fp_qt_pick_representative(entry, node, true, extent);
-            if (rep >= 0) {
-              collapsedNodeCount++;
-              addUnselectedDrawIndex(rep, true);
+        for (const queryExtent of queryExtents) {
+          const stack = [root];
+          while (stack.length) {
+            const node = stack.pop();
+            if (!node || node.visibleCount <= 0 || !fp_qt_intersects(node, queryExtent)) continue;
+            visitedNodeCount++;
+            const px = nodePixelSize(node);
+            if (px.w <= collapsePx && px.h <= collapsePx) {
+              const rep = fp_qt_pick_representative(entry, node, true, queryExtent);
+              if (rep >= 0) {
+                collapsedNodeCount++;
+                addUnselectedDrawIndex(rep, true);
+              }
+              continue;
             }
-            continue;
-          }
-          if (node.children) {
-            for (let c = 0; c < 4; c++) stack.push(node.children[c]);
-            continue;
-          }
-          for (let k = 0; k < node.items.length; k++) {
-            scannedLeafPointCount++;
-            addUnselectedDrawIndex(node.items[k], false);
+            if (node.children) {
+              for (let c = 0; c < 4; c++) stack.push(node.children[c]);
+              continue;
+            }
+            for (let k = 0; k < node.items.length; k++) {
+              scannedLeafPointCount++;
+              addUnselectedDrawIndex(node.items[k], false);
+            }
           }
         }
       }
@@ -1687,7 +1735,8 @@ function fgp_make_canvas_layer(entry) {
           const rx = (entry.a[i] / resolution) * pixelRatio;
           const ry = (entry.b[i] / resolution) * pixelRatio;
           if (rx < minPx && ry < minPx) return false;
-          const x = (entry.x[i] - extent[0]) * scaleX;
+          const wrappedX = pyolqt_wrap_x_for_extent(entry.x[i], extent);
+          const x = (wrappedX - extent[0]) * scaleX;
           const y = (extent[3] - entry.y[i]) * scaleY;
           const rot = entry.rot[i];
           ctx.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
@@ -1761,7 +1810,8 @@ function fgp_make_canvas_layer(entry) {
         const fid = entry.ids[i];
         const selected = selectedOverride === true || fp_selection_has(entry, i);
         if (!selectedOverride && selected) return;
-        const x = (entry.x[i] - extent[0]) * scaleX;
+        const wrappedX = pyolqt_wrap_x_for_extent(entry.x[i], extent);
+        const x = (wrappedX - extent[0]) * scaleX;
         const y = (extent[3] - entry.y[i]) * scaleY;
         const px = Math.round(x);
         const py = Math.round(y);
@@ -2196,7 +2246,7 @@ function fp_install_interactions() {
       for (let k = 0; k < cand.length; k++) {
         const i = cand[k];
         if (entry.deleted[i] || entry.hidden[i]) continue;
-        const x = entry.x[i], y = entry.y[i];
+        const x = pyolqt_wrap_x_for_extent(entry.x[i], extent), y = entry.y[i];
         if (x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3]) nextIndices.push(i);
       }
       const buildMs = performance.now() - buildStart;
