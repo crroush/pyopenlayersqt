@@ -252,7 +252,7 @@ geo.set_selected_ellipses_visible(False)
 #### WMS and raster overlays
 
 ```python
-from pyopenlayersqt import RasterStyle, WMSOptions
+from pyopenlayersqt import WMSOptions
 
 wms = map_widget.add_wms(
     WMSOptions(
@@ -263,7 +263,7 @@ wms = map_widget.add_wms(
     name="states",
 )
 
-raster = map_widget.add_raster_layer(style=RasterStyle(opacity=0.6), name="heatmap")
+raster = map_widget.add_raster_layer(name="heatmap", opacity=0.6)
 raster.set_image(
     png_bytes_or_path_or_url,
     bounds=[(lat_min, lon_min), (lat_max, lon_max)],
@@ -458,7 +458,7 @@ Start with the examples that match the application you are building. The example
 from pyopenlayersqt import (
     OLMapWidget,
     # styles/options/models
-    PointStyle, IconStyle, PolygonStyle, CircleStyle, EllipseStyle, RasterStyle,
+    PointStyle, IconStyle, PolygonStyle, CircleStyle, EllipseStyle,
     FastPointsStyle, FastGeoPointsStyle, WMSOptions, TileLayerOptions,
     FeatureSelection, MeasurementUpdate, VectorVertexEditing, LatLon,
     # layers
@@ -483,7 +483,7 @@ Fast layers default to `selectable=False`; pass `selectable=True` when map click
 - `add_fast_geopoints_layer(name, selectable=False, style=None, cell_size_m=1000.0, show_ellipses=True)`
 - `add_wms(options, name="wms")`
 - `add_tile_layer(options, name="tile")`
-- `add_raster_layer(style=None, name="raster")` (then `set_image(image, bounds, name="image")`)
+- `add_raster_layer(name="raster", opacity=0.6)` (then `set_image(image, bounds, name="image")`)
 
 Important methods: `set_base_opacity`, `set_base_visible`, `set_map_background_color`, `set_country_boundaries_visible`, `set_view`, `set_center`, `set_zoom`, `fit_bounds`, `auto_zoom_to_points`, `fit_to_data`, `zoom_resolution_m_per_px`, `get_view_extent`, `watch_view_extent`, `set_measure_mode`, `on_measurement_updated`, `on_map_click`, `clear_measurements`, `send`.
 
@@ -508,7 +508,6 @@ Signals: `ready`, `selectionChanged`, `mapClicked`, `viewExtentChanged`, `measur
 | `PolygonStyle` | polygons, lines, gradient lines | `stroke_color`, `stroke_width`, `stroke_opacity`, `fill_color`, `fill_opacity` |
 | `CircleStyle` | circles | `stroke_color`, `stroke_width`, `fill_color`, `fill_opacity` |
 | `EllipseStyle` | ellipses | `stroke_color`, `stroke_width`, `fill_color`, `fill_opacity` |
-| `RasterStyle` | raster overlays | `opacity` |
 | `FastPointsStyle` | fast point layers | `radius`, `default_color`, `selected_radius`, `selected_color` |
 | `FastGeoPointsStyle` | fast geo-point layers | point colors/radii plus ellipse stroke/fill, visibility, culling, batching controls |
 

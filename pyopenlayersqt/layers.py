@@ -16,7 +16,6 @@ from .models import (
     LatLon,
     PointStyle,
     PolygonStyle,
-    RasterStyle,
     WMSOptions,
     TileLayerOptions,
     VectorVertexEditing,
@@ -502,7 +501,7 @@ class VectorLayer(BaseLayer):
         self,
         coords: Sequence[LatLon],
         ids: Optional[Sequence[str]] = None,
-        style: Optional[PointStyle | IconStyle] = None,
+        style: Optional[PointStyle] = None,
         properties: Optional[Sequence[Dict[str, Any]]] = None,
         movable: Optional[Union[bool, Sequence[bool]]] = None,
     ) -> None:
@@ -511,9 +510,13 @@ class VectorLayer(BaseLayer):
         Args:
             coords: Sequence of (lat, lon) tuples for each point.
             ids: Optional sequence of feature IDs. Auto-generated if not provided.
-            style: Point or icon styling. Uses default PointStyle if not provided.
+            style: Point styling. Uses the default PointStyle if not provided.
             properties: Optional properties dict for each point.
         """
+        if style is not None and not isinstance(style, PointStyle):
+            raise TypeError(
+                "add_points() accepts PointStyle only; use add_icon_points() for icons"
+            )
         style = style or PointStyle()
         ids = list(ids) if ids is not None else [f"pt{i}" for i in range(len(coords))]
         props = (
@@ -902,12 +905,9 @@ class RasterLayer(BaseLayer):
 
     _layer_type_prefix = "raster"
 
-    def __init__(
-        self, widget: Any, layer_id: str, style: RasterStyle, name: str = ""
-    ):
+    def __init__(self, widget: Any, layer_id: str, name: str = ""):
         super().__init__(widget, layer_id, name=name or layer_id)
         self.images: Dict[str, Dict[str, Any]] = {}
-        self.style = style
 
     def set_image(
         self,
@@ -972,11 +972,6 @@ class RasterLayer(BaseLayer):
                 "opacity": image_opacity,
             }
         )
-
-    def set_style(self, style: RasterStyle) -> None:
-        """Replace the layer style."""
-        self.style = style
-        self.set_opacity(style.opacity)
 
 
 class FastPointsLayer(BaseLayer):

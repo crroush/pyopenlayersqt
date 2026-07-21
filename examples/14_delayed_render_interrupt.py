@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from PySide6 import QtCore, QtWidgets
 
-from pyopenlayersqt import OLMapWidget, RasterStyle
+from pyopenlayersqt import OLMapWidget
 
 
 def _haversine_m(lat1, lon1, lat2, lon2):
@@ -378,7 +378,7 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
             bounds = [tuple(msg["bounds"][0]), tuple(msg["bounds"][1])]
             if self.raster_layer is None:
                 self.raster_layer = self.map_widget.add_raster_layer(
-                    style=RasterStyle(opacity=0.74), name="dynamic_heatmap"
+                    opacity=0.74, name="dynamic_heatmap"
                 )
                 self.raster_layer.set_image(msg["png"], bounds=bounds)
             else:

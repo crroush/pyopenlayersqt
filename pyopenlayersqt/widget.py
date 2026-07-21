@@ -37,7 +37,6 @@ from .models import (
     FeatureSelection,
     MapClickEvent,
     MeasurementUpdate,
-    RasterStyle,
     WMSOptions,
     TileLayerOptions,
     FastPointsStyle,
@@ -1058,36 +1057,24 @@ class OLMapWidget(QWebEngineView):
         return TileLayer(self, layer_id, opt, name=name)
 
     def add_raster_layer(
-        self, style: Optional[RasterStyle] = None, name: str = "raster"
+        self, name: str = "raster", opacity: float = 0.6
     ) -> RasterLayer:
-        """Create an empty persistent raster layer for named image overlays."""
+        """Create an empty persistent raster layer for named image overlays.
+
+        Args:
+            name: Human-readable layer name.
+            opacity: Initial opacity for every image in the layer, from 0.0 to 1.0.
+        """
         layer_id = self._next_id("r")
-        style = style or RasterStyle()
         self._send(
             {
                 "type": "layer.add_raster",
                 "layer_id": layer_id,
                 "name": name,
-                "style": style.to_js(),
+                "style": {"opacity": clamp(opacity)},
             }
         )
-        return RasterLayer(self, layer_id, style, name=name)
-
-    def add_raster_image(
-        self,
-        image_url: Union[str, bytes, bytearray],
-        bounds: Sequence[Tuple[float, float]],
-        style: Optional[RasterStyle] = None,
-        name: str = "raster",
-    ) -> RasterLayer:
-        """Add one image to a new raster layer.
-
-        Deprecated compatibility helper; use :meth:`add_raster_layer` followed
-        by :meth:`RasterLayer.set_image` for persistent multi-image layers.
-        """
-        layer = self.add_raster_layer(style=style, name=name)
-        layer.set_image(image_url, bounds=bounds)
-        return layer
+        return RasterLayer(self, layer_id, name=name)
 
     def set_measure_mode(self, enabled: bool) -> None:
         """Enable or disable measurement mode.

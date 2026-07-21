@@ -27,7 +27,7 @@ from PIL import Image, ImageDraw
 from PySide6 import QtWidgets
 from PySide6.QtCore import Qt
 
-from pyopenlayersqt import OLMapWidget, RasterStyle
+from pyopenlayersqt import OLMapWidget
 
 
 def generate_masked_heatmap(width=512, height=512, polygon=None, seed=42):
@@ -195,10 +195,10 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
 
         # Start with rectangular (no mask)
         self.raster_layer = self.map_widget.add_raster_layer(
-            style=RasterStyle(opacity=0.60), name="masked_heatmap"
+            opacity=0.60, name="masked_heatmap"
         )
         self.reference_layer = self.map_widget.add_raster_layer(
-            style=RasterStyle(opacity=0.35), name="reference_heatmap"
+            opacity=0.35, name="reference_heatmap"
         )
         self._update_raster_with_masks("Rectangle", "Circle")
 
