@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw
 from PySide6 import QtWidgets
 from PySide6.QtGui import QColor
 
-from pyopenlayersqt import OLMapWidget, PointStyle, RasterStyle
+from pyopenlayersqt import OLMapWidget, PointStyle
 
 
 def build_demo_raster_png(width: int = 512, height: int = 512) -> bytes:
@@ -147,7 +147,7 @@ class FitToDataExample(QtWidgets.QMainWindow):
 
         if self.raster_layer is None:
             self.raster_layer = self.map_widget.add_raster_layer(
-                style=RasterStyle(opacity=0.45), name="demo_raster"
+                opacity=0.45, name="demo_raster"
             )
             self.raster_layer.set_image(raster_png, bounds=self.raster_bounds)
         else:
