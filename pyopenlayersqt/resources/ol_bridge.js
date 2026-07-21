@@ -3810,12 +3810,20 @@ function cmd_countries_set_visible(msg) {
         imageExtent: extent,
         projection: projection,
       });
-      const imageLayer = new ol.layer.Image({ source });
-      imageLayer.setOpacity(typeof msg.opacity === "number" ? msg.opacity : 1.0);
+      const opacity = typeof msg.opacity === "number" ? msg.opacity : 1.0;
       const previous = e.images.get(name);
-      if (previous) e.layer.getLayers().remove(previous);
-      e.images.set(name, imageLayer);
-      e.layer.getLayers().push(imageLayer);
+      if (previous) {
+        // Keep the child layer in the group and replace only its source.  A
+        // remove/push sequence leaves the group empty for a render frame and
+        // visibly flickers during frequent delayed-render updates.
+        previous.setSource(source);
+        previous.setOpacity(opacity);
+      } else {
+        const imageLayer = new ol.layer.Image({ source });
+        imageLayer.setOpacity(opacity);
+        e.images.set(name, imageLayer);
+        e.layer.getLayers().push(imageLayer);
+      }
       e.layer.changed();
     };
 
