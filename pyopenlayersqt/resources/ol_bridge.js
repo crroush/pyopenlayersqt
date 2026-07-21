@@ -3498,6 +3498,7 @@ function cmd_countries_set_visible(msg) {
       type: "raster",
       layer,
       images: new Map(),
+      imageOpacities: new Map(),
       extents: new Map(),
       swapSeq: new Map(),
       selectable: false,
@@ -3800,6 +3801,9 @@ function cmd_countries_set_visible(msg) {
     const seq = (e.swapSeq.get(name) || 0) + 1;
     e.swapSeq.set(name, seq);
     e.extents.set(name, extent);
+    e.imageOpacities.set(
+      name, typeof msg.opacity === "number" ? msg.opacity : 1.0
+    );
 
     // Preload before replacing the named child, preserving every other image
     // (and the current named image) while the replacement is loading.
@@ -3810,7 +3814,8 @@ function cmd_countries_set_visible(msg) {
         imageExtent: extent,
         projection: projection,
       });
-      const opacity = typeof msg.opacity === "number" ? msg.opacity : 1.0;
+      // A set_image_opacity command may have run while this URL preloaded.
+      const opacity = e.imageOpacities.get(name);
       const previous = e.images.get(name);
       if (previous) {
         // Keep the child layer in the group and replace only its source.  A
@@ -3841,6 +3846,7 @@ function cmd_countries_set_visible(msg) {
     const imageLayer = e.images.get(name);
     if (imageLayer) e.layer.getLayers().remove(imageLayer);
     e.images.delete(name);
+    e.imageOpacities.delete(name);
     e.extents.delete(name);
     e.layer.changed();
   }
@@ -3853,6 +3859,7 @@ function cmd_countries_set_visible(msg) {
     }
     e.layer.getLayers().clear();
     e.images.clear();
+    e.imageOpacities.clear();
     e.extents.clear();
     e.layer.changed();
   }
@@ -3860,8 +3867,13 @@ function cmd_countries_set_visible(msg) {
   function cmd_raster_set_image_opacity(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "raster") return;
-    const imageLayer = e.images.get(String(msg.name == null ? "image" : msg.name));
-    if (imageLayer && typeof msg.opacity === "number") imageLayer.setOpacity(msg.opacity);
+    const name = String(msg.name == null ? "image" : msg.name);
+    if (typeof msg.opacity !== "number") return;
+    // Store this even when the image is still preloading.  The preload
+    // callback reads it when it creates or replaces the child layer.
+    e.imageOpacities.set(name, msg.opacity);
+    const imageLayer = e.images.get(name);
+    if (imageLayer) imageLayer.setOpacity(msg.opacity);
   }
 
   function cmd_raster_set_opacity(msg) {

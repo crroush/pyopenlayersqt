@@ -183,6 +183,12 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
             (37.7, -122.5),   # Southwest corner (lat, lon)
             (37.85, -122.35)  # Northeast corner (lat, lon)
         ]
+        # Shift the reference raster east so it overlaps the masked raster by
+        # 30% of its width instead of covering it completely.
+        self.reference_bounds = [
+            (37.7, -122.395),
+            (37.85, -122.245),
+        ]
 
         # Create controls first (so opacity_slider exists)
         controls = self._create_controls()
@@ -194,7 +200,7 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
         self.reference_layer = self.map_widget.add_raster_layer(
             style=RasterStyle(opacity=0.35), name="reference_heatmap"
         )
-        self._update_raster_with_mask("Rectangle")
+        self._update_raster_with_masks("Rectangle", "Circle")
 
         # Layout
         container = QtWidgets.QWidget()
@@ -210,18 +216,18 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
 
         # Info label
         info = QtWidgets.QLabel(
-            "Demonstrate polygon masking for raster images. "
-            "Select a shape to mask the heatmap overlay."
+            "Demonstrate two polygon-masked raster images with 30% overlap. "
+            "Choose a mask independently for each heatmap."
         )
         info.setWordWrap(True)
         layout.addWidget(info, stretch=1)
 
-        # Mask shape selector
-        mask_group = QtWidgets.QGroupBox("Polygon Mask")
+        # Independent mask shape selectors for the two raster layers.
+        mask_group = QtWidgets.QGroupBox("Polygon Masks")
         mask_layout = QtWidgets.QVBoxLayout(mask_group)
 
         shape_layout = QtWidgets.QHBoxLayout()
-        shape_layout.addWidget(QtWidgets.QLabel("Shape:"))
+        shape_layout.addWidget(QtWidgets.QLabel("Masked:"))
         self.shape_combo = QtWidgets.QComboBox()
         self.shape_combo.addItems([
             "Rectangle",
@@ -232,9 +238,21 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
             "Irregular"
         ])
         shape_layout.addWidget(self.shape_combo)
+        shape_layout.addWidget(QtWidgets.QLabel("Reference:"))
+        self.reference_shape_combo = QtWidgets.QComboBox()
+        self.reference_shape_combo.addItems([
+            "Rectangle",
+            "Circle",
+            "Triangle",
+            "Hexagon",
+            "Star",
+            "Irregular",
+        ])
+        self.reference_shape_combo.setCurrentText("Circle")
+        shape_layout.addWidget(self.reference_shape_combo)
 
         update_btn = QtWidgets.QPushButton("Update Mask")
-        update_btn.clicked.connect(self._on_update_mask)
+        update_btn.clicked.connect(self._on_update_masks)
         shape_layout.addWidget(update_btn)
 
         mask_layout.addLayout(shape_layout)
@@ -285,28 +303,27 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
             return _get_irregular_polygon(width, height)
         return None
 
-    def _update_raster_with_mask(self, shape_name):
-        """Generate and display heatmap with the selected mask shape."""
-        # Get polygon for this shape
-        polygon = self._get_polygon_for_shape(shape_name)
-
-        # Generate masked heatmap
-        heatmap_png = generate_masked_heatmap(512, 512, polygon=polygon)
+    def _update_raster_with_masks(self, masked_shape, reference_shape):
+        """Generate and display the two independently masked heatmaps."""
+        heatmap_png = generate_masked_heatmap(
+            512, 512, polygon=self._get_polygon_for_shape(masked_shape)
+        )
 
         # Demonstrate in-memory updates in two independently controlled,
         # persistent raster layers.  Each layer can hold multiple named images.
         self.raster_layer.set_image(heatmap_png, bounds=self.bounds, name="masked")
         reference_png = generate_masked_heatmap(
-            512, 512, polygon=self._get_polygon_for_shape("Circle")
+            512, 512, polygon=self._get_polygon_for_shape(reference_shape)
         )
         self.reference_layer.set_image(
-            reference_png, bounds=self.bounds, name="reference"
+            reference_png, bounds=self.reference_bounds, name="reference"
         )
 
-    def _on_update_mask(self):
-        """Handle mask shape update."""
-        shape_name = self.shape_combo.currentText()
-        self._update_raster_with_mask(shape_name)
+    def _on_update_masks(self):
+        """Apply the selected masks to their corresponding raster layers."""
+        self._update_raster_with_masks(
+            self.shape_combo.currentText(), self.reference_shape_combo.currentText()
+        )
 
     def _on_opacity_changed(self, value):
         """Update raster layer opacity."""
