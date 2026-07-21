@@ -146,12 +146,10 @@ class FitToDataExample(QtWidgets.QMainWindow):
         raster_png = build_demo_raster_png()
 
         if self.raster_layer is None:
-            self.raster_layer = self.map_widget.add_raster_image(
-                raster_png,
-                bounds=self.raster_bounds,
-                style=RasterStyle(opacity=0.45),
-                name="demo_raster",
+            self.raster_layer = self.map_widget.add_raster_layer(
+                style=RasterStyle(opacity=0.45), name="demo_raster"
             )
+            self.raster_layer.set_image(raster_png, bounds=self.raster_bounds)
         else:
             self.raster_layer.set_image(raster_png, bounds=self.raster_bounds)
 

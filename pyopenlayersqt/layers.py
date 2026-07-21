@@ -894,48 +894,87 @@ class TileLayer(BaseLayer):
 
 
 class RasterLayer(BaseLayer):
-    """Image overlay layer (PNG served by the widget HTTP server).
+    """Persistent collection of named image overlays.
 
-    Bounds are specified as (lat, lon) tuples in the public API.
+    Bounds are specified as (lat, lon) tuples in the public API.  Layer opacity
+    affects every image, while each image also has its own opacity.
     """
 
+    _layer_type_prefix = "raster"
+
     def __init__(
-        self,
-        widget: Any,
-        layer_id: str,
-        url: str,
-        bounds: List[LatLon],
-        style: RasterStyle,
-        name: str = "",
+        self, widget: Any, layer_id: str, style: RasterStyle, name: str = ""
     ):
         super().__init__(widget, layer_id, name=name or layer_id)
-        self.url = url
-        self.bounds = bounds  # [(lat, lon), (lat, lon)] - SW and NE corners
+        self.images: Dict[str, Dict[str, Any]] = {}
         self.style = style
 
     def set_image(
-        self, image: Union[str, bytes, bytearray], bounds: List[LatLon]
+        self,
+        image: Union[str, bytes, bytearray],
+        bounds: Sequence[LatLon],
+        name: str = "image",
+        opacity: float = 1.0,
     ) -> None:
-        """Update the raster image.
+        """Add or replace a named image overlay.
 
         Args:
             image: URL/path/server path ("/_overlays/...") or raw PNG bytes.
             bounds: Two (lat, lon) tuples defining SW and NE corners.
+            name: Image identifier within this raster layer.
+            opacity: Opacity for this image, independent of the layer opacity.
         """
         url = self._map_widget._ensure_overlay_url(image)
-        self.url = url
-        self.bounds = bounds
-        # Swap lat,lon (public API) to lon,lat (internal format)
+        image_name = str(name)
+        image_bounds = list(bounds)
+        image_opacity = clamp(opacity)
+        self.images[image_name] = {
+            "url": url,
+            "bounds": image_bounds,
+            "opacity": image_opacity,
+        }
+        # Swap lat,lon (public API) to lon,lat (internal format).
         self._map_widget._send(
             {
                 "type": "raster.set_image",
                 "layer_id": self.id,
+                "name": image_name,
                 "url": url,
-                "bounds": [[float(lon), float(lat)] for lat, lon in bounds],
+                "bounds": [[float(lon), float(lat)] for lat, lon in image_bounds],
+                "opacity": image_opacity,
+            }
+        )
+
+    def remove_image(self, name: str = "image") -> None:
+        """Remove a named image overlay without changing the other images."""
+        image_name = str(name)
+        self.images.pop(image_name, None)
+        self._map_widget._send(
+            {"type": "raster.remove_image", "layer_id": self.id, "name": image_name}
+        )
+
+    def clear(self) -> None:
+        """Remove every image overlay from this raster layer."""
+        self.images.clear()
+        self._map_widget._send({"type": "raster.clear", "layer_id": self.id})
+
+    def set_image_opacity(self, name: str, opacity: float) -> None:
+        """Set the opacity of one named image overlay."""
+        image_name = str(name)
+        image_opacity = clamp(opacity)
+        if image_name in self.images:
+            self.images[image_name]["opacity"] = image_opacity
+        self._map_widget._send(
+            {
+                "type": "raster.set_image_opacity",
+                "layer_id": self.id,
+                "name": image_name,
+                "opacity": image_opacity,
             }
         )
 
     def set_style(self, style: RasterStyle) -> None:
+        """Replace the layer style."""
         self.style = style
         self.set_opacity(style.opacity)
 

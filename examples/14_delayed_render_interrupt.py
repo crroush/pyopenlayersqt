@@ -377,12 +377,10 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
 
             bounds = [tuple(msg["bounds"][0]), tuple(msg["bounds"][1])]
             if self.raster_layer is None:
-                self.raster_layer = self.map_widget.add_raster_image(
-                    msg["png"],
-                    bounds=bounds,
-                    style=RasterStyle(opacity=0.74),
-                    name="dynamic_heatmap",
+                self.raster_layer = self.map_widget.add_raster_layer(
+                    style=RasterStyle(opacity=0.74), name="dynamic_heatmap"
                 )
+                self.raster_layer.set_image(msg["png"], bounds=bounds)
             else:
                 self.raster_layer.set_image(msg["png"], bounds=bounds)
 

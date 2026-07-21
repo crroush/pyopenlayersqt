@@ -1057,6 +1057,22 @@ class OLMapWidget(QWebEngineView):
         )
         return TileLayer(self, layer_id, opt, name=name)
 
+    def add_raster_layer(
+        self, style: Optional[RasterStyle] = None, name: str = "raster"
+    ) -> RasterLayer:
+        """Create an empty persistent raster layer for named image overlays."""
+        layer_id = self._next_id("r")
+        style = style or RasterStyle()
+        self._send(
+            {
+                "type": "layer.add_raster",
+                "layer_id": layer_id,
+                "name": name,
+                "style": style.to_js(),
+            }
+        )
+        return RasterLayer(self, layer_id, style, name=name)
+
     def add_raster_image(
         self,
         image_url: Union[str, bytes, bytearray],
@@ -1064,34 +1080,14 @@ class OLMapWidget(QWebEngineView):
         style: Optional[RasterStyle] = None,
         name: str = "raster",
     ) -> RasterLayer:
-        """Add a raster image overlay to the map.
+        """Add one image to a new raster layer.
 
-        Args:
-            image_url: Can be an http(s) URL, a filesystem path, a server path
-                      ("/_overlays/..."), or raw PNG bytes.
-            bounds: Two (lat, lon) tuples defining SW and NE corners.
-            style: Raster styling options.
-            name: Layer name.
-
-        Returns:
-            The created RasterLayer instance.
+        Deprecated compatibility helper; use :meth:`add_raster_layer` followed
+        by :meth:`RasterLayer.set_image` for persistent multi-image layers.
         """
-        layer_id = self._next_id("r")
-        style = style or RasterStyle()
-        url = self._ensure_overlay_url(image_url)
-
-        # Swap lat,lon (public API) to lon,lat (internal format)
-        self._send(
-            {
-                "type": "layer.add_raster",
-                "layer_id": layer_id,
-                "name": name,
-                "url": url,
-                "bounds": [[float(lon), float(lat)] for lat, lon in bounds],
-                "style": style.to_js(),
-            }
-        )
-        return RasterLayer(self, layer_id, url, list(bounds), style, name=name)
+        layer = self.add_raster_layer(style=style, name=name)
+        layer.set_image(image_url, bounds=bounds)
+        return layer
 
     def set_measure_mode(self, enabled: bool) -> None:
         """Enable or disable measurement mode.
