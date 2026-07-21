@@ -284,11 +284,16 @@ function _entry_data_extent(entry, onlyVisibleFeatures) {
   }
 
   if (entry.type === 'raster') {
-    if (entry.source && typeof entry.source.getImageExtent === 'function') {
-      const ext = entry.source.getImageExtent();
-      return ext && !ol.extent.isEmpty(ext) ? ext : null;
+    const combined = ol.extent.createEmpty();
+    let found = false;
+    // Extents are recorded before image preloading completes so a following
+    // fit_to_data command sees FIFO raster updates immediately.
+    for (const ext of entry.extents.values()) {
+      if (!ext || ol.extent.isEmpty(ext)) continue;
+      ol.extent.extend(combined, ext);
+      found = true;
     }
-    return null;
+    return found ? combined : null;
   }
 
   if (entry.type === 'fast_points' || entry.type === 'fast_geopoints') {
@@ -3485,17 +3490,18 @@ function cmd_countries_set_visible(msg) {
   }
 
   function cmd_add_raster(msg) {
-    const extent = extent_from_bounds(msg.bounds);
-    const source = new ol.source.ImageStatic({
-      url: msg.url,
-      imageExtent: extent,
-      projection: state.map.getView().getProjection(),
-    });
-    const layer = new ol.layer.Image({ source });
+    const layer = new ol.layer.Group({ layers: [] });
     const op = msg.style && typeof msg.style.opacity === "number" ? msg.style.opacity : 0.6;
     layer.setOpacity(op);
     state.map.addLayer(layer);
-    state.layers.set(msg.layer_id, { type: "raster", layer, source, selectable: false });
+    state.layers.set(msg.layer_id, {
+      type: "raster",
+      layer,
+      images: new Map(),
+      extents: new Map(),
+      swapSeq: new Map(),
+      selectable: false,
+    });
     state.layerByObj.set(layer, msg.layer_id);
   }
 
@@ -3788,29 +3794,80 @@ function cmd_countries_set_visible(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "raster") return;
 
-    // Avoid flicker: preload the new image first, then swap source atomically.
-    e._swapSeq = (e._swapSeq || 0) + 1;
-    const seq = e._swapSeq;
+    const name = String(msg.name == null ? "image" : msg.name);
     const extent = extent_from_bounds(msg.bounds);
     const projection = state.map.getView().getProjection();
+    const seq = (e.swapSeq.get(name) || 0) + 1;
+    e.swapSeq.set(name, seq);
+    e.extents.set(name, extent);
 
-    const swapToNewSource = function() {
-      if ((e._swapSeq || 0) !== seq) return; // stale request
+    // Preload before replacing the named child, preserving every other image
+    // (and the current named image) while the replacement is loading.
+    const swapToNewImage = function() {
+      if (e.swapSeq.get(name) !== seq) return;
       const source = new ol.source.ImageStatic({
         url: msg.url,
         imageExtent: extent,
         projection: projection,
       });
-      e.source = source;
-      e.layer.setSource(source);
+      const imageLayer = new ol.layer.Image({ source });
+      imageLayer.setOpacity(typeof msg.opacity === "number" ? msg.opacity : 1.0);
+      const previous = e.images.get(name);
+      if (previous) e.layer.getLayers().remove(previous);
+      e.images.set(name, imageLayer);
+      e.layer.getLayers().push(imageLayer);
       e.layer.changed();
     };
 
     const img = new Image();
-    img.onload = swapToNewSource;
-    img.onerror = swapToNewSource; // still swap so failures are visible
+    img.onload = swapToNewImage;
+    img.onerror = swapToNewImage; // expose failed URLs as normal OL image failures
     img.src = msg.url;
   }
+
+  function cmd_raster_remove_image(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "raster") return;
+    const name = String(msg.name == null ? "image" : msg.name);
+    e.swapSeq.set(name, (e.swapSeq.get(name) || 0) + 1);
+    const imageLayer = e.images.get(name);
+    if (imageLayer) e.layer.getLayers().remove(imageLayer);
+    e.images.delete(name);
+    e.extents.delete(name);
+    e.layer.changed();
+  }
+
+  function cmd_raster_clear(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "raster") return;
+    for (const name of e.extents.keys()) {
+      e.swapSeq.set(name, (e.swapSeq.get(name) || 0) + 1);
+    }
+    e.layer.getLayers().clear();
+    e.images.clear();
+    e.extents.clear();
+    e.layer.changed();
+  }
+
+  function cmd_raster_set_image_opacity(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "raster") return;
+    const imageLayer = e.images.get(String(msg.name == null ? "image" : msg.name));
+    if (imageLayer && typeof msg.opacity === "number") imageLayer.setOpacity(msg.opacity);
+  }
+
+  function cmd_raster_set_opacity(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "raster") return;
+    if (typeof msg.opacity === "number") e.layer.setOpacity(msg.opacity);
+  }
+
+  function cmd_raster_set_visible(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "raster") return;
+    e.layer.setVisible(!!msg.visible);
+  }
+
 
 
   function vector_features_for_id(source, featureId) {
@@ -3892,6 +3949,11 @@ function cmd_countries_set_visible(msg) {
       case "tile.set_opacity": return cmd_tile_set_opacity(msg);
       case "tile.set_visible": return cmd_tile_set_visible(msg);
       case "raster.set_image": return cmd_raster_set_image(msg);
+      case "raster.remove_image": return cmd_raster_remove_image(msg);
+      case "raster.clear": return cmd_raster_clear(msg);
+      case "raster.set_image_opacity": return cmd_raster_set_image_opacity(msg);
+      case "raster.set_opacity": return cmd_raster_set_opacity(msg);
+      case "raster.set_visible": return cmd_raster_set_visible(msg);
 
       case "select.set": return cmd_select_set(msg);
     case "map.get_view_extent": return cmd_map_get_view_extent(msg);

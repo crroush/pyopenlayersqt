@@ -131,10 +131,10 @@ Map widget capability table:
 | Thousands to millions of points | `FastPointsLayer` from `add_fast_points_layer()` | Canvas rendering, spatial indexing, per-point colors, hide/show filtering. |
 | Points with uncertainty ellipses | `FastGeoPointsLayer` from `add_fast_geopoints_layer()` | Fast points plus semi-major/semi-minor/tilt uncertainty rendering. |
 | External WMS service | `WMSLayer` from `add_wms()` | Standard tiled WMS overlays. |
-| Heatmaps or image overlays | `RasterLayer` from `add_raster_image()` | PNG bytes, file paths, or URLs placed into lat/lon bounds. |
+| Heatmaps or image overlays | `RasterLayer` from `add_raster_layer()` | PNG bytes, file paths, or URLs placed into lat/lon bounds. |
 | Extra XYZ/OSM-like tile source | `TileLayer` from `add_tile_layer()` | Custom tile URL templates. |
 
-All layers support `set_opacity(opacity)` and `remove()`. Feature layers also support `set_visible(visible)`, `set_selectable(selectable)`, and `clear()`.
+All layers support `set_opacity(opacity)`, `set_visible(visible)`, and `remove()`. Raster layers also support named images with `set_image()`, `remove_image()`, `set_image_opacity()`, and `clear()`.
 
 Capability matrix:
 
@@ -263,12 +263,14 @@ wms = map_widget.add_wms(
     name="states",
 )
 
-raster = map_widget.add_raster_image(
+raster = map_widget.add_raster_layer(style=RasterStyle(opacity=0.6), name="heatmap")
+raster.set_image(
     png_bytes_or_path_or_url,
     bounds=[(lat_min, lon_min), (lat_max, lon_max)],
-    style=RasterStyle(opacity=0.6),
-    name="heatmap",
+    name="temperature",
+    opacity=0.8,
 )
+raster.set_image_opacity("temperature", 0.5)
 ```
 
 ### 4. Selection
@@ -481,7 +483,7 @@ Fast layers default to `selectable=False`; pass `selectable=True` when map click
 - `add_fast_geopoints_layer(name, selectable=False, style=None, cell_size_m=1000.0, show_ellipses=True)`
 - `add_wms(options, name="wms")`
 - `add_tile_layer(options, name="tile")`
-- `add_raster_image(image, bounds, style=None, name="raster")`
+- `add_raster_layer(style=None, name="raster")` (then `set_image(image, bounds, name="image")`)
 
 Important methods: `set_base_opacity`, `set_base_visible`, `set_map_background_color`, `set_country_boundaries_visible`, `set_view`, `set_center`, `set_zoom`, `fit_bounds`, `auto_zoom_to_points`, `fit_to_data`, `zoom_resolution_m_per_px`, `get_view_extent`, `watch_view_extent`, `set_measure_mode`, `on_measurement_updated`, `on_map_click`, `clear_measurements`, `send`.
 
@@ -494,8 +496,8 @@ Signals: `ready`, `selectionChanged`, `mapClicked`, `viewExtentChanged`, `measur
 | `VectorLayer` | `add_points`, `add_icon_points`, `add_line`, `add_gradient_line`, `add_polygon`, `add_circle`, `add_ellipse`, `update_feature_styles`, `set_movable`, `set_vertex_editing`, `set_features_movable`, `set_features_vertex_editing` | `remove_features`, `clear`, `set_visible`, `set_selectable`, `remove` |
 | `FastPointsLayer` | `add_points`, `set_colors` | `remove_points`, `hide_features`, `show_features`, `show_all_features`, `clear`, `set_visible`, `set_selectable`, `remove` |
 | `FastGeoPointsLayer` | `add_points_with_ellipses`, `set_colors`, `set_ellipses_visible`, `set_selected_ellipses_visible` | `remove_ids`, `hide_features`, `show_features`, `show_all_features`, `clear`, `set_visible`, `set_selectable`, `remove` |
-| `WMSLayer` | `set_params`, `set_opacity` | `remove` |
-| `RasterLayer` | `set_opacity` | `remove` |
+| `WMSLayer` | `set_params`, `set_opacity`, `set_visible` | `remove` |
+| `RasterLayer` | `set_image`, `set_image_opacity`, `set_opacity`, `set_visible` | `remove_image`, `clear`, `remove` |
 
 ### Style primitives
 

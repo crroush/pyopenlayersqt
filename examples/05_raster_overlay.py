@@ -188,7 +188,12 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
         controls = self._create_controls()
 
         # Start with rectangular (no mask)
-        self.raster_layer = None
+        self.raster_layer = self.map_widget.add_raster_layer(
+            style=RasterStyle(opacity=0.60), name="masked_heatmap"
+        )
+        self.reference_layer = self.map_widget.add_raster_layer(
+            style=RasterStyle(opacity=0.35), name="reference_heatmap"
+        )
         self._update_raster_with_mask("Rectangle")
 
         # Layout
@@ -235,8 +240,8 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
         mask_layout.addLayout(shape_layout)
         layout.addWidget(mask_group)
 
-        # Opacity control
-        opacity_group = QtWidgets.QGroupBox("Heatmap Opacity")
+        # Independent opacity controls for the two persistent raster layers.
+        opacity_group = QtWidgets.QGroupBox("Masked Heatmap Opacity")
         opacity_layout = QtWidgets.QHBoxLayout(opacity_group)
         opacity_layout.addWidget(QtWidgets.QLabel("Opacity:"))
         self.opacity_slider = QtWidgets.QSlider(Qt.Horizontal)
@@ -247,6 +252,18 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
         self.opacity_label = QtWidgets.QLabel("0.60")
         opacity_layout.addWidget(self.opacity_label)
         layout.addWidget(opacity_group)
+
+        reference_group = QtWidgets.QGroupBox("Reference Heatmap Opacity")
+        reference_layout = QtWidgets.QHBoxLayout(reference_group)
+        reference_layout.addWidget(QtWidgets.QLabel("Opacity:"))
+        self.reference_opacity_slider = QtWidgets.QSlider(Qt.Horizontal)
+        self.reference_opacity_slider.setRange(0, 100)
+        self.reference_opacity_slider.setValue(35)
+        self.reference_opacity_slider.valueChanged.connect(self._on_reference_opacity_changed)
+        reference_layout.addWidget(self.reference_opacity_slider)
+        self.reference_opacity_label = QtWidgets.QLabel("0.35")
+        reference_layout.addWidget(self.reference_opacity_label)
+        layout.addWidget(reference_group)
 
         return panel
 
@@ -276,17 +293,15 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
         # Generate masked heatmap
         heatmap_png = generate_masked_heatmap(512, 512, polygon=polygon)
 
-        # Demonstrate in-memory raster updates using PNG bytes directly.
-        # No file paths are needed for generated overlays.
-        if self.raster_layer is None:
-            self.raster_layer = self.map_widget.add_raster_image(
-                heatmap_png,
-                bounds=self.bounds,
-                style=RasterStyle(opacity=self.opacity_slider.value() / 100.0),
-                name="heatmap_bytes",
-            )
-        else:
-            self.raster_layer.set_image(heatmap_png, bounds=self.bounds)
+        # Demonstrate in-memory updates in two independently controlled,
+        # persistent raster layers.  Each layer can hold multiple named images.
+        self.raster_layer.set_image(heatmap_png, bounds=self.bounds, name="masked")
+        reference_png = generate_masked_heatmap(
+            512, 512, polygon=self._get_polygon_for_shape("Circle")
+        )
+        self.reference_layer.set_image(
+            reference_png, bounds=self.bounds, name="reference"
+        )
 
     def _on_update_mask(self):
         """Handle mask shape update."""
@@ -297,8 +312,13 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
         """Update raster layer opacity."""
         opacity = value / 100.0
         self.opacity_label.setText(f"{opacity:.2f}")
-        if self.raster_layer:
-            self.raster_layer.set_opacity(opacity)
+        self.raster_layer.set_opacity(opacity)
+
+    def _on_reference_opacity_changed(self, value):
+        """Update the independent reference raster-layer opacity."""
+        opacity = value / 100.0
+        self.reference_opacity_label.setText(f"{opacity:.2f}")
+        self.reference_layer.set_opacity(opacity)
 
 
 def main():
