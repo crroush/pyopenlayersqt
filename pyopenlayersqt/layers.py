@@ -517,7 +517,23 @@ class VectorLayer(BaseLayer):
             raise TypeError(
                 "add_points() accepts PointStyle only; use add_icon_points() for icons"
             )
-        style = style or PointStyle()
+        self._add_points(
+            coords=coords,
+            ids=ids,
+            style=style or PointStyle(),
+            properties=properties,
+            movable=movable,
+        )
+
+    def _add_points(
+        self,
+        coords: Sequence[LatLon],
+        ids: Optional[Sequence[str]],
+        style: PointStyle | IconStyle,
+        properties: Optional[Sequence[Dict[str, Any]]],
+        movable: Optional[Union[bool, Sequence[bool]]],
+    ) -> None:
+        """Insert point features after the public style type has been resolved."""
         ids = list(ids) if ids is not None else [f"pt{i}" for i in range(len(coords))]
         props = (
             list(properties)
@@ -610,7 +626,7 @@ class VectorLayer(BaseLayer):
                 else None
             ),
         )
-        self.add_points(
+        self._add_points(
             coords=coords,
             ids=ids,
             style=icon_style,
