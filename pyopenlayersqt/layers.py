@@ -903,14 +903,12 @@ class RasterLayer(BaseLayer):
         self,
         widget: Any,
         layer_id: str,
-        url: str,
-        bounds: List[LatLon],
         style: RasterStyle,
         name: str = "",
     ):
         super().__init__(widget, layer_id, name=name or layer_id)
-        self.url = url
-        self.bounds = bounds  # [(lat, lon), (lat, lon)] - SW and NE corners
+        self.url: Optional[str] = None
+        self.bounds: Optional[List[LatLon]] = None
         self.style = style
 
     def set_image(
@@ -934,6 +932,18 @@ class RasterLayer(BaseLayer):
                 "bounds": [[float(lon), float(lat)] for lat, lon in bounds],
             }
         )
+
+    def remove_image(self) -> None:
+        """Remove the current image while keeping this raster layer on the map."""
+        self.url = None
+        self.bounds = None
+        self._map_widget._send(
+            {"type": "raster.remove_image", "layer_id": self.id}
+        )
+
+    def clear(self) -> None:
+        """Remove the current image from this layer."""
+        self.remove_image()
 
     def set_style(self, style: RasterStyle) -> None:
         self.style = style

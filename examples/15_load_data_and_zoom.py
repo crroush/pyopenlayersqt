@@ -58,7 +58,9 @@ class FitToDataExample(QtWidgets.QMainWindow):
 
         self.map_widget = OLMapWidget(center=(20.0, 0.0), zoom=2)
         self.vector_layer = self.map_widget.add_vector_layer("loaded_features", selectable=True)
-        self.raster_layer = None
+        self.raster_layer = self.map_widget.add_raster_layer(
+            style=RasterStyle(opacity=0.45), name="demo_raster"
+        )
         self.raster_bounds = [
             (33.0, -122.8),
             (38.8, -116.8),
@@ -145,21 +147,13 @@ class FitToDataExample(QtWidgets.QMainWindow):
         """Load a simple in-memory raster overlay in California."""
         raster_png = build_demo_raster_png()
 
-        if self.raster_layer is None:
-            self.raster_layer = self.map_widget.add_raster_image(
-                raster_png,
-                bounds=self.raster_bounds,
-                style=RasterStyle(opacity=0.45),
-                name="demo_raster",
-            )
-        else:
-            self.raster_layer.set_image(raster_png, bounds=self.raster_bounds)
+        self.raster_layer.set_image(raster_png, bounds=self.raster_bounds)
 
         self.status.setText("Raster loaded in California extent.")
 
     def _zoom_to_data(self) -> None:
         """Fit map to all loaded layer data (points and/or raster)."""
-        if not self._loaded and self.raster_layer is None:
+        if not self._loaded and self.raster_layer.bounds is None:
             self.status.setText("Load points and/or raster first.")
             return
 

@@ -201,7 +201,9 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
             pb_lat_min, pb_lon_mid, pb_lat_max, pb_lon_mid
         )
 
-        self.raster_layer = None
+        self.raster_layer = self.map_widget.add_raster_layer(
+            style=RasterStyle(opacity=0.74), name="dynamic_heatmap"
+        )
         self._watch_handle = None
         self._latest_extent = None
         self._next_request_id = 0
@@ -376,15 +378,7 @@ class DelayedRenderInterruptExample(QtWidgets.QMainWindow):
                 return
 
             bounds = [tuple(msg["bounds"][0]), tuple(msg["bounds"][1])]
-            if self.raster_layer is None:
-                self.raster_layer = self.map_widget.add_raster_image(
-                    msg["png"],
-                    bounds=bounds,
-                    style=RasterStyle(opacity=0.74),
-                    name="dynamic_heatmap",
-                )
-            else:
-                self.raster_layer.set_image(msg["png"], bounds=bounds)
+            self.raster_layer.set_image(msg["png"], bounds=bounds)
 
             elapsed = float(msg.get("elapsed_s", 0.0))
             self.status_label.setText(

@@ -188,7 +188,10 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
         controls = self._create_controls()
 
         # Start with rectangular (no mask)
-        self.raster_layer = None
+        self.raster_layer = self.map_widget.add_raster_layer(
+            style=RasterStyle(opacity=self.opacity_slider.value() / 100.0),
+            name="heatmap_bytes",
+        )
         self._update_raster_with_mask("Rectangle")
 
         # Layout
@@ -278,15 +281,7 @@ class RasterOverlayExample(QtWidgets.QMainWindow):
 
         # Demonstrate in-memory raster updates using PNG bytes directly.
         # No file paths are needed for generated overlays.
-        if self.raster_layer is None:
-            self.raster_layer = self.map_widget.add_raster_image(
-                heatmap_png,
-                bounds=self.bounds,
-                style=RasterStyle(opacity=self.opacity_slider.value() / 100.0),
-                name="heatmap_bytes",
-            )
-        else:
-            self.raster_layer.set_image(heatmap_png, bounds=self.bounds)
+        self.raster_layer.set_image(heatmap_png, bounds=self.bounds)
 
     def _on_update_mask(self):
         """Handle mask shape update."""

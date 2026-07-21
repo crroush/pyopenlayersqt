@@ -3485,13 +3485,8 @@ function cmd_countries_set_visible(msg) {
   }
 
   function cmd_add_raster(msg) {
-    const extent = extent_from_bounds(msg.bounds);
-    const source = new ol.source.ImageStatic({
-      url: msg.url,
-      imageExtent: extent,
-      projection: state.map.getView().getProjection(),
-    });
-    const layer = new ol.layer.Image({ source });
+    const source = null;
+    const layer = new ol.layer.Image();
     const op = msg.style && typeof msg.style.opacity === "number" ? msg.style.opacity : 0.6;
     layer.setOpacity(op);
     state.map.addLayer(layer);
@@ -3812,6 +3807,15 @@ function cmd_countries_set_visible(msg) {
     img.src = msg.url;
   }
 
+  function cmd_raster_remove_image(msg) {
+    const e = getLayerEntry(msg.layer_id);
+    if (e.type !== "raster") return;
+    e._swapSeq = (e._swapSeq || 0) + 1;
+    e.source = null;
+    e.layer.setSource(null);
+    e.layer.changed();
+  }
+
 
   function vector_features_for_id(source, featureId) {
     const target = String(featureId);
@@ -3892,6 +3896,7 @@ function cmd_countries_set_visible(msg) {
       case "tile.set_opacity": return cmd_tile_set_opacity(msg);
       case "tile.set_visible": return cmd_tile_set_visible(msg);
       case "raster.set_image": return cmd_raster_set_image(msg);
+      case "raster.remove_image": return cmd_raster_remove_image(msg);
 
       case "select.set": return cmd_select_set(msg);
     case "map.get_view_extent": return cmd_map_get_view_extent(msg);
