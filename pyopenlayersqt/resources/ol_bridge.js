@@ -2123,10 +2123,8 @@ function cmd_fast_geopoints_show_ids(msg) {
 function cmd_fast_geopoints_show_all(msg) {
   const entry = getLayerEntry(msg.layer_id);
   if (entry.type !== 'fast_geopoints') return;
-  for (let i = 0; i < entry.hidden.length; i++) {
-    if (entry.hidden[i] && !entry.deleted[i]) fp_qt_update_visibility(entry, i, 1);
-    entry.hidden[i] = false;
-  }
+  entry.hidden.fill(false);
+  fp_qt_rebuild_visibility(entry);
   fgp_redraw(entry);
 }
 
