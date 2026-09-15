@@ -42,6 +42,35 @@ def _sorted_indices_to_ranges(indices: np.ndarray) -> np.ndarray:
     return np.column_stack((starts, ends)).astype(np.uint32, copy=False)
 
 
+def _selection_mask(
+    row_count: int,
+    selected_indices: Sequence[int] | np.ndarray,
+    selected_feature_ids: Sequence[str],
+    row_feature_ids: Sequence[object] | np.ndarray,
+    visible_mask: Sequence[bool] | np.ndarray | None = None,
+) -> np.ndarray:
+    """Build a bounds-safe row mask, optionally restricted to visible rows."""
+    mask = np.zeros(row_count, dtype=bool)
+    indices = np.asarray(selected_indices, dtype=np.int64)
+    if indices.size:
+        indices = indices[(indices >= 0) & (indices < row_count)]
+        mask[indices] = True
+    else:
+        selected = set(selected_feature_ids)
+        if selected:
+            mask = np.fromiter(
+                (str(fid) in selected for fid in row_feature_ids),
+                dtype=bool,
+                count=row_count,
+            )
+    if visible_mask is not None:
+        visible = np.asarray(visible_mask, dtype=bool)
+        if visible.shape != mask.shape:
+            raise ValueError("visible mask must contain one value per row")
+        mask &= visible
+    return mask
+
+
 def _wildcard_term_to_regex(term: str) -> str:
     """Translate a shell-style wildcard term into an Arrow-safe regex."""
     regex_parts: list[str] = ["^"]
@@ -1531,10 +1560,11 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             indices = self._feature_ids_to_row_indices(self.current_selection_fids)
         if indices.size:
             if self.df is not None:
-                self._visible_mask = np.zeros(len(self.df), dtype=bool)
-                self._visible_mask[indices] = True
-            self.fast_layer.show_only_indices(indices)
-            self._sync_table_visible_rows()
+                visible = np.zeros(len(self.df), dtype=bool)
+                visible[indices] = True
+                self._apply_visibility_mask(
+                    visible & self._combined_filter_mask(), "show_only_selected"
+                )
 
     def hide_selected_features(self) -> None:
         indices = self.current_selection_indices
@@ -1542,19 +1572,17 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
             indices = self._feature_ids_to_row_indices(self.current_selection_fids)
         if indices.size:
             if self.df is not None:
-                if self._visible_mask is None or len(self._visible_mask) != len(
-                    self.df
-                ):
-                    self._visible_mask = np.ones(len(self.df), dtype=bool)
-                self._visible_mask[indices] = False
-            self.fast_layer.hide_indices(indices)
-            self._sync_table_visible_rows()
+                visible = self._effective_visible_mask()
+                visible[indices] = False
+                self._apply_visibility_mask(visible, "hide_selected")
 
     def show_all_features(self) -> None:
         if self.df is not None:
-            self._visible_mask = np.ones(len(self.df), dtype=bool)
-        self.fast_layer.show_all_features()
-        self._sync_table_visible_rows()
+            # "All" means all rows admitted by the active time/keyword/deletion
+            # filters, not rows which those filters intentionally hide.
+            self._apply_visibility_mask(
+                self._combined_filter_mask(), "show_all_filtered_features"
+            )
 
     def delete_selected_features(self) -> None:
         deleted_indices = self.current_selection_indices
@@ -1579,14 +1607,32 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         self.current_selection_indices = np.empty(0, dtype=np.uint32)
 
     def save_selected_csv(self) -> None:
-        if (
-            (self.current_selection_indices.size == 0 and not self.current_selection_fids)
-            or self.df is None
-        ):
+        if self.df is None:
             QtWidgets.QMessageBox.information(
                 self,
                 "No Selection",
                 "Please select points on the map or in the table first.",
+            )
+            return
+
+        # Slider updates are debounced.  Apply the latest range synchronously so
+        # a quick select-and-save cannot export rows from the preceding range.
+        if self._pending_time_filter is not None:
+            self._time_filter_timer.stop()
+            self._apply_pending_time_filter()
+
+        mask = _selection_mask(
+            len(self.df),
+            self.current_selection_indices,
+            self.current_selection_fids,
+            self.df["_fid"],
+            self._effective_visible_mask(),
+        )
+        if not mask.any():
+            QtWidgets.QMessageBox.information(
+                self,
+                "No Visible Selection",
+                "The selected points are excluded by the active filters.",
             )
             return
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
@@ -1594,12 +1640,6 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         )
         if not path:
             return
-        if self.current_selection_indices.size:
-            mask = np.zeros(len(self.df), dtype=bool)
-            mask[self.current_selection_indices] = True
-        else:
-            selected = set(self.current_selection_fids)
-            mask = np.fromiter((fid in selected for fid in self.df["_fid"]), dtype=bool)
         export_table = self.df.filtered(mask)
         export_table.write_csv(path, excluded_columns={"_fid", self.mapped_epoch_col})
         QtWidgets.QMessageBox.information(
@@ -2278,6 +2318,13 @@ class PyOpenLayersCsvApp(QtWidgets.QMainWindow):
         deleted_mask = self._deleted_mask
         if deleted_mask is not None and len(deleted_mask) == len(mask):
             mask &= np.logical_not(deleted_mask)
+        return mask
+
+    def _effective_visible_mask(self) -> np.ndarray:
+        """Return rows visible after UI visibility and every active filter."""
+        mask = self._combined_filter_mask()
+        if self._visible_mask is not None and len(self._visible_mask) == len(mask):
+            mask &= self._visible_mask
         return mask
 
     def _apply_visibility_mask(
