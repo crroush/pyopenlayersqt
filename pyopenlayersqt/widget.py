@@ -722,8 +722,10 @@ class OLMapWidget(QWebEngineView):
     ) -> str:
         # One file per named raster image; the query token invalidates the
         # browser cache while atomic replacement prevents partial reads.
-        stem = (hashlib.sha256(json.dumps(cache_key).encode()).hexdigest()
-                if cache_key is not None else uuid.uuid4().hex)
+        stem = (
+            hashlib.sha256(json.dumps(cache_key).encode()).hexdigest()
+            if cache_key is not None else uuid.uuid4().hex
+        )
         destination = self._overlays_dir / (stem + suffix)
         temporary_path = None
         try:
@@ -753,7 +755,7 @@ class OLMapWidget(QWebEngineView):
           - http(s) url => returned as-is
           - '/_overlays/..' or '/vendor/..' => returned as-is
           - filesystem path => copied into overlays dir and returned as
-            '/_overlays/<uuid>.<ext>?ts=...'
+            '/_overlays/<cached-filename>?v=...'
           - PNG bytes => written into overlays dir and returned similarly
         """
         if isinstance(image, (bytes, bytearray)):
