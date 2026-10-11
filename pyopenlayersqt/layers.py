@@ -312,9 +312,16 @@ class BaseLayer:
             layer_id: Unique identifier for this layer.
             name: Optional human-readable name (defaults to layer_id).
         """
-        self._map_widget = widget
+        self._widget = widget
+        self._page_generation = getattr(widget, "_page_generation", 0)
         self.id = layer_id
         self.name = name or layer_id
+
+    @property
+    def _map_widget(self) -> Any:
+        if getattr(self._widget, "_page_generation", 0) != self._page_generation:
+            raise RuntimeError("Map page reloaded; recreate layers after the ready signal")
+        return self._widget
 
     def remove(self) -> None:
         """Remove this layer from the map."""
@@ -940,8 +947,10 @@ class RasterLayer(BaseLayer):
             name: Image identifier within this raster layer.
             opacity: Opacity for this image, independent of the layer opacity.
         """
-        url = self._map_widget._ensure_overlay_url(image)
         image_name = str(name)
+        url = self._map_widget._ensure_overlay_url(
+            image, cache_key=(self.id, image_name)
+        )
         image_bounds = list(bounds)
         image_opacity = clamp(opacity)
         self.images[image_name] = {
@@ -965,6 +974,7 @@ class RasterLayer(BaseLayer):
         """Remove a named image overlay without changing the other images."""
         image_name = str(name)
         self.images.pop(image_name, None)
+        self._map_widget._release_overlay_cache(self.id, image_name)
         self._map_widget._send(
             {"type": "raster.remove_image", "layer_id": self.id, "name": image_name}
         )
@@ -972,7 +982,13 @@ class RasterLayer(BaseLayer):
     def clear(self) -> None:
         """Remove every image overlay from this raster layer."""
         self.images.clear()
+        self._map_widget._release_overlay_cache(self.id)
         self._map_widget._send({"type": "raster.clear", "layer_id": self.id})
+
+    def remove(self) -> None:
+        self.images.clear()
+        self._map_widget._release_overlay_cache(self.id)
+        super().remove()
 
     def set_image_opacity(self, name: str, opacity: float) -> None:
         """Set the opacity of one named image overlay."""

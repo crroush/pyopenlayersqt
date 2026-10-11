@@ -4,8 +4,8 @@ import base64
 import hashlib
 import json
 import os
-import shutil
 import struct
+import tempfile
 import threading
 import time
 import uuid
@@ -211,6 +211,7 @@ class OLMapWidget(QWebEngineView):
     measurementUpdated = Signal(object)
     mapClicked = Signal(object)  # MapClickEvent
     ready = Signal()
+    mapReset = Signal()
     perfReceived = Signal(object)
     vectorFeatureChanged = Signal(object)
 
@@ -263,7 +264,12 @@ class OLMapWidget(QWebEngineView):
         self._perf_logging_enabled = os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
 
         # writable overlays
-        self._overlays_dir = _default_overlays_dir()
+        self._overlay_cache = tempfile.TemporaryDirectory(
+            prefix="map-", dir=_default_overlays_dir()
+        )
+        self._overlays_dir = Path(self._overlay_cache.name)
+        self._overlay_files: Dict[Tuple[str, str], Path] = {}
+        self.destroyed.connect(self._overlay_cache.cleanup)
 
         # static server (wheel-safe)
         self._server = _StaticServer(
@@ -282,6 +288,9 @@ class OLMapWidget(QWebEngineView):
 
         # layer ids
         self._layer_seq = 0
+        self._page_generation = 0
+        self._page_started = False
+        self._layer_generations: Dict[str, int] = {}
 
         # queue until JS is ready (prevents "pyolqt_send is not a function")
         self._js_ready = False
@@ -295,6 +304,7 @@ class OLMapWidget(QWebEngineView):
         self._map_click_callbacks: list[tuple[Any, frozenset[str], frozenset[str]]] = []
 
         # load
+        self.loadStarted.connect(self._on_load_started)
         self.loadFinished.connect(self._on_load_finished)
         map_url = f"{self._base_url}/resources/map.html"
         if self._osm_url:
@@ -355,6 +365,7 @@ class OLMapWidget(QWebEngineView):
     def closeEvent(self, ev: QtCore.QEvent) -> None:  # type: ignore[override]
         try:
             self._server.stop()
+            self._overlay_cache.cleanup()
         except Exception:
             pass
         super().closeEvent(ev)
@@ -363,7 +374,9 @@ class OLMapWidget(QWebEngineView):
 
     def _next_id(self, prefix: str) -> str:
         self._layer_seq += 1
-        return f"{prefix}{self._layer_seq}"
+        layer_id = f"{prefix}{self._layer_seq}"
+        self._layer_generations[layer_id] = self._page_generation
+        return layer_id
 
     def _send_now(self, msg: Dict[str, Any]) -> None:
         perf_start = time.perf_counter()
@@ -386,6 +399,10 @@ class OLMapWidget(QWebEngineView):
             )
 
     def _send(self, msg: Dict[str, Any]) -> None:
+        layer_id = msg.get("layer_id")
+        generation = self._layer_generations.get(layer_id, self._page_generation)
+        if generation != self._page_generation:
+            raise RuntimeError("Map page reloaded; recreate layers after the ready signal")
         # Preserve command FIFO ordering across the page-ready transition.
         #
         # `_flush_next_pending()` drains queued startup messages one timer tick
@@ -640,15 +657,20 @@ class OLMapWidget(QWebEngineView):
         self._pending_flush_active = True
         self._pending_flush_start = time.perf_counter()
         self._pending_flush_count = len(self._pending)
-        QTimer.singleShot(0, self._flush_next_pending)
+        generation = self._page_generation
+        QTimer.singleShot(0, lambda: self._flush_next_pending(generation))
 
-    def _flush_next_pending(self) -> None:
+    def _flush_next_pending(self, generation: Optional[int] = None) -> None:
         """Send one queued command and reschedule until the backlog is empty.
 
         Commands produced while this timer-driven flush is active remain in
         `_pending` and are drained after older messages.  This keeps startup
         streams ordered without forcing one large synchronous flush.
         """
+        if generation is not None and generation != self._page_generation:
+            return
+        if not self._js_ready:
+            return
         if not self._pending:
             message_count = self._pending_flush_count
             perf_start = self._pending_flush_start
@@ -675,14 +697,36 @@ class OLMapWidget(QWebEngineView):
 
         msg = self._pending.pop(0)
         self._send_now(msg)
-        QTimer.singleShot(0, self._flush_next_pending)
+        QTimer.singleShot(0, lambda: self._flush_next_pending(generation))
+
+    def _on_load_started(self) -> None:
+        if not self._page_started:
+            self._page_started = True
+            return
+        self._page_generation += 1
+        self._js_ready = False
+        self._ready_handled = False
+        self._pending.clear()
+        self._pending_flush_active = False
+        self._pending_flush_start = 0.0
+        self._pending_flush_count = 0
+        self._emit_ready_after_flush = False
+        for layer_id, name in list(self._overlay_files):
+            self._release_overlay_cache(layer_id, name)
+        self.mapReset.emit()
 
     def _on_load_finished(self, ok: bool) -> None:
         if not ok:
             return
 
+        generation = self._page_generation
+
+        def checked(ready):
+            if generation == self._page_generation:
+                self._on_pyolqt_ready_check(ready)
+
         def poll():
-            if self._js_ready:
+            if self._js_ready or generation != self._page_generation:
                 return
             self.page().runJavaScript(
                 (
@@ -690,7 +734,7 @@ class OLMapWidget(QWebEngineView):
                     "&& window.pyolqt_is_ready();"
                 ),
                 0,
-                self._on_pyolqt_ready_check,
+                checked,
             )
 
         # ol_bridge boot is async; poll a few times
@@ -703,43 +747,87 @@ class OLMapWidget(QWebEngineView):
         if ready is True:
             self._handle_ready_event()
 
-    def _ensure_overlay_url(self, image: Union[str, bytes, bytearray]) -> str:
+    def _release_overlay_cache(self, layer_id: str, name: Optional[str] = None) -> None:
+        for key in list(self._overlay_files):
+            if key[0] == layer_id and (name is None or key[1] == name):
+                path = self._overlay_files.pop(key)
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+
+    def _write_overlay_file(
+        self, data: bytes, suffix: str, cache_key: Optional[Tuple[str, str]]
+    ) -> str:
+        # One file per named raster image; the query token invalidates the
+        # browser cache while atomic replacement prevents partial reads.
+        stem = (
+            hashlib.sha256(json.dumps(cache_key).encode()).hexdigest()
+            if cache_key is not None else uuid.uuid4().hex
+        )
+        destination = self._overlays_dir / (stem + suffix)
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=self._overlays_dir, delete=False) as file:
+                temporary_path = Path(file.name)
+                file.write(data)
+            os.replace(temporary_path, destination)
+        finally:
+            if temporary_path is not None and temporary_path.exists():
+                temporary_path.unlink()
+        if cache_key is not None:
+            previous = self._overlay_files.get(cache_key)
+            self._overlay_files[cache_key] = destination
+            if previous is not None and previous != destination:
+                try:
+                    previous.unlink()
+                except FileNotFoundError:
+                    pass
+        return f"/_overlays/{quote(destination.name, safe='')}?v={uuid.uuid4().hex}"
+
+    def _ensure_overlay_url(
+        self, image: Union[str, bytes, bytearray],
+        *, cache_key: Optional[Tuple[str, str]] = None,
+    ) -> str:
         """
         Accepts:
           - http(s) url => returned as-is
           - '/_overlays/..' or '/vendor/..' => returned as-is
           - filesystem path => copied into overlays dir and returned as
-            '/_overlays/<uuid>.<ext>?ts=...'
+            '/_overlays/<cached-filename>?v=...'
           - PNG bytes => written into overlays dir and returned similarly
         """
-        ts = int(time.time() * 1000)
-
         if isinstance(image, (bytes, bytearray)):
-            name = f"{uuid.uuid4().hex}.png"
-            dst = self._overlays_dir / name
-            dst.write_bytes(bytes(image))
-            return f"/_overlays/{name}?ts={ts}"
+            return self._write_overlay_file(bytes(image), ".png", cache_key)
 
         s = str(image).strip()
         if not s:
+            if cache_key is not None:
+                self._release_overlay_cache(*cache_key)
             return s
 
-        if s.startswith("/"):
-            # already a server path (e.g. /_overlays/..., /vendor/..., /resources/...)
+        if s.startswith(("/_overlays/", "/vendor/", "/resources/")):
+            # Only these prefixes name embedded-server resources. Other
+            # absolute paths (including Docker mounts) are filesystem paths.
+            if cache_key is not None:
+                cached = self._overlay_files.get(cache_key)
+                if cached is None or s.split("?", 1)[0] != f"/_overlays/{quote(cached.name, safe='')}":
+                    self._release_overlay_cache(*cache_key)
             return s
 
         if _is_http_url(s):
+            if cache_key is not None:
+                self._release_overlay_cache(*cache_key)
             return s
 
         p = Path(s).expanduser()
         if p.exists() and p.is_file():
             ext = p.suffix or ".png"
-            name = f"{uuid.uuid4().hex}{ext}"
-            dst = self._overlays_dir / name
-            shutil.copy2(p, dst)
-            return f"/_overlays/{name}?ts={ts}"
+            return self._write_overlay_file(p.read_bytes(), ext, cache_key)
 
         # fall back: treat as relative URL
+        if cache_key is not None:
+            self._release_overlay_cache(*cache_key)
         return s
 
     # ---------- JS -> Python events ----------
@@ -782,6 +870,7 @@ class OLMapWidget(QWebEngineView):
             {"type": "map.set_background", "color": self._map_background_color}
         )
         self._send_now({"type": "base.set_visible", "visible": self._show_osm_layer})
+        self._send_now({"type": "base.set_url", "url": self._osm_url})
         self.set_country_boundaries_visible(self._show_country_boundaries)
         if self._pending:
             self._emit_ready_after_flush = True
