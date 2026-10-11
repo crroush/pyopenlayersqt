@@ -487,7 +487,16 @@ Fast layers default to `selectable=False`; pass `selectable=True` when map click
 
 Important methods: `set_base_opacity`, `set_base_visible`, `set_map_background_color`, `set_country_boundaries_visible`, `set_view`, `set_center`, `set_zoom`, `fit_bounds`, `auto_zoom_to_points`, `fit_to_data`, `zoom_resolution_m_per_px`, `get_view_extent`, `watch_view_extent`, `set_measure_mode`, `on_measurement_updated`, `on_map_click`, `clear_measurements`, `send`.
 
-Signals: `ready`, `selectionChanged`, `mapClicked`, `viewExtentChanged`, `measurementUpdated`, `vectorFeatureChanged`, `jsEvent`.
+Signals: `ready`, `mapReset`, `selectionChanged`, `mapClicked`, `viewExtentChanged`, `measurementUpdated`, `vectorFeatureChanged`, `jsEvent`.
+
+Reloading the embedded page starts a new map. `mapReset` fires when a subsequent
+page load begins, then `ready` fires again after the new bridge initializes.
+Recreate application layers and reload their data in a `ready` handler if your
+application permits page reloads. Previous layer handles are invalidated and
+raise `RuntimeError` when used, including while the replacement page is loading.
+Commands queued for the previous page are discarded. The widget reapplies its
+configured initial view and map appearance; it does not retain a second copy of
+potentially large datasets for automatic replay.
 
 ### Layer APIs
 
