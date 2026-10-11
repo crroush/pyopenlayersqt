@@ -10,7 +10,7 @@ import struct
 import threading
 import time
 import uuid
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from dataclasses import asdict, is_dataclass
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -164,6 +164,21 @@ class _StaticServer:
             resource.close()
 
         class Handler(SimpleHTTPRequestHandler):
+            def _resolve_path(self, path: str) -> Path:
+                path = unquote(path.split("?", 1)[0].split("#", 1)[0])
+                rel = path.lstrip("/")
+                if rel.startswith("_overlays/"):
+                    root = overlays_dir.resolve()
+                    rel = rel[len("_overlays/") :]
+                else:
+                    root = pkg_dir.resolve()
+                candidate = (root / rel).resolve()
+                try:
+                    candidate.relative_to(root)
+                except ValueError as exc:
+                    raise PermissionError("Path is outside the served directory") from exc
+                return candidate
+
             def send_head(self):
                 path = self.path.split("?", 1)[0].split("#", 1)[0]
                 if path == "/qtwebchannel/qwebchannel.js":
@@ -172,18 +187,15 @@ class _StaticServer:
                     self.send_header("Content-Length", str(len(webchannel_js)))
                     self.end_headers()
                     return io.BytesIO(webchannel_js)
+                try:
+                    self._resolve_path(self.path)
+                except (PermissionError, ValueError, OSError, RuntimeError):
+                    self.send_error(403, "Forbidden")
+                    return None
                 return super().send_head()
 
             def translate_path(self, path: str) -> str:
-                path = path.split("?", 1)[0].split("#", 1)[0]
-                rel = path.lstrip("/")
-
-                # overlays served from user-writable folder
-                if rel.startswith("_overlays/"):
-                    return str(overlays_dir / rel[len("_overlays/") :])
-
-                # everything else from package dir
-                return str(pkg_dir / rel)
+                return str(self._resolve_path(path))
 
             def log_message(self, _fmt: str, *args: Any) -> None:
                 return  # quiet
