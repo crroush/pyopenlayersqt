@@ -271,6 +271,10 @@ class OLMapWidget(QWebEngineView):
         )
         host, port = self._server.start()
         self._base_url = f"http://{host}:{port}"
+        # QObject parent destruction and deleteLater() bypass closeEvent().
+        # Connect the non-QObject server directly so cleanup does not depend
+        # on accessing an already-destroyed widget wrapper.
+        self.destroyed.connect(self._server.stop)
 
         # JS->Py bridge
         self._bridge = _Bridge()
