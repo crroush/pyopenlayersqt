@@ -4,8 +4,8 @@ import base64
 import hashlib
 import json
 import os
-import shutil
 import struct
+import tempfile
 import threading
 import time
 import uuid
@@ -263,7 +263,12 @@ class OLMapWidget(QWebEngineView):
         self._perf_logging_enabled = os.environ.get("PYOPENLAYERSQT_PERF", "") == "1"
 
         # writable overlays
-        self._overlays_dir = _default_overlays_dir()
+        self._overlay_cache = tempfile.TemporaryDirectory(
+            prefix="map-", dir=_default_overlays_dir()
+        )
+        self._overlays_dir = Path(self._overlay_cache.name)
+        self._overlay_files: Dict[Tuple[str, str], Path] = {}
+        self.destroyed.connect(self._overlay_cache.cleanup)
 
         # static server (wheel-safe)
         self._server = _StaticServer(
@@ -355,6 +360,7 @@ class OLMapWidget(QWebEngineView):
     def closeEvent(self, ev: QtCore.QEvent) -> None:  # type: ignore[override]
         try:
             self._server.stop()
+            self._overlay_cache.cleanup()
         except Exception:
             pass
         super().closeEvent(ev)
@@ -702,44 +708,87 @@ class OLMapWidget(QWebEngineView):
         if ready is True:
             self._handle_ready_event()
 
-    def _ensure_overlay_url(self, image: Union[str, bytes, bytearray]) -> str:
+    def _release_overlay_cache(self, layer_id: str, name: Optional[str] = None) -> None:
+        for key in list(self._overlay_files):
+            if key[0] == layer_id and (name is None or key[1] == name):
+                path = self._overlay_files.pop(key)
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+
+    def _write_overlay_file(
+        self, data: bytes, suffix: str, cache_key: Optional[Tuple[str, str]]
+    ) -> str:
+        # One file per named raster image; the query token invalidates the
+        # browser cache while atomic replacement prevents partial reads.
+        stem = (
+            hashlib.sha256(json.dumps(cache_key).encode()).hexdigest()
+            if cache_key is not None else uuid.uuid4().hex
+        )
+        destination = self._overlays_dir / (stem + suffix)
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=self._overlays_dir, delete=False) as file:
+                temporary_path = Path(file.name)
+                file.write(data)
+            os.replace(temporary_path, destination)
+        finally:
+            if temporary_path is not None and temporary_path.exists():
+                temporary_path.unlink()
+        if cache_key is not None:
+            previous = self._overlay_files.get(cache_key)
+            self._overlay_files[cache_key] = destination
+            if previous is not None and previous != destination:
+                try:
+                    previous.unlink()
+                except FileNotFoundError:
+                    pass
+        return f"/_overlays/{quote(destination.name, safe='')}?v={uuid.uuid4().hex}"
+
+    def _ensure_overlay_url(
+        self, image: Union[str, bytes, bytearray],
+        *, cache_key: Optional[Tuple[str, str]] = None,
+    ) -> str:
         """
         Accepts:
           - http(s) url => returned as-is
           - '/_overlays/..' or '/vendor/..' => returned as-is
           - filesystem path => copied into overlays dir and returned as
-            '/_overlays/<uuid>.<ext>?ts=...'
+            '/_overlays/<cached-filename>?v=...'
           - PNG bytes => written into overlays dir and returned similarly
         """
-        ts = int(time.time() * 1000)
-
         if isinstance(image, (bytes, bytearray)):
-            name = f"{uuid.uuid4().hex}.png"
-            dst = self._overlays_dir / name
-            dst.write_bytes(bytes(image))
-            return f"/_overlays/{name}?ts={ts}"
+            return self._write_overlay_file(bytes(image), ".png", cache_key)
 
         s = str(image).strip()
         if not s:
+            if cache_key is not None:
+                self._release_overlay_cache(*cache_key)
             return s
 
         if s.startswith(("/_overlays/", "/vendor/", "/resources/")):
             # Only these prefixes name embedded-server resources. Other
             # absolute paths (including Docker mounts) are filesystem paths.
+            if cache_key is not None:
+                cached = self._overlay_files.get(cache_key)
+                if cached is None or s.split("?", 1)[0] != f"/_overlays/{quote(cached.name, safe='')}":
+                    self._release_overlay_cache(*cache_key)
             return s
 
         if _is_http_url(s):
+            if cache_key is not None:
+                self._release_overlay_cache(*cache_key)
             return s
 
         p = Path(s).expanduser()
         if p.exists() and p.is_file():
             ext = p.suffix or ".png"
-            name = f"{uuid.uuid4().hex}{ext}"
-            dst = self._overlays_dir / name
-            shutil.copy2(p, dst)
-            return f"/_overlays/{name}?ts={ts}"
+            return self._write_overlay_file(p.read_bytes(), ext, cache_key)
 
         # fall back: treat as relative URL
+        if cache_key is not None:
+            self._release_overlay_cache(*cache_key)
         return s
 
     # ---------- JS -> Python events ----------

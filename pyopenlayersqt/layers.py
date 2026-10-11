@@ -940,8 +940,10 @@ class RasterLayer(BaseLayer):
             name: Image identifier within this raster layer.
             opacity: Opacity for this image, independent of the layer opacity.
         """
-        url = self._map_widget._ensure_overlay_url(image)
         image_name = str(name)
+        url = self._map_widget._ensure_overlay_url(
+            image, cache_key=(self.id, image_name)
+        )
         image_bounds = list(bounds)
         image_opacity = clamp(opacity)
         self.images[image_name] = {
@@ -965,6 +967,7 @@ class RasterLayer(BaseLayer):
         """Remove a named image overlay without changing the other images."""
         image_name = str(name)
         self.images.pop(image_name, None)
+        self._map_widget._release_overlay_cache(self.id, image_name)
         self._map_widget._send(
             {"type": "raster.remove_image", "layer_id": self.id, "name": image_name}
         )
@@ -972,7 +975,13 @@ class RasterLayer(BaseLayer):
     def clear(self) -> None:
         """Remove every image overlay from this raster layer."""
         self.images.clear()
+        self._map_widget._release_overlay_cache(self.id)
         self._map_widget._send({"type": "raster.clear", "layer_id": self.id})
+
+    def remove(self) -> None:
+        self.images.clear()
+        self._map_widget._release_overlay_cache(self.id)
+        super().remove()
 
     def set_image_opacity(self, name: str, opacity: float) -> None:
         """Set the opacity of one named image overlay."""

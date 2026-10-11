@@ -16,6 +16,7 @@ class AbsoluteRasterPathTests(unittest.TestCase):
             source = root / 'mounted image.png'
             source.write_bytes(b'\x89PNG\r\n\x1a\nexample')
             fake = SimpleNamespace(_overlays_dir=overlays)
+            fake._write_overlay_file = OLMapWidget._write_overlay_file.__get__(fake)
             server = _StaticServer(root, overlays)
             host, port = server.start()
             try:
