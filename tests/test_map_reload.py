@@ -18,10 +18,14 @@ class ReloadTests(WebEngineTestCase):
         self.wait_for(lambda: len(layers) == 1)
         self.assertEqual(self.js('window._pyolqt_state.layers.size'), 1)
         previous_layer = layers[0]
+        raster = widget.add_raster_layer('temporary')
+        raster.set_image(b'cached image', [(0, 0), (1, 1)])
+        self.assertEqual(len(widget._overlay_files), 1)
         previous_generation = widget._page_generation
         widget.reload()
         self.wait_for(lambda: len(layers) == 2)
         self.assertEqual(resets, [True])
+        self.assertEqual(widget._overlay_files, {})
         self.assertEqual(len(self.ready_events), 2)
         self.assertEqual(self.js('window._pyolqt_state.layers.size'), 1)
         self.assertEqual(self.js('window._pyolqt_state.layers.get(' + json.dumps(layers[1].id) + ').source.getFeatures().map(f => f.getId())'), ['marker'])

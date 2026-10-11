@@ -711,6 +711,8 @@ class OLMapWidget(QWebEngineView):
         self._pending_flush_start = 0.0
         self._pending_flush_count = 0
         self._emit_ready_after_flush = False
+        for layer_id, name in list(self._overlay_files):
+            self._release_overlay_cache(layer_id, name)
         self.mapReset.emit()
 
     def _on_load_finished(self, ok: bool) -> None:
@@ -865,6 +867,7 @@ class OLMapWidget(QWebEngineView):
             {"type": "map.set_background", "color": self._map_background_color}
         )
         self._send_now({"type": "base.set_visible", "visible": self._show_osm_layer})
+        self._send_now({"type": "base.set_url", "url": self._osm_url})
         self.set_country_boundaries_visible(self._show_country_boundaries)
         if self._pending:
             self._emit_ready_after_flush = True
