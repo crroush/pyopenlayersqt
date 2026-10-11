@@ -211,6 +211,7 @@ class OLMapWidget(QWebEngineView):
     measurementUpdated = Signal(object)
     mapClicked = Signal(object)  # MapClickEvent
     ready = Signal()
+    mapReset = Signal()
     perfReceived = Signal(object)
     vectorFeatureChanged = Signal(object)
 
@@ -287,6 +288,9 @@ class OLMapWidget(QWebEngineView):
 
         # layer ids
         self._layer_seq = 0
+        self._page_generation = 0
+        self._page_started = False
+        self._layer_generations: Dict[str, int] = {}
 
         # queue until JS is ready (prevents "pyolqt_send is not a function")
         self._js_ready = False
@@ -300,6 +304,7 @@ class OLMapWidget(QWebEngineView):
         self._map_click_callbacks: list[tuple[Any, frozenset[str], frozenset[str]]] = []
 
         # load
+        self.loadStarted.connect(self._on_load_started)
         self.loadFinished.connect(self._on_load_finished)
         map_url = f"{self._base_url}/resources/map.html"
         if self._osm_url:
@@ -369,7 +374,9 @@ class OLMapWidget(QWebEngineView):
 
     def _next_id(self, prefix: str) -> str:
         self._layer_seq += 1
-        return f"{prefix}{self._layer_seq}"
+        layer_id = f"{prefix}{self._layer_seq}"
+        self._layer_generations[layer_id] = self._page_generation
+        return layer_id
 
     def _send_now(self, msg: Dict[str, Any]) -> None:
         perf_start = time.perf_counter()
@@ -392,6 +399,10 @@ class OLMapWidget(QWebEngineView):
             )
 
     def _send(self, msg: Dict[str, Any]) -> None:
+        layer_id = msg.get("layer_id")
+        generation = self._layer_generations.get(layer_id, self._page_generation)
+        if generation != self._page_generation:
+            raise RuntimeError("Map page reloaded; recreate layers after the ready signal")
         # Preserve command FIFO ordering across the page-ready transition.
         #
         # `_flush_next_pending()` drains queued startup messages one timer tick
@@ -646,15 +657,20 @@ class OLMapWidget(QWebEngineView):
         self._pending_flush_active = True
         self._pending_flush_start = time.perf_counter()
         self._pending_flush_count = len(self._pending)
-        QTimer.singleShot(0, self._flush_next_pending)
+        generation = self._page_generation
+        QTimer.singleShot(0, lambda: self._flush_next_pending(generation))
 
-    def _flush_next_pending(self) -> None:
+    def _flush_next_pending(self, generation: Optional[int] = None) -> None:
         """Send one queued command and reschedule until the backlog is empty.
 
         Commands produced while this timer-driven flush is active remain in
         `_pending` and are drained after older messages.  This keeps startup
         streams ordered without forcing one large synchronous flush.
         """
+        if generation is not None and generation != self._page_generation:
+            return
+        if not self._js_ready:
+            return
         if not self._pending:
             message_count = self._pending_flush_count
             perf_start = self._pending_flush_start
@@ -681,21 +697,41 @@ class OLMapWidget(QWebEngineView):
 
         msg = self._pending.pop(0)
         self._send_now(msg)
-        QTimer.singleShot(0, self._flush_next_pending)
+        QTimer.singleShot(0, lambda: self._flush_next_pending(generation))
+
+    def _on_load_started(self) -> None:
+        if not self._page_started:
+            self._page_started = True
+            return
+        self._page_generation += 1
+        self._js_ready = False
+        self._ready_handled = False
+        self._pending.clear()
+        self._pending_flush_active = False
+        self._pending_flush_start = 0.0
+        self._pending_flush_count = 0
+        self._emit_ready_after_flush = False
+        self.mapReset.emit()
 
     def _on_load_finished(self, ok: bool) -> None:
         if not ok:
             return
 
+        generation = self._page_generation
+
+        def checked(ready):
+            if generation == self._page_generation:
+                self._on_pyolqt_ready_check(ready)
+
         def poll():
-            if self._js_ready:
+            if self._js_ready or generation != self._page_generation:
                 return
             self.page().runJavaScript(
                 (
                     "typeof window.pyolqt_is_ready === 'function' "
                     "&& window.pyolqt_is_ready();"
                 ),
-                self._on_pyolqt_ready_check,
+                checked,
             )
 
         # ol_bridge boot is async; poll a few times

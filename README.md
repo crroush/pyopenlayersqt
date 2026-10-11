@@ -489,6 +489,15 @@ Important methods: `set_base_opacity`, `set_base_visible`, `set_map_background_c
 
 Signals: `ready`, `selectionChanged`, `mapClicked`, `viewExtentChanged`, `measurementUpdated`, `vectorFeatureChanged`, `jsEvent`.
 
+Reloading the embedded page starts a new map. `mapReset` fires when a subsequent
+page load begins, then `ready` fires again after the new bridge initializes.
+Recreate application layers and reload their data in a `ready` handler if your
+application permits page reloads. Previous layer handles are invalidated and
+raise `RuntimeError` when used, including while the replacement page is loading.
+Commands queued for the previous page are discarded. The widget reapplies its
+configured initial view and map appearance; it does not retain a second copy of
+potentially large datasets for automatic replay.
+
 ### Layer APIs
 
 | Layer | Add/update methods | Remove/filter methods |
