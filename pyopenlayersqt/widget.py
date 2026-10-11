@@ -689,6 +689,7 @@ class OLMapWidget(QWebEngineView):
                     "typeof window.pyolqt_is_ready === 'function' "
                     "&& window.pyolqt_is_ready();"
                 ),
+                0,
                 self._on_pyolqt_ready_check,
             )
 
