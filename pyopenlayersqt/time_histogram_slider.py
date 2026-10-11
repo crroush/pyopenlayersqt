@@ -370,9 +370,12 @@ class GraphicalTimeSlider(QWidget):
             max_count = max(1, max((count for _, _, count in self._bins), default=0))
             painter.setPen(Qt.NoPen)
             for start, end, count in self._bins:
+                if count == 0:
+                    continue
                 x1 = self._extent_value_to_pos(start)
                 x2 = max(x1 + 1, self._extent_value_to_pos(end))
-                height = int((count / max_count) * (plot.height() - 8))
+                # Keep sparse activity visible when a large peak scales it below a pixel.
+                height = max(3, int((count / max_count) * (plot.height() - 8)))
                 painter.setBrush(self._color("bar"))
                 painter.drawRect(
                     QRect(x1, plot.bottom() - height, max(1, x2 - x1 - 1), height)
