@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import os
 import re
 import sys
+import tempfile
 import time
 from typing import Sequence
 
@@ -529,20 +530,31 @@ class CsvTable:
         excluded_columns = excluded_columns or set()
         columns = [column for column in self._columns if column not in excluded_columns]
         column_indices = [self._columns.index(col) for col in columns]
-        with open(path, "w", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(columns)
-            if self._data is not None:
-                writer.writerows(self._data[:, column_indices])
-            else:
-                for row_index in range(len(self)):
-                    row = self._read_source_row(row_index)
-                    writer.writerow(
-                        [
-                            row[index] if index < len(row) else ""
-                            for index in column_indices
-                        ]
-                    )
+        destination = os.path.abspath(path)
+        # Rows may still be backed by destination itself. Finish reading and
+        # writing before replacing it, and preserve existing files on failure.
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", newline="", encoding="utf-8",
+                dir=os.path.dirname(destination), prefix=".pyopenlayersqt-",
+                suffix=".csv", delete=False,
+            ) as fh:
+                temporary_path = fh.name
+                writer = csv.writer(fh)
+                writer.writerow(columns)
+                if self._data is not None:
+                    writer.writerows(self._data[:, column_indices])
+                else:
+                    for row_index in range(len(self)):
+                        row = self._read_source_row(row_index)
+                        writer.writerow(
+                            [row[index] if index < len(row) else "" for index in column_indices]
+                        )
+            os.replace(temporary_path, destination)
+        finally:
+            if temporary_path is not None and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
 
     def _read_source_column(self, column: str) -> np.ndarray:
         """Read one CSV column in source-row order without reopening per row."""
