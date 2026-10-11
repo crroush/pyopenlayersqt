@@ -723,8 +723,9 @@ class OLMapWidget(QWebEngineView):
         if not s:
             return s
 
-        if s.startswith("/"):
-            # already a server path (e.g. /_overlays/..., /vendor/..., /resources/...)
+        if s.startswith(("/_overlays/", "/vendor/", "/resources/")):
+            # Only these prefixes name embedded-server resources. Other
+            # absolute paths (including Docker mounts) are filesystem paths.
             return s
 
         if _is_http_url(s):
