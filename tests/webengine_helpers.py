@@ -43,7 +43,7 @@ class WebEngineTestCase(unittest.TestCase):
 
     def js(self, expression):
         result = []
-        self.widget.page().runJavaScript('JSON.stringify(' + expression + ')', result.append)
+        self.widget.page().runJavaScript('JSON.stringify(' + expression + ')', 0, result.append)
         self.wait_for(lambda: bool(result))
         return json.loads(result[0])
 
