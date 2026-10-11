@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -135,6 +136,7 @@ class _StaticServer:
     Serves:
       - /resources/* and /vendor/* from installed package directory
       - /_overlays/* from a writable per-user directory
+      - /qtwebchannel/qwebchannel.js from Qt's bundled resource
     """
 
     def __init__(
@@ -151,7 +153,27 @@ class _StaticServer:
         pkg_dir = self.pkg_dir
         overlays_dir = self.overlays_dir
 
+        # HTTP pages cannot load a local qrc: script in current WebEngine.
+        # Serve Qt's own script on the same origin as the map assets instead.
+        resource = QtCore.QFile(":/qtwebchannel/qwebchannel.js")
+        if not resource.open(QtCore.QIODevice.ReadOnly):
+            raise RuntimeError("Cannot read Qt's qwebchannel.js: " + resource.errorString())
+        try:
+            webchannel_js = bytes(resource.readAll())
+        finally:
+            resource.close()
+
         class Handler(SimpleHTTPRequestHandler):
+            def send_head(self):
+                path = self.path.split("?", 1)[0].split("#", 1)[0]
+                if path == "/qtwebchannel/qwebchannel.js":
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                    self.send_header("Content-Length", str(len(webchannel_js)))
+                    self.end_headers()
+                    return io.BytesIO(webchannel_js)
+                return super().send_head()
+
             def translate_path(self, path: str) -> str:
                 path = path.split("?", 1)[0].split("#", 1)[0]
                 rel = path.lstrip("/")
