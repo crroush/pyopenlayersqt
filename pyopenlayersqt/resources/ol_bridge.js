@@ -3358,19 +3358,12 @@ function cmd_countries_set_visible(msg) {
     });
     state.map.addInteraction(state.selectInteraction);
 
-    state.selectInteraction.on("select", function () {
-      const features = state.selectInteraction.getFeatures().getArray();
-      const outByLayer = new Map();
-      for (const f of features) {
-        const layer_id = f.get("_layer_id") || "";
-        const fid = vector_logical_feature_id(f);
-        if (!layer_id || !fid) continue;
-        if (!outByLayer.has(layer_id)) outByLayer.set(layer_id, []);
-        outByLayer.get(layer_id).push(String(fid));
-      }
-      for (const [layer_id, feature_ids] of outByLayer.entries()) {
-        const logical = Array.from(new Set(feature_ids));
-        emitToPython("selection", { layer_id, feature_ids: logical, count: logical.length });
+    state.selectInteraction.on("select", function (event) {
+      const affected = new Set(
+        [...event.selected, ...event.deselected].map(f => f.get("_layer_id"))
+      );
+      for (const layer_id of affected) {
+        if (layer_id) emit_vector_selection(layer_id);
       }
     });
 
@@ -3508,6 +3501,7 @@ function cmd_countries_set_visible(msg) {
     const e = state.layers.get(msg.layer_id);
     if (!e) return;
     if (e.type === "vector") {
+      if (remove_vector_selection(msg.layer_id)) emit_vector_selection(msg.layer_id);
       e.source.forEachFeature((f) => {
         if (state.vertexMoveFeatures && collection_has(state.vertexMoveFeatures, f)) state.vertexMoveFeatures.remove(f);
         if (state.vertexModifyFeatures && collection_has(state.vertexModifyFeatures, f)) state.vertexModifyFeatures.remove(f);
@@ -3532,11 +3526,12 @@ function cmd_countries_set_visible(msg) {
   function cmd_vector_clear(msg) {
     const e = getLayerEntry(msg.layer_id);
     if (e.type !== "vector") return;
+    const selectionChanged = remove_vector_selection(msg.layer_id);
     e.source.clear();
     if (state.vertexMoveFeatures) state.vertexMoveFeatures.clear();
     if (state.vertexModifyFeatures) state.vertexModifyFeatures.clear();
     for (const entry of state.layers.values()) update_vector_edit_collections_for_layer(entry);
-    if (state.selectInteraction) state.selectInteraction.getFeatures().clear();
+    if (selectionChanged) emit_vector_selection(msg.layer_id);
   }
 
   function cmd_wms_set_opacity(msg) {
@@ -3907,28 +3902,46 @@ function cmd_countries_set_visible(msg) {
     return fid == null ? "" : String(fid);
   }
 
+  function remove_vector_selection(layer_id, features) {
+    if (!state.selectInteraction) return false;
+    const selected = state.selectInteraction.getFeatures();
+    let changed = false;
+    for (const feature of selected.getArray().slice()) {
+      if (feature.get("_layer_id") === layer_id && (!features || features.has(feature))) {
+        selected.remove(feature);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  function emit_vector_selection(layer_id) {
+    const features = state.selectInteraction.getFeatures().getArray();
+    const ids = features.filter(f => f.get("_layer_id") === layer_id)
+      .map(vector_logical_feature_id).filter(Boolean);
+    const feature_ids = Array.from(new Set(ids));
+    emitToPython("selection", { layer_id, feature_ids, count: feature_ids.length });
+  }
+
   function cmd_select_set(msg) {
     if (!state.selectInteraction) return;
     const selected = state.selectInteraction.getFeatures();
-    selected.clear();
-
     const layer_id = msg.layer_id || "";
     const ids = pyolqt_ids_from_msg(msg);
     if (!layer_id) return;
 
     const e = state.layers.get(layer_id);
     if (!e || e.type !== "vector") return;
+    remove_vector_selection(layer_id);
 
     for (const fid of ids) {
       const features = vector_features_for_id(e.source, String(fid));
-      for (const f of features) selected.push(f);
+      for (const f of features) {
+        if (selected.getArray().indexOf(f) === -1) selected.push(f);
+      }
     }
     if (msg.emit !== false) {
-      const features = selected.getArray();
-      const logical = Array.from(
-        new Set(features.map(vector_logical_feature_id).filter(Boolean))
-      );
-      emitToPython("selection", { layer_id, feature_ids: logical, count: logical.length });
+      emit_vector_selection(layer_id);
     }
   }
 
@@ -4102,14 +4115,17 @@ function cmd_vector_remove_features(msg) {
   const e = getLayerEntry(msg.layer_id);
   if (e.type !== "vector") return;
   const ids = pyolqt_ids_from_msg(msg);
+  let selectionChanged = false;
   for (let i = 0; i < ids.length; i++) {
     const features = vector_features_for_id(e.source, ids[i]);
+    selectionChanged = remove_vector_selection(msg.layer_id, new Set(features)) || selectionChanged;
     for (const f of features) {
       if (state.vertexMoveFeatures && collection_has(state.vertexMoveFeatures, f)) state.vertexMoveFeatures.remove(f);
       if (state.vertexModifyFeatures && collection_has(state.vertexModifyFeatures, f)) state.vertexModifyFeatures.remove(f);
       e.source.removeFeature(f);
     }
   }
+  if (selectionChanged) emit_vector_selection(msg.layer_id);
 }
 
 function cmd_vector_update_styles(msg) {
