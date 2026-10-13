@@ -11,11 +11,13 @@ This example demonstrates:
 WMS allows you to overlay external map data sources onto your map.
 """
 
+import json
 import sys
+import urllib.request
 
 from PySide6 import QtWidgets
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QImage
 
 from pyopenlayersqt import (
     OLMapWidget,
@@ -30,7 +32,16 @@ class WMSExample(QtWidgets.QMainWindow):
 
     DEFAULT_OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     ALT_OSM_URL = "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
-    AWS_TERRAIN_URL = "https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png"
+    # AWS Terrain Tiles publish multiple encodings. Terrarium is raw elevation
+    # encoded into RGB channels and is not intended to look like a shaded map
+    # without client-side decoding/styling. Normal is the processed PNG variant
+    # that OpenLayers can display directly as a terrain-shaded raster layer.
+    AWS_TERRAIN_NORMAL_URL = (
+        "https://elevation-tiles-prod.s3.amazonaws.com/normal/{z}/{x}/{y}.png"
+    )
+    AWS_TERRAIN_TERRARIUM_URL = (
+        "https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png"
+    )
 
     def __init__(self):
         super().__init__()
@@ -40,6 +51,8 @@ class WMSExample(QtWidgets.QMainWindow):
         self.map_widget = None
         self.wms_layer = None
         self.tile_layer = None
+        self.altitude_label = None
+        self._terrain_tile_cache = {}
 
         # Layout
         container = QtWidgets.QWidget()
@@ -66,20 +79,31 @@ class WMSExample(QtWidgets.QMainWindow):
         self.osm_url_input.setPlaceholderText(self.DEFAULT_OSM_URL)
         tile_url_layout.addWidget(self.osm_url_input, stretch=1)
 
-        use_alt_btn = QtWidgets.QPushButton("Use Alt OSM URL")
-        use_alt_btn.clicked.connect(lambda: self.osm_url_input.setText(self.ALT_OSM_URL))
-        tile_url_layout.addWidget(use_alt_btn)
-
-        use_aws_btn = QtWidgets.QPushButton("Use Terrain URL")
-        use_aws_btn.clicked.connect(
-            lambda: self.osm_url_input.setText(self.AWS_TERRAIN_URL)
+        self.tile_preset_combo = QtWidgets.QComboBox()
+        self.tile_preset_combo.addItem("OpenStreetMap", self.DEFAULT_OSM_URL)
+        self.tile_preset_combo.addItem("Alt OpenStreetMap", self.ALT_OSM_URL)
+        self.tile_preset_combo.addItem(
+            "AWS Terrain (normal/display)",
+            self.AWS_TERRAIN_NORMAL_URL,
         )
-        tile_url_layout.addWidget(use_aws_btn)
+        self.tile_preset_combo.currentIndexChanged.connect(self._on_tile_preset_changed)
+        tile_url_layout.addWidget(self.tile_preset_combo)
 
         apply_btn = QtWidgets.QPushButton("Apply to Generic Tile Layer")
         apply_btn.clicked.connect(self._on_apply_tile_url)
         tile_url_layout.addWidget(apply_btn)
+        terrain_note = QtWidgets.QLabel(
+            "AWS Terrain: use the normal/display preset for direct rendering. "
+            "The cursor altitude readout decodes Terrarium RGB tiles separately."
+        )
+        terrain_note.setWordWrap(True)
+        layout.addWidget(terrain_note)
         layout.addWidget(tile_url_group)
+
+        self.altitude_label = QtWidgets.QLabel(
+            "Terrain altitude under cursor: move over the map"
+        )
+        layout.addWidget(self.altitude_label)
 
         # Middle row: WMS source
         wms_group = QtWidgets.QGroupBox("WMS Source")
@@ -158,6 +182,8 @@ class WMSExample(QtWidgets.QMainWindow):
             self.wms_layer = None
 
         self.map_widget = OLMapWidget(center=(39.0, -98.0), zoom=4, osm_url=osm_url)
+        self.map_widget.ready.connect(self._install_altitude_probe)
+        self.map_widget.jsEvent.connect(self._on_map_js_event)
         self.layout.addWidget(self.map_widget, stretch=1)
 
         # Add managed generic tile layer first so WMS can be rendered above it.
@@ -204,6 +230,113 @@ class WMSExample(QtWidgets.QMainWindow):
         self.map_widget.set_base_visible(self.base_visible_cb.isChecked())
         self.wms_layer.set_visible(self.wms_visible_cb.isChecked())
         self.tile_layer.set_visible(self.tile_visible_cb.isChecked())
+
+    def _install_altitude_probe(self):
+        """Install a cursor probe that reports tile/pixel coordinates to Python."""
+        if not self.map_widget:
+            return
+        js = """
+(() => {
+  const state = window._pyolqt_state;
+  if (!state || !state.map || state.awsTerrainAltitudeProbeInstalled) return;
+  state.awsTerrainAltitudeProbeInstalled = true;
+  const tileSize = 256;
+
+  function lonLatToTile(lon, lat, z) {
+    const n = Math.pow(2, z);
+    const latRad = lat * Math.PI / 180;
+    const xFloat = (lon + 180) / 360 * n;
+    const yFloat = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+    const x = Math.floor(xFloat);
+    const y = Math.floor(yFloat);
+    return {
+      z, x, y,
+      px: Math.max(0, Math.min(tileSize - 1, Math.floor((xFloat - x) * tileSize))),
+      py: Math.max(0, Math.min(tileSize - 1, Math.floor((yFloat - y) * tileSize))),
+    };
+  }
+
+  let lastUpdate = 0;
+  state.map.on('pointermove', (evt) => {
+    const now = Date.now();
+    if (now - lastUpdate < 250) return;
+    lastUpdate = now;
+    const lonLat = ol.proj.toLonLat(evt.coordinate);
+    const z = Math.max(0, Math.min(15, Math.round(state.map.getView().getZoom() || 0)));
+    const tile = lonLatToTile(lonLat[0], lonLat[1], z);
+    if (state.qtBridge && typeof state.qtBridge.emitEvent === 'function') {
+      state.qtBridge.emitEvent('terrain_probe_request', JSON.stringify({
+        lat: lonLat[1],
+        lon: lonLat[0],
+        z: tile.z,
+        x: tile.x,
+        y: tile.y,
+        px: tile.px,
+        py: tile.py,
+      }));
+    }
+  });
+})();
+"""
+        self.map_widget.page().runJavaScript(js)
+
+    def _terrain_tile_url(self, z, x, y):
+        """Build the AWS Terrarium URL used for elevation lookups only."""
+        return (
+            self.AWS_TERRAIN_TERRARIUM_URL.replace("{z}", str(z))
+            .replace("{x}", str(x))
+            .replace("{y}", str(y))
+        )
+
+    def _get_terrain_tile(self, z, x, y):
+        """Fetch and cache a Terrarium tile in Python to avoid browser CORS limits."""
+        key = (int(z), int(x), int(y))
+        image = self._terrain_tile_cache.get(key)
+        if image is not None:
+            return image
+
+        request = urllib.request.Request(
+            self._terrain_tile_url(*key),
+            headers={"User-Agent": "pyopenlayersqt-example/terrain-altitude"},
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            data = response.read()
+        image = QImage.fromData(data, "PNG")
+        if image.isNull():
+            raise ValueError("AWS Terrarium tile did not decode as PNG")
+        self._terrain_tile_cache[key] = image
+        if len(self._terrain_tile_cache) > 256:
+            self._terrain_tile_cache.pop(next(iter(self._terrain_tile_cache)))
+        return image
+
+    def _read_terrain_altitude(self, payload):
+        """Decode meters from a Terrarium RGB pixel."""
+        image = self._get_terrain_tile(payload["z"], payload["x"], payload["y"])
+        color = image.pixelColor(int(payload["px"]), int(payload["py"]))
+        return (color.red() * 256 + color.green() + color.blue() / 256.0) - 32768
+
+    def _on_map_js_event(self, event_type, payload_json):
+        """Decode AWS Terrain altitude requests from map cursor movement."""
+        if event_type != "terrain_probe_request" or not self.altitude_label:
+            return
+        try:
+            payload = json.loads(payload_json or "{}")
+            meters = self._read_terrain_altitude(payload)
+        except (KeyError, TypeError, ValueError, OSError, TimeoutError) as err:
+            self.altitude_label.setText(
+                f"Terrain altitude under cursor: unavailable ({err})"
+            )
+            return
+
+        self.altitude_label.setText(
+            "Terrain altitude under cursor: "
+            f"{meters:.1f} m at "
+            f"{payload['lat']:.5f}, {payload['lon']:.5f}"
+        )
+
+    def _on_tile_preset_changed(self, _index):
+        """Copy the selected tile preset URL into the editable URL field."""
+        self.osm_url_input.setText(self.tile_preset_combo.currentData())
 
     def _on_apply_tile_url(self):
         """Apply URL to managed generic tile layer."""
