@@ -2468,7 +2468,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if args.disable_gpu:
-        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu"
+        flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "").strip()
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(
+            part for part in (flags, "--disable-gpu") if part
+        )
     app = QtWidgets.QApplication(sys.argv)
     window = PyOpenLayersCsvApp(args)
     window.show()
