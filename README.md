@@ -400,6 +400,9 @@ slider.rangeChanged.connect(apply_filter)
 ```
 
 Use `RangeSliderWidget(is_iso8601=True)` for timestamp ranges and `TimeHistogramSliderWidget` when a histogram overview helps users understand dense time data.
+Histogram bar heights scale linearly with counts, with a three-pixel minimum for
+nonempty bins so sparse activity remains visible beside large peaks. Empty bins
+remain blank.
 
 ## CSV viewer app
 

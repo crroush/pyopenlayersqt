@@ -6,8 +6,12 @@ for the ISO8601 RangeSliderWidget. The slider draws an aggregated activity
 histogram so users can see when map features are active over time. Use the
 mouse wheel over the plot to zoom; the histogram re-aggregates for the new
 visible time window to reveal higher-fidelity activity patterns.
+
+Pass --sparse to load 20,000 early points and only six later points, with
+controls for checking that sparse histogram bins remain visible.
 """
 
+import argparse
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -24,9 +28,11 @@ from pyopenlayersqt.time_histogram_slider import TimeHistogramSliderWidget
 class TimeHistogramSliderExample(QtWidgets.QMainWindow):
     """Map example using a graphical histogram time slider."""
 
-    def __init__(self):
+    def __init__(self, *, sparse=False):
         super().__init__()
-        self.setWindowTitle("Graphical Time Slider Filtering")
+        self._sparse = sparse
+        title = "Graphical Time Slider Filtering"
+        self.setWindowTitle(f"{title} — Sparse data" if sparse else title)
         self.resize(1400, 900)
 
         self.map_widget = OLMapWidget(center=(37.0, -120.0), zoom=6)
@@ -69,8 +75,23 @@ class TimeHistogramSliderExample(QtWidgets.QMainWindow):
         map_layout.addWidget(self.map_widget, stretch=1)
         map_layout.addWidget(self.time_slider)
 
+        if self._sparse:
+            instructions = QtWidgets.QLabel(
+                "Blue: 20,000 points on Jan 1, 00:00–06:00 UTC. "
+                "Orange: 1 point on Jan 10, 2 on Jan 20, and 3 on Jan 29.\n"
+                "Look for three short bars after the early peak. Drag the blue handles "
+                "to filter the map and table; wheel over the histogram to zoom."
+            )
+            instructions.setWordWrap(True)
+            map_layout.addWidget(instructions)
+            self.sparse_btn = QtWidgets.QPushButton("Show sparse points only (6 points)")
+            self.sparse_btn.setEnabled(False)
+            self.sparse_btn.clicked.connect(self._show_sparse_points)
+            map_layout.addWidget(self.sparse_btn)
+
         self.info_label = QtWidgets.QLabel("Loading time-based data...")
         self.info_label.setStyleSheet("background-color: #e8f4f8; padding: 8px;")
+        self.info_label.setWordWrap(True)
         map_layout.addWidget(self.info_label)
 
         reset_btn = QtWidgets.QPushButton("Reset Time Filter")
@@ -88,15 +109,19 @@ class TimeHistogramSliderExample(QtWidgets.QMainWindow):
         layout.addWidget(splitter, stretch=1)
         self.setCentralWidget(container)
 
-    def _add_data(self):
-        """Generate clustered sample timestamps and add map/table features."""
-        rng = np.random.default_rng(seed=7)
-        n_points = 6000
-        lats = 32.0 + rng.random(n_points) * 15.0
-        lons = -125.0 + rng.random(n_points) * 15.0
-        coords = list(zip(lats.tolist(), lons.tolist()))
-
+    def _time_samples(self, rng):
+        """Return timestamp/activity pairs for the selected demonstration."""
         start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        if self._sparse:
+            samples = [
+                (start + timedelta(seconds=int(seconds)), "Early surge")
+                for seconds in rng.integers(0, 6 * 3600, size=20000)
+            ]
+            for day, count in ((10, 1), (20, 2), (29, 3)):
+                timestamp = start + timedelta(days=day - 1, hours=12)
+                samples.extend([(timestamp, "Sparse activity")] * count)
+            return samples
+
         clusters = [
             (start + timedelta(days=2), 0.35, "Early surge"),
             (start + timedelta(days=11), 0.25, "Mid-month"),
@@ -104,16 +129,28 @@ class TimeHistogramSliderExample(QtWidgets.QMainWindow):
             (start + timedelta(days=28), 0.10, "Cleanup"),
         ]
         cluster_choices = rng.choice(
-            len(clusters), size=n_points, p=[c[1] for c in clusters]
+            len(clusters), size=6000, p=[c[1] for c in clusters]
         )
-
-        self.data = []
-        colors = []
-        for i, cluster_idx in enumerate(cluster_choices):
+        samples = []
+        for cluster_idx in cluster_choices:
             center, _, activity = clusters[int(cluster_idx)]
             offset_hours = float(rng.normal(0.0, 28.0))
             timestamp = center + timedelta(hours=offset_hours)
             timestamp = max(start, min(start + timedelta(days=30), timestamp))
+            samples.append((timestamp, activity))
+        return samples
+
+    def _add_data(self):
+        """Generate sample timestamps and add map/table features."""
+        rng = np.random.default_rng(seed=7)
+        samples = self._time_samples(rng)
+        lats = 32.0 + rng.random(len(samples)) * 15.0
+        lons = -125.0 + rng.random(len(samples)) * 15.0
+        coords = list(zip(lats.tolist(), lons.tolist()))
+
+        self.data = []
+        colors = []
+        for i, (timestamp, activity) in enumerate(samples):
             iso_timestamp = timestamp.isoformat().replace("+00:00", "Z")
             feature_id = f"time_point_{i}"
             self.data.append(
@@ -124,7 +161,9 @@ class TimeHistogramSliderExample(QtWidgets.QMainWindow):
                     "activity": activity,
                 }
             )
-            colors.append(QColor(30, 144, 255, 180))
+            colors.append(
+                QColor("#f97316") if activity == "Sparse activity" else QColor(30, 144, 255, 180)
+            )
 
         self.fast_layer.add_points(
             coords, ids=[d["id"] for d in self.data], colors_rgba=colors
@@ -142,9 +181,19 @@ class TimeHistogramSliderExample(QtWidgets.QMainWindow):
         )
 
         timestamps = [d["timestamp"] for d in self.data]
-        self.time_slider.set_available_range(min(timestamps), max(timestamps))
+        if self._sparse:
+            # Keep the last sparse bin clear of the right-hand filter handle.
+            self.time_slider.set_available_range("2024-01-01T00:00:00Z", "2024-01-31T00:00:00Z")
+            self.sparse_btn.setEnabled(True)
+            self.map_widget.fit_to_data()
+        else:
+            self.time_slider.set_available_range(min(timestamps), max(timestamps))
         self.time_slider.set_distribution_values(timestamps)
         self._update_info_label(len(self.data), 0)
+
+    def _show_sparse_points(self):
+        """Exclude the early surge while keeping the full histogram extent."""
+        self.time_slider.set_range("2024-01-02T00:00:00Z", "2024-01-31T00:00:00Z")
 
     def _apply_time_filter(self, _min_timestamp=None, _max_timestamp=None):
         """Hide map/table rows outside the selected time range."""
@@ -189,8 +238,13 @@ class TimeHistogramSliderExample(QtWidgets.QMainWindow):
 
 def main():
     """Run the graphical time slider example."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--sparse", action="store_true", help="Show a large early peak and six later points."
+    )
+    args = parser.parse_args()
     app = QtWidgets.QApplication(sys.argv)
-    window = TimeHistogramSliderExample()
+    window = TimeHistogramSliderExample(sparse=args.sparse)
     window.show()
     sys.exit(app.exec())
 
