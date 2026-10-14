@@ -622,6 +622,8 @@ class CsvLoaderThread(QtCore.QThread):
         self.paths = list(paths)
         self.base_columns = base_columns
         self.chunk_size = int(chunk_size)
+        if self.chunk_size < 1:
+            raise ValueError("chunk_size must be at least 1")
 
     def run(self) -> None:
         try:
@@ -655,10 +657,12 @@ class CsvLoaderThread(QtCore.QThread):
                         while True:
                             offsets: list[int] = []
                             rows: list[list[str]] = []
+                            reached_eof = False
                             for _ in range(self.chunk_size):
                                 try:
                                     row = next(reader)
                                 except StopIteration:
+                                    reached_eof = True
                                     break
                                 offset = line_iter.consume_record_start()
                                 if not row:
@@ -678,7 +682,9 @@ class CsvLoaderThread(QtCore.QThread):
                                 offsets.append(offset)
                                 rows.append(row)
                             if not rows:
-                                break
+                                if reached_eof:
+                                    break
+                                continue
                             data = np.asarray(rows, dtype=str)
                             if data.ndim == 1:
                                 data = data.reshape(1, -1)
