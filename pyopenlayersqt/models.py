@@ -428,17 +428,20 @@ class WMSOptions:
     url: WMS endpoint base URL
     params: dict passed to ol/source/TileWMS (e.g. {"LAYERS":"foo","TILED":True})
     opacity: 0..1
+    projection: projection type, must be a string supported by the server
     """
 
     url: str
     params: Dict[str, Any]
     opacity: float = 1.0
+    projection: str = None
 
     def to_js(self) -> Dict[str, Any]:
         return {
             "url": self.url,
             "params": dict(self.params),
             "opacity": float(self.opacity),
+            "projection": self.projection,
         }
 
 

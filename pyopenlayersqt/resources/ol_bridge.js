@@ -3454,7 +3454,7 @@ function cmd_countries_set_visible(msg) {
 
   function cmd_add_wms(msg) {
     const wms = msg.wms || {};
-    const source = new ol.source.TileWMS({ url: wms.url, params: wms.params || {}, transition: 0 });
+    const source = new ol.source.TileWMS({ url: wms.url, params: wms.params || {}, projection: wms.projection || null, transition: 0 });
     const layer = new ol.layer.Tile({ source });
     layer.setOpacity(typeof wms.opacity === "number" ? wms.opacity : 1.0);
     state.map.addLayer(layer);
